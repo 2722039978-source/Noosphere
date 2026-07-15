@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevOps Agent — 前端设计文档</title>
+<style>
+  :root { --border: #d5dce6; --blue: #3b82c4; --teal: #2d9d8e; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Microsoft YaHei','PingFang SC',sans-serif; background:#fff; color:#1a2634; line-height:1.8; max-width:900px; margin:0 auto; padding:40px 20px; }
+  @media print { body { max-width:100%; padding:20px; font-size:11px; } }
+  h1 { font-size:28px; border-bottom:2px solid #3b82c4; padding-bottom:12px; color:#1e2d3d; }
+  h1::before { content:'◈ '; color:#3b82c4; }
+  h2 { font-size:20px; margin:32px 0 12px; padding:8px 0; border-bottom:1px solid #d5dce6; color:#3b82c4; }
+  h3 { font-size:16px; margin:20px 0 8px; color:#1e2d3d; }
+  code { background:#eef1f6; padding:2px 6px; border-radius:2px; font-family:'Consolas','Monaco',monospace; font-size:13px; }
+  pre { background:#eef1f6; padding:14px 18px; border-radius:4px; overflow-x:auto; margin:12px 0; font-size:13px; border:1px solid #d5dce6; }
+  pre code { background:none; padding:0; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; }
+  th { background:#f0f6fc; padding:8px 12px; text-align:left; border:1px solid #d5dce6; font-weight:600; color:#3b82c4; }
+  td { padding:8px 12px; border:1px solid #d5dce6; }
+  tr:nth-child(even) { background:#fafbfc; }
+  ul { margin:8px 0 8px 24px; }
+  li { margin:4px 0; }
+  .header-line { height:3px; background:linear-gradient(90deg, transparent, #3b82c4, #2d9d8e, #3b82c4, transparent); margin-bottom:24px; }
+  .footer { margin-top:40px; padding-top:16px; border-top:1px solid #d5dce6; text-align:center; color:#8a9bb0; font-size:12px; }
+  .color-swatch { display:inline-block; width:16px; height:16px; border-radius:2px; margin-right:4px; vertical-align:middle; border:1px solid #ccc; }
+</style>
+</head>
+<body>
+<div class="header-line"></div>
+<h1>DevOps Agent — 前端设计文档</h1>
+<blockquote style="margin:12px 0; padding:12px 18px; background:#f0f6fc; border-left:3px solid #3b82c4; color:#5a6b7d; font-size:14px;">
+采用 <strong>明日方舟（Arknights）莱茵生命（Rhine Lab）PV 视觉风格</strong>——科技感、工业风、冷色调的运维监控界面。
+</blockquote>
+
+<h2>视觉要素</h2>
+<table>
+<tr><th>要素</th><th>应用</th></tr>
+<tr><td>六边形网格</td><td>背景 Canvas 动画，分子结构般的六边形网络</td></tr>
+<tr><td>扫描线</td><td>全屏 CSS 伪扫描线效果，模拟监视器画面</td></tr>
+<tr><td>几何图形</td><td>六边形 Logo、面板标记、架构图节点</td></tr>
+<tr><td>冷色调</td><td>蓝色 #3b82c4、青蓝 #2d9d8e、冰蓝 #7ec8e3 为主</td></tr>
+<tr><td>橙色点缀</td><td>警告/高风险使用琥珀色 #e8a838</td></tr>
+<tr><td>等宽字体</td><td>数据展示、终端输出统一使用等宽字体</td></tr>
+<tr><td>发光效果</td><td>边框发光(glow)、按钮波纹、节点脉冲动画</td></tr>
+<tr><td>工业感</td><td>2px 细线分隔、直角矩形为主</td></tr>
+</table>
+
+<h2>配色方案</h2>
+<table>
+<tr><th>变量</th><th>色值</th><th>用途</th></tr>
+<tr><td><code>--rhine-blue</code></td><td><span class="color-swatch" style="background:#3b82c4"></span> #3b82c4</td><td>主色调 — 莱茵蓝</td></tr>
+<tr><td><code>--rhine-teal</code></td><td><span class="color-swatch" style="background:#2d9d8e"></span> #2d9d8e</td><td>辅助色 — 成功/正常</td></tr>
+<tr><td><code>--rhine-ice</code></td><td><span class="color-swatch" style="background:#7ec8e3"></span> #7ec8e3</td><td>辅助色 — 信息</td></tr>
+<tr><td><code>--rhine-dark</code></td><td><span class="color-swatch" style="background:#1e2d3d"></span> #1e2d3d</td><td>深色文字</td></tr>
+<tr><td><code>--rhine-warn</code></td><td><span class="color-swatch" style="background:#e8a838"></span> #e8a838</td><td>警告 — 琥珀色</td></tr>
+<tr><td><code>--rhine-danger</code></td><td><span class="color-swatch" style="background:#d04040"></span> #d04040</td><td>危险/严重</td></tr>
+</table>
+
+<h2>页面布局</h2>
+<pre><code>┌─────────────────────────────────────────────┐
+│  HEADER (Logo + 状态指示器 + 版本号)          │
+├─────────────────────────────────────────────┤
+│  MONITOR GRID (6列监控卡片)                   │
+├──────────────────────────┬──────────────────┤
+│  左栏 (操作面板)          │  右栏 (可视化面板)  │
+│  ├─ 智能诊断              │  ├─ 进程 TOP 15   │
+│  ├─ 工具调用              │  ├─ 事件日志流      │
+│  ├─ 日志分析              │  └─ 系统参数        │
+│  └─ 故障记录              │                    │
+├──────────────────────────┴──────────────────┤
+│  架构图展示区 (SVG 可切换视图)                 │
+├─────────────────────────────────────────────┤
+│  FOOTER                                     │
+└─────────────────────────────────────────────┘</code></pre>
+
+<h2>动画系统</h2>
+<table>
+<tr><th>动画名</th><th>元素</th><th>效果</th><th>周期</th></tr>
+<tr><td><code>hex-rotate</code></td><td>Logo 六边形</td><td>旋转 + 发光脉冲</td><td>20s</td></tr>
+<tr><td><code>scanline-drift</code></td><td>全屏扫描线</td><td>垂直漂移</td><td>8s</td></tr>
+<tr><td><code>status-blink</code></td><td>状态指示器</td><td>呼吸灯</td><td>2s</td></tr>
+<tr><td><code>line-shimmer</code></td><td>顶部线条</td><td>亮度闪烁</td><td>3s</td></tr>
+<tr><td><code>panel-hex-pulse</code></td><td>面板六边形</td><td>缩放脉冲</td><td>3s</td></tr>
+<tr><td><code>tab-fade-in</code></td><td>标签切换</td><td>左滑淡入</td><td>0.3s</td></tr>
+<tr><td><code>toast-in</code></td><td>通知弹出</td><td>上滑 + 缩放</td><td>0.4s</td></tr>
+</table>
+
+<h2>前端技术</h2>
+<table>
+<tr><th>技术</th><th>说明</th></tr>
+<tr><td>HTML</td><td>语义化结构，SVG 内联架构图</td></tr>
+<tr><td>CSS</td><td>CSS Variables 主题系统，@keyframes 动画，Grid 布局</td></tr>
+<tr><td>JavaScript</td><td>原生 ES6+，Fetch API，Canvas 2D，零框架依赖</td></tr>
+<tr><td>Canvas</td><td>六边形背景动画（分子网格）</td></tr>
+</table>
+
+<h2>响应式设计</h2>
+<table>
+<tr><th>断点</th><th>布局调整</th></tr>
+<tr><td>&gt; 1100px</td><td>完整双栏布局 + 6列监控网格</td></tr>
+<tr><td>680px–1100px</td><td>单栏布局 + 3列监控网格</td></tr>
+<tr><td>&lt; 680px</td><td>单栏 + 2列监控 + 表单单列</td></tr>
+</table>
+
+<div class="footer"><p>◈ DevOps Agent · 前端设计文档 · 明日方舟莱茵生命风格 · v0.1.0</p></div>
+</body>
+</html>

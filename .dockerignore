@@ -1,0 +1,14 @@
+# 构建上下文瘦身 + 防止密钥/垃圾进镜像
+.git
+.env
+**/.env
+**/*.exe
+**/__pycache__
+**/venv
+**/.venv
+codelens/data
+**/node_modules
+**/.next
+docs
+*.md
+!**/web/**/*.md

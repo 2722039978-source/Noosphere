@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevOps Agent — 运维智能体 技术文档</title>
+<style>
+  :root {
+    --bg: #f5f7fa; --panel: #fafbfc; --border: #d5dce6;
+    --text: #1a2634; --text2: #5a6b7d; --blue: #3b82c4; --teal: #2d9d8e;
+    --warn: #e8a838; --danger: #d04040;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #fff; color: #1a2634; line-height: 1.8; max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+  @media print { body { max-width: 100%; padding: 20px; font-size: 11px; } }
+  h1 { font-size: 28px; border-bottom: 2px solid #3b82c4; padding-bottom: 12px; margin-bottom: 8px; color: #1e2d3d; }
+  h1::before { content: '◈ '; color: #3b82c4; }
+  h2 { font-size: 20px; margin: 32px 0 12px; padding: 8px 0; border-bottom: 1px solid #d5dce6; color: #3b82c4; }
+  h3 { font-size: 16px; margin: 20px 0 8px; color: #1e2d3d; }
+  p { margin: 8px 0; }
+  blockquote { margin: 12px 0; padding: 12px 18px; background: #f0f6fc; border-left: 3px solid #3b82c4; color: #5a6b7d; font-size: 14px; }
+  code { background: #eef1f6; padding: 2px 6px; border-radius: 2px; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; }
+  pre { background: #eef1f6; padding: 14px 18px; border-radius: 4px; overflow-x: auto; margin: 12px 0; font-size: 13px; border: 1px solid #d5dce6; }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th { background: #f0f6fc; padding: 8px 12px; text-align: left; border: 1px solid #d5dce6; font-weight: 600; color: #3b82c4; }
+  td { padding: 8px 12px; border: 1px solid #d5dce6; }
+  tr:nth-child(even) { background: #fafbfc; }
+  ul, ol { margin: 8px 0 8px 24px; }
+  li { margin: 4px 0; }
+  strong { color: #1e2d3d; }
+  hr { border: none; border-top: 1px solid #d5dce6; margin: 24px 0; }
+  .header-line { height: 3px; background: linear-gradient(90deg, transparent, #3b82c4, #2d9d8e, #3b82c4, transparent); margin-bottom: 24px; }
+  .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #d5dce6; text-align: center; color: #8a9bb0; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="header-line"></div>
+
+<h1>DevOps Agent — 运维智能体</h1>
+
+<blockquote>
+<strong>面向服务器运维场景的智能 Agent</strong>，通过日志解析、系统指标采集和工具调用能力，实现故障分析、状态监控和自动化运维。<br>
+基于 <strong>Nebula 记忆引擎</strong>，持久化故障记录和解决方案，持续提升问题定位效率。
+</blockquote>
+
+<h2>它解决什么问题？</h2>
+
+<h3>运维人员每天都在经历的场景：</h3>
+
+<pre><code>运维: "服务器 CPU 突然飙升，帮我看看怎么回事"
+      ↓ 手动 SSH 登录 → top → df → tail logs → grep ERROR → 翻聊天记录...
+      ↓ 半小时过去了，原因还没找到
+      ↓ 上次明明处理过类似问题，但不记得怎么解决的了
+
+有了 DevOps Agent 之后：
+
+运维: "服务器 CPU 突然飙升，帮我看看怎么回事"
+Agent: "正在采集系统指标... CPU 95%, 内存 78%, 磁盘 62%。"
+Agent: "检测到进程 java(PID:12345) CPU 占用 87%。"
+Agent: "搜索历史故障... 发现相似案例: 3天前同一服务因 GC 频繁导致 CPU 飙升。"
+Agent: "建议: 1) 检查 JVM GC 日志 2) 调整堆大小 3) 上次方案: 增加 -Xmx 到 8G"
+      ↓ 30 秒定位问题 + 历史方案直接可用</code></pre>
+
+<h2>核心能力</h2>
+
+<table>
+<tr><th>🧠 能力</th><th>做什么</th><th>技术实现</th></tr>
+<tr><td><strong>系统指标采集</strong></td><td>CPU/内存/磁盘/进程实时监控</td><td>PowerShell/WMI + procfs</td></tr>
+<tr><td><strong>工具动态调用</strong></td><td>系统命令、日志查询、服务管理</td><td>Tool Registry + 关键词匹配</td></tr>
+<tr><td><strong>日志异常分析</strong></td><td>12 种常见异常模式自动检测</td><td>正则规则引擎 + LLM 推理</td></tr>
+<tr><td><strong>故障记忆存储</strong></td><td>历史故障记录和解决方案持久化</td><td>Nebula Memory (LSM+HNSW+BM25)</td></tr>
+<tr><td><strong>相似故障检索</strong></td><td>混合检索匹配历史案例</td><td>RRF 融合排序 (向量+关键词)</td></tr>
+<tr><td><strong>智能诊断</strong></td><td>自动采集 + 工具匹配 + 推理建议</td><td>Agent 核心引擎编排</td></tr>
+</table>
+
+<h2>架构</h2>
+
+<pre><code>                       用户 / Web 仪表盘 / API
+                                  │
+                  ┌───────────────┼───────────────┐
+                  │               │               │
+           系统指标采集      工具调用框架      日志异常分析
+         (CPU/Mem/Disk)   (System/Log/Service)  (规则+LLM)
+                  │               │               │
+                  └───────────────┼───────────────┘
+                                  │
+                        DevOps Agent 核心引擎
+                                  │
+                  ┌───────────────┼───────────────┐
+                  │               │               │
+            Nebula 记忆引擎    LLM 推理        REST API
+         (故障存储+检索)   (DeepSeek/等)    (net/http)</code></pre>
+
+<h2>工具清单</h2>
+
+<h3>🖥️ 系统命令</h3>
+<table>
+<tr><th>工具</th><th>描述</th><th>风险</th></tr>
+<tr><td><code>exec_command</code></td><td>执行 PowerShell/Shell 命令</td><td>高</td></tr>
+<tr><td><code>get_system_info</code></td><td>获取 OS 版本、主机名、架构</td><td>低</td></tr>
+<tr><td><code>list_processes</code></td><td>列出进程（按CPU/内存排序）</td><td>低</td></tr>
+</table>
+
+<h3>📋 日志查询</h3>
+<table>
+<tr><th>工具</th><th>描述</th><th>风险</th></tr>
+<tr><td><code>search_logs</code></td><td>关键词搜索 + 上下文行</td><td>低</td></tr>
+<tr><td><code>parse_error_log</code></td><td>错误日志统计和解析</td><td>低</td></tr>
+<tr><td><code>tail_log</code></td><td>获取日志末尾 N 行</td><td>低</td></tr>
+</table>
+
+<h3>⚙️ 服务管理</h3>
+<table>
+<tr><th>工具</th><th>描述</th><th>风险</th></tr>
+<tr><td><code>check_service</code></td><td>检查服务运行状态</td><td>低</td></tr>
+<tr><td><code>restart_service</code></td><td>重启指定服务</td><td>严重</td></tr>
+<tr><td><code>list_services</code></td><td>列出所有服务和状态</td><td>低</td></tr>
+</table>
+
+<h2>异常检测规则（12 条）</h2>
+<table>
+<tr><th>规则名称</th><th>严重度</th><th>类别</th><th>描述</th></tr>
+<tr><td>OOM_Killer</td><td style="color:#d04040">critical</td><td>memory</td><td>内存耗尽，进程被 OOM 终止</td></tr>
+<tr><td>DiskFull</td><td style="color:#d04040">critical</td><td>disk</td><td>磁盘空间不足，写入失败</td></tr>
+<tr><td>ConnectionRefused</td><td style="color:#e8a838">high</td><td>network</td><td>连接被拒绝，服务不可达</td></tr>
+<tr><td>ConnectionTimeout</td><td style="color:#e8a838">high</td><td>network</td><td>连接超时</td></tr>
+<tr><td>DNSError</td><td style="color:#e8a838">high</td><td>network</td><td>DNS 解析失败</td></tr>
+<tr><td>ServiceCrash</td><td style="color:#d04040">critical</td><td>crash</td><td>服务崩溃 (SIGSEGV/panic)</td></tr>
+<tr><td>HighCPU</td><td style="color:#e8a838">high</td><td>cpu</td><td>CPU 使用率过高</td></tr>
+<tr><td>DBConnectionFail</td><td style="color:#d04040">critical</td><td>service</td><td>数据库连接失败</td></tr>
+<tr><td>TLSCertError</td><td style="color:#e8a838">high</td><td>security</td><td>TLS/SSL 证书错误</td></tr>
+<tr><td>PermissionDenied</td><td style="color:#e8a838">medium</td><td>security</td><td>权限不足</td></tr>
+<tr><td>RateLimit</td><td style="color:#e8a838">medium</td><td>service</td><td>API 速率限制</td></tr>
+<tr><td>FileDescriptorExhaustion</td><td style="color:#d04040">critical</td><td>service</td><td>文件描述符耗尽</td></tr>
+</table>
+
+<h2>技术栈</h2>
+<table>
+<tr><th>模块</th><th>技术</th><th>说明</th></tr>
+<tr><td>后端语言</td><td>Go 1.26.5</td><td>纯 Go，零外部依赖</td></tr>
+<tr><td>HTTP 框架</td><td>net/http</td><td>标准库，零框架依赖</td></tr>
+<tr><td>记忆引擎</td><td>Nebula Agent</td><td>LSM Tree + HNSW + BM25</td></tr>
+<tr><td>系统指标</td><td>PowerShell/WMI + procfs</td><td>双平台适配</td></tr>
+<tr><td>前端</td><td>原生 HTML/CSS/JS + Canvas</td><td>莱茵生命明日方舟风格</td></tr>
+<tr><td>LLM</td><td>DeepSeek V4 Pro</td><td>可替换为任意 OpenAI 兼容 API</td></tr>
+</table>
+
+<h2>项目结构</h2>
+<pre><code>DevOps Agent/
+├── agent/          ← Agent 核心 (types, agent, tool_registry)
+├── tools/          ← 运维工具 (system, log, service)
+├── metrics/        ← 系统指标采集 (collector)
+├── analyzer/       ← 日志异常分析 (log_analyzer)
+├── memory/         ← Nebula 记忆集成 (fault_store)
+├── api/            ← REST API (routes)
+├── cmd/            ← 服务入口 (devops-server)
+├── web/            ← 前端仪表盘 (HTML/CSS/JS)
+├── docs/           ← 文档
+└── go.mod          ← Go Module</code></pre>
+
+<h2>快速开始</h2>
+
+<h3>启动服务</h3>
+<pre><code>cd "DevOps Agent"
+go run ./cmd/devops-server --port 8740
+
+# 浏览器打开 http://localhost:8740/web/</code></pre>
+
+<h3>API 示例</h3>
+<pre><code># 获取系统指标
+curl http://localhost:8740/api/v1/devops/metrics
+
+# 执行诊断
+curl -X POST http://localhost:8740/api/v1/devops/diagnose \
+  -H "Content-Type: application/json" \
+  -d '{"query":"CPU 使用率过高，帮我排查","server_name":"prod-01"}'
+
+# 搜索历史故障
+curl -X POST http://localhost:8740/api/v1/devops/faults/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"CPU 飙升","limit":5}'</code></pre>
+
+<div class="footer">
+  <p>◈ DevOps Agent · 运维智能体 · 莱茵生命技术部 · v0.1.0</p>
+  <p>基于 Nebula Agent 记忆引擎 | Go | MIT</p>
+</div>
+</body>
+</html>

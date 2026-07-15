@@ -1,0 +1,69 @@
+# ============================================================
+# Noosphere — 一键启动全部三个服务
+#
+#   cp .env.example .env     # 填入 DEEPSEEK_API_KEY
+#   docker compose up -d
+#
+#   官网      → http://localhost:3000
+#   CodeLens  → http://localhost:8765
+#   Nebula    → http://localhost:8730
+#   DevOps    → http://localhost:8740/web/
+# ============================================================
+name: noosphere
+
+services:
+  # ── 官网前端 ──
+  web:
+    build: ./web
+    container_name: noosphere-web
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  # ── Layer 1: 代码结构图谱 + RAG 问答 ──
+  codelens:
+    build: ./codelens
+    container_name: noosphere-codelens
+    ports:
+      - "8765:8765"   # HTTP API + Web UI
+      - "8766:8766"   # WebSocket
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-pro}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+    volumes:
+      - codelens-data:/app/data
+      # 把要分析的项目挂载到容器内 /workspace（在 .env 中配置 WORKSPACE_DIR）
+      - ${WORKSPACE_DIR:-./}:/workspace:ro
+    restart: unless-stopped
+
+  # ── Layer 2: 风格学习 + 记忆引擎 ──
+  nebula:
+    build: ./nebula
+    container_name: noosphere-nebula
+    ports:
+      - "8730:8730"
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - nebula-data:/app/data
+    restart: unless-stopped
+
+  # ── Layer 3: 运维记忆 + 故障诊断 ──
+  devops:
+    build:
+      context: .                      # 依赖 ../nebula 源码，必须用根目录作为构建上下文
+      dockerfile: devops/Dockerfile
+    container_name: noosphere-devops
+    ports:
+      - "8740:8740"
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - devops-memory:/app/devops-memory
+    restart: unless-stopped
+
+volumes:
+  codelens-data:
+  nebula-data:
+  devops-memory:

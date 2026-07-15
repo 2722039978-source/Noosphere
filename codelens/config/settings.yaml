@@ -1,0 +1,112 @@
+# ============================================================
+# CodeLens AI - 配置文件
+# ============================================================
+
+project:
+  name: "CodeLens AI"
+  version: "1.0.0"
+  workspace_root: "./workspace"
+
+# --- 代码解析配置 ---
+parser:
+  # 支持的语言列表
+  languages:
+    - python
+    - javascript
+    - typescript
+    - java
+    - cpp
+    - go
+    - rust
+  # 最大文件大小 (MB)
+  max_file_size_mb: 10
+  # 排除目录
+  exclude_dirs:
+    - node_modules
+    - __pycache__
+    - .git
+    - dist
+    - build
+    - target
+    - vendor
+  # 排除文件模式
+  exclude_patterns:
+    - "*.min.js"
+    - "*.generated.*"
+    - "*.d.ts"
+
+# --- 索引配置 ---
+indexer:
+  # 知识图谱配置
+  knowledge_graph:
+    max_edges_per_node: 1000
+    enable_call_graph: true
+    enable_inheritance_graph: true
+    enable_import_graph: true
+  # 批量处理大小
+  batch_size: 100
+
+# --- LSM-Tree 存储配置 ---
+storage:
+  # 存储引擎: "leveldb" | "rocksdb" | "sqlite_lsm"
+  engine: "leveldb"
+  # 数据库路径
+  db_path: "./data/lsm_store"
+  # 向量存储路径
+  vector_path: "./data/vector_store"
+  # 缓存大小 (MB)
+  cache_size_mb: 256
+  # 写入缓冲区大小 (MB)
+  write_buffer_mb: 64
+  # 是否启用压缩
+  compression: true
+
+# --- RAG 配置 ---
+rag:
+  # 嵌入模型
+  embedding_model: "all-MiniLM-L6-v2"
+  # 检索 top-k
+  top_k: 10
+  # 相似度阈值
+  similarity_threshold: 0.7
+  # 分块大小 (字符数)
+  chunk_size: 1000
+  # 分块重叠 (字符数)
+  chunk_overlap: 200
+  # 最大上下文长度
+  max_context_length: 4096
+
+# --- LLM 配置 ---
+llm:
+  # 模型提供商: "openai" | "anthropic" | "local"
+  provider: "openai"
+  # 模型名称
+  model: "gpt-4o"
+  # API 密钥 (从环境变量读取)
+  api_key_env: "OPENAI_API_KEY"
+  # 温度
+  temperature: 0.1
+  # 最大输出 token
+  max_tokens: 2048
+
+# --- Agent 配置 ---
+agent:
+  # Git Diff 分析
+  git_diff:
+    max_diff_size: 10000
+    context_lines: 5
+    enable_risk_analysis: true
+  # 文档生成
+  doc_gen:
+    default_format: "markdown"
+    include_examples: true
+    include_call_graph: true
+
+# --- API 服务配置 ---
+api:
+  host: "0.0.0.0"
+  port: 8765
+  cors_origins:
+    - "*"
+  ws_enabled: true
+  ws_port: 8766

@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>星云记忆引擎 — Nebula Agent</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%238B78FF'/><stop offset='100%25' stop-color='%2364D8FF'/></linearGradient></defs><rect width='32' height='32' rx='8' fill='url(%23g)'/><text x='16' y='22' text-anchor='middle' fill='white' font-size='18'>◈</text></svg>">
+</head>
+<body>
+  <!-- 粒子背景 -->
+  <canvas id="particles-canvas"></canvas>
+
+  <!-- 滚动进度条 -->
+  <div id="scroll-progress"></div>
+
+  <div class="app">
+    <!-- ═══════════════ 头部导航 ═══════════════ -->
+    <header class="header" data-section="header">
+      <div class="header-inner">
+        <div class="logo-area">
+          <div class="logo-mark">◈</div>
+          <div class="logo-text-block">
+            <h1>星云记忆引擎</h1>
+            <span>莱茵生命 · 记忆实验室</span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="status-badge" id="status-indicator">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">系统就绪</span>
+          </div>
+          <span class="ver-badge">v0.2.0</span>
+          <button class="btn-icon" id="btn-refresh" title="刷新数据">⟳</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ═══ Project 套件导航 ═══ -->
+    <nav style="background:rgba(12,12,20,0.88);border-bottom:1px solid rgba(255,255,255,0.05);padding:0 20px;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:flex;align-items:center;height:36px;position:sticky;top:0;z-index:98">
+    <div style="max-width:1400px;margin:0 auto;width:100%;display:flex;align-items:center;gap:10px;font-size:11px">
+    <span style="color:rgba(255,255,255,0.3);font-weight:500;letter-spacing:0.03em">PROJECT</span>
+    <a href="http://localhost:8730" style="padding:3px 10px;border-radius:10px;background:rgba(139,120,255,0.15);color:#8B78FF;text-decoration:none;font-weight:600;font-size:11px">☁ Nebula</a>
+    <a href="http://localhost:8765" style="padding:3px 10px;border-radius:10px;color:rgba(255,255,255,0.45);text-decoration:none;font-weight:500;font-size:11px;transition:.15s" onmouseover="this.style.color='#3b82c4';this.style.background='rgba(59,130,196,0.12)'" onmouseout="this.style.color='rgba(255,255,255,0.45)';this.style.background='transparent'">◆ CodeLens</a>
+    <a href="http://localhost:8740" style="padding:3px 10px;border-radius:10px;color:rgba(255,255,255,0.45);text-decoration:none;font-weight:500;font-size:11px;transition:.15s" onmouseover="this.style.color='#22a67e';this.style.background='rgba(34,166,126,0.12)'" onmouseout="this.style.color='rgba(255,255,255,0.45)';this.style.background='transparent'">⎔ DevOps</a>
+    </div>
+    </nav>
+
+    <!-- ═══════════════ Hero 区 ═══════════════ -->
+    <section class="hero" data-section="hero">
+      <div class="hero-bg"></div>
+      <div class="hero-content">
+        <span class="hero-eyebrow">◈ 星云记忆引擎</span>
+        <h1 class="hero-title">
+          让每一次对话<br><span class="hero-accent">都拥有记忆</span>
+        </h1>
+        <p class="hero-desc">
+          AI 的每一次思考，都不应该从零开始。<br>
+          Nebula 扫描你的项目，学习你的风格，让 AI 真正懂你。
+        </p>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <strong id="hero-total">—</strong>
+            <span>条记忆</span>
+          </div>
+          <div class="hero-stat">
+            <strong id="hero-uptime">—</strong>
+            <span>运行中</span>
+          </div>
+          <div class="hero-stat">
+            <strong>4</strong>
+            <span>种记忆类型</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 四种能力卡片 ═══════════════ -->
+    <section class="reveal" data-section="capabilities">
+      <div style="margin-bottom: var(--space-6);">
+        <span class="section-eyebrow">四种记忆维度</span>
+        <h2 class="section-title">像人脑一样，分层记忆</h2>
+      </div>
+      <div class="capability-grid">
+        <div class="capability-card glass-card" data-memory-type="working" data-arch-view="view-memory-types">
+          <div class="card-glow" style="background:radial-gradient(circle,rgba(100,216,255,0.3),transparent)"></div>
+          <div class="cap-icon working">⚡</div>
+          <h3>工作记忆</h3>
+          <p>当前任务的临时上下文，TTL 5 分钟。如同 CPU 寄存器——快进快出。</p>
+          <span class="cap-badge working">KV 存储 · 高频读写</span>
+        </div>
+        <div class="capability-card glass-card" data-memory-type="episodic" data-arch-view="view-memory-types">
+          <div class="card-glow" style="background:radial-gradient(circle,rgba(96,165,250,0.3),transparent)"></div>
+          <div class="cap-icon episodic">📖</div>
+          <h3>情景记忆</h3>
+          <p>原始对话与事件记录，带时间上下文。如同内存 RAM——容量大，有期限。</p>
+          <span class="cap-badge episodic">向量 + 倒排 + KV</span>
+        </div>
+        <div class="capability-card glass-card" data-memory-type="semantic" data-arch-view="view-memory-types">
+          <div class="card-glow" style="background:radial-gradient(circle,rgba(52,211,153,0.3),transparent)"></div>
+          <div class="cap-icon semantic">💎</div>
+          <h3>语义记忆</h3>
+          <p>整合提炼后的知识与事实，永久保存。如同长期记忆——越用越精炼。</p>
+          <span class="cap-badge semantic">向量 + KV · 永久</span>
+        </div>
+        <div class="capability-card glass-card" data-memory-type="procedural" data-arch-view="view-memory-types">
+          <div class="card-glow" style="background:radial-gradient(circle,rgba(251,191,36,0.3),transparent)"></div>
+          <div class="cap-icon procedural">🔧</div>
+          <h3>程序记忆</h3>
+          <p>「怎么做」的流程与技能，触发→步骤结构。如同肌肉记忆——自动执行。</p>
+          <span class="cap-badge procedural">结构化 KV · 永久</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 数据监控面板 ═══════════════ -->
+    <section class="reveal" data-section="monitor">
+      <div style="margin-bottom: var(--space-4); display:flex; align-items:center; justify-content:space-between;">
+        <div>
+          <span class="section-eyebrow">实时指标</span>
+          <h2 class="section-title">记忆引擎运行状态</h2>
+        </div>
+        <span class="ver-badge" style="font-size:11px;">自动刷新 · 每8s</span>
+      </div>
+      <div class="monitor-grid">
+        <div class="monitor-card glass-card" id="card-total" data-metric="total" data-arch-node="engine-total">
+          <div class="card-label">记忆池总量</div>
+          <div class="card-value" id="stat-total">0</div>
+          <div class="card-unit">条记录</div>
+          <div class="monitor-bar-wrap"><span class="monitor-bar-fill" id="bar-total"></span></div>
+        </div>
+        <div class="monitor-card glass-card" id="card-episodic" data-metric="episodic" data-arch-node="storage-episodic">
+          <div class="card-label">情景记忆</div>
+          <div class="card-value" id="stat-episodic">0</div>
+          <div class="card-unit">条事件</div>
+          <div class="monitor-bar-wrap"><span class="monitor-bar-fill" id="bar-episodic"></span></div>
+        </div>
+        <div class="monitor-card glass-card" id="card-semantic" data-metric="semantic" data-arch-node="storage-semantic">
+          <div class="card-label">语义记忆</div>
+          <div class="card-value" id="stat-semantic">0</div>
+          <div class="card-unit">条知识</div>
+          <div class="monitor-bar-wrap"><span class="monitor-bar-fill" id="bar-semantic"></span></div>
+        </div>
+        <div class="monitor-card glass-card" id="card-vector" data-metric="vector" data-arch-node="engine-vector">
+          <div class="card-label">向量索引</div>
+          <div class="card-value" id="stat-vector">0</div>
+          <div class="card-unit">个节点</div>
+          <div class="monitor-bar-wrap"><span class="monitor-bar-fill" id="bar-vector"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 主体双栏 ═══════════════ -->
+    <main class="main-grid reveal" data-section="operations">
+      <!-- 左栏：记忆操作 -->
+      <section class="operation-panel glass-panel">
+        <div class="panel-header">
+          <div class="panel-dot"></div>
+          <h2>记忆操作</h2>
+          <span class="panel-badge">协议 v1.0</span>
+        </div>
+
+        <!-- 模式切换 -->
+        <div class="segment-control" style="width:100%; margin-bottom: var(--space-6);" id="mode-segment">
+          <button class="segment-btn active" data-tab="store">
+            <span class="segment-icon">▶</span>写入
+          </button>
+          <button class="segment-btn" data-tab="search">
+            <span class="segment-icon">◈</span>检索
+          </button>
+          <button class="segment-btn" data-tab="list">
+            <span class="segment-icon">▣</span>浏览
+          </button>
+        </div>
+
+        <!-- 写入记忆 -->
+        <div class="tab-content active" id="tab-store">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">会话标识</label>
+              <input type="text" id="store-session" value="莱茵生命-AI-01" placeholder="输入会话ID" class="glass-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label">记忆类别</label>
+              <select id="store-type">
+                <option value="episodic">情景记忆 · 事件记录</option>
+                <option value="semantic">语义记忆 · 知识事实</option>
+                <option value="working">工作记忆 · 临时状态</option>
+                <option value="procedural">程序记忆 · 技能流程</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">记忆内容</label>
+            <textarea id="store-content" rows="4" placeholder="输入你想让 AI 记住的内容……"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">重要性评分</label>
+              <div class="slider-group">
+                <input type="range" id="store-importance" min="0" max="1" step="0.1" value="0.7">
+                <span class="slider-val" id="importance-val">0.7</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">标签（逗号分隔）</label>
+              <input type="text" id="store-tags" placeholder="AI, 记忆, 实验" class="glass-input">
+            </div>
+          </div>
+          <button class="btn-primary" id="btn-store" style="width:100%;">
+            <span>▶</span> 提交至记忆库
+          </button>
+          <div class="terminal-output" id="store-result"></div>
+        </div>
+
+        <!-- 检索记忆 -->
+        <div class="tab-content" id="tab-search">
+          <div class="form-group">
+            <label class="form-label">会话标识</label>
+            <input type="text" id="search-session" value="莱茵生命-AI-01" placeholder="输入会话ID" class="glass-input">
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label class="form-label">检索查询</label>
+              <div class="input-group" style="display:flex; gap:8px;">
+                <input type="text" id="search-query" placeholder="输入搜索关键词……" class="glass-input" style="flex:1;">
+                <button class="btn-primary" id="btn-search">🔍 搜索</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">检索策略</label>
+              <select id="search-strategy">
+                <option value="hybrid">混合检索 · 推荐</option>
+                <option value="vector">向量检索 · 语义</option>
+                <option value="keyword">关键词检索 · 精确</option>
+                <option value="temporal">时间衰减 · 近期优先</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">返回数量</label>
+              <input type="number" id="search-topk" value="10" min="1" max="100" class="glass-input">
+            </div>
+          </div>
+          <div class="search-results" id="search-results"></div>
+        </div>
+
+        <!-- 浏览记忆 -->
+        <div class="tab-content" id="tab-list">
+          <div class="form-group">
+            <label class="form-label">会话标识</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="list-session" value="莱茵生命-AI-01" placeholder="输入会话ID" class="glass-input" style="flex:1;">
+              <button class="btn-secondary" id="btn-list">📋 浏览</button>
+            </div>
+          </div>
+          <div class="memory-list" id="memory-list"></div>
+        </div>
+      </section>
+
+      <!-- 右栏：AI 对话 + 日志 + 系统参数 -->
+      <aside style="display:flex; flex-direction:column; gap: var(--space-5);">
+        <!-- AI 对话 -->
+        <div class="glass-panel" style="padding:0; overflow:hidden;">
+          <div class="panel-header" style="padding: var(--space-4) var(--space-5) 0;">
+            <div class="panel-dot"></div>
+            <h2>AI 编程助手</h2>
+            <span class="panel-badge">DeepSeek V4</span>
+          </div>
+          <div class="chat-container" style="margin: var(--space-3);" id="chat-container">
+            <div class="chat-messages" id="chat-messages">
+              <div class="chat-msg chat-msg-system">
+                ◈ Nebula 记忆引擎已就绪。项目上下文已自动注入。
+              </div>
+            </div>
+            <div class="chat-input-row">
+              <textarea id="chat-input" rows="1" placeholder="问 AI 关于代码的问题……（Ctrl+Enter 发送）"></textarea>
+              <button class="btn-primary" id="btn-chat-send" style="flex-shrink:0; padding:9px 16px;">发送</button>
+            </div>
+            <div class="chat-options">
+              <label class="chat-opt">
+                <input type="checkbox" id="chat-inject" checked> 注入项目记忆
+              </label>
+              <span class="chat-opt-lang">
+                语言: <select id="chat-lang">
+                  <option value="go">Go</option>
+                  <option value="python">Python</option>
+                  <option value="typescript">TypeScript</option>
+                  <option value="rust">Rust</option>
+                  <option value="java">Java</option>
+                </select>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 事件日志 -->
+        <div class="glass-panel" style="padding: var(--space-5);">
+          <div class="panel-header" style="margin-bottom: var(--space-3);">
+            <div class="panel-dot" style="background: var(--accent-secondary);"></div>
+            <h2>系统事件日志</h2>
+            <span class="panel-badge">实时流</span>
+          </div>
+          <div class="log-stream" id="log-stream">
+            <div class="log-entry">
+              <span class="log-time">--:--:--</span>
+              <span class="log-msg">等待输入信号……</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 系统参数 -->
+        <div class="glass-panel" style="padding: var(--space-5);">
+          <div class="panel-header" style="margin-bottom: var(--space-3);">
+            <div class="panel-dot" style="background: var(--accent-tertiary);"></div>
+            <h2>系统参数</h2>
+            <span class="panel-badge">诊断</span>
+          </div>
+          <div class="spec-table" id="spec-table">
+            <div class="spec-row"><span>存储引擎</span><span>LSM-Tree + HNSW</span></div>
+            <div class="spec-row"><span>向量化</span><span id="sys-embedder">Mock</span></div>
+            <div class="spec-row"><span>缓存用量</span><span id="sys-cache">0 / 10000</span></div>
+            <div class="spec-row"><span>磁盘占用</span><span id="sys-disk">0 B</span></div>
+            <div class="spec-row"><span>向量维度</span><span>1536</span></div>
+            <div class="spec-row"><span>协议</span><span>REST / gRPC</span></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- ═══════════════ 架构图展示 ═══════════════ -->
+    <section class="arch-display glass-panel reveal" id="arch-display" data-section="architecture">
+      <div class="arch-header">
+        <div>
+          <span class="section-eyebrow">系统架构</span>
+          <h2>核心技术架构</h2>
+        </div>
+        <span class="arch-hint">— 点击下方切换视图 —</span>
+      </div>
+
+      <!-- 视图容器 -->
+      <div class="arch-viewport" id="arch-viewport">
+        <!-- 视图1: 整体架构 -->
+        <div class="arch-view view-active" id="view-overview">
+          <svg class="arch-svg" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg">
+            <rect x="330" y="8" width="240" height="36" rx="12" fill="rgba(139,120,255,0.12)" stroke="rgba(139,120,255,0.3)" stroke-width="1.5"/>
+            <text x="450" y="31" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" fill="white" font-weight="600">AI 智能体 (Agent)</text>
+
+            <line x1="450" y1="44" x2="450" y2="58" stroke="rgba(139,120,255,0.4)" stroke-width="1"/>
+            <rect x="230" y="58" width="440" height="28" rx="8" fill="rgba(100,216,255,0.06)" stroke="rgba(100,216,255,0.2)" stroke-width="1"/>
+            <text x="450" y="77" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="rgba(255,255,255,0.7)">Python SDK / Go SDK / REST API / gRPC</text>
+
+            <line x1="450" y1="86" x2="450" y2="100" stroke="rgba(139,120,255,0.4)" stroke-width="1"/>
+            <rect x="300" y="100" width="300" height="28" rx="8" fill="rgba(139,120,255,0.08)" stroke="rgba(139,120,255,0.3)" stroke-width="1.2"/>
+            <text x="450" y="119" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="white" font-weight="600">记忆服务层 (Memory Service)</text>
+
+            <line x1="450" y1="128" x2="450" y2="142" stroke="rgba(139,120,255,0.3)" stroke-width="0.8"/>
+            <rect x="360" y="142" width="180" height="24" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="4,2"/>
+            <text x="450" y="158" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="rgba(255,255,255,0.4)">L1 缓存 (热点数据)</text>
+
+            <line x1="450" y1="166" x2="450" y2="180" stroke="rgba(139,120,255,0.4)" stroke-width="1"/>
+            <rect x="200" y="180" width="500" height="34" rx="12" fill="rgba(139,120,255,0.1)" stroke="rgba(139,120,255,0.4)" stroke-width="1.8" id="engine-total" data-metric="total"/>
+            <text x="450" y="202" text-anchor="middle" font-family="system-ui,sans-serif" font-size="14" fill="white" font-weight="700">记 忆 引 擎 (Memory Engine)</text>
+
+            <line x1="300" y1="214" x2="200" y2="250" stroke="rgba(139,120,255,0.3)" stroke-width="0.8"/>
+            <line x1="450" y1="214" x2="450" y2="250" stroke="rgba(139,120,255,0.3)" stroke-width="0.8"/>
+            <line x1="600" y1="214" x2="700" y2="250" stroke="rgba(139,120,255,0.3)" stroke-width="0.8"/>
+
+            <rect x="80" y="250" width="230" height="28" rx="8" fill="rgba(96,165,250,0.06)" stroke="rgba(96,165,250,0.25)" stroke-width="1" id="storage-episodic" data-metric="episodic"/>
+            <text x="195" y="269" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="rgba(255,255,255,0.8)" font-weight="600">存储层 (LSM + KV + 向量)</text>
+
+            <rect x="335" y="250" width="230" height="28" rx="8" fill="rgba(100,216,255,0.06)" stroke="rgba(100,216,255,0.25)" stroke-width="1"/>
+            <text x="450" y="269" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="rgba(255,255,255,0.8)" font-weight="600">检索层 (混合检索 + RRF)</text>
+
+            <rect x="590" y="250" width="230" height="28" rx="8" fill="rgba(139,120,255,0.06)" stroke="rgba(139,120,255,0.25)" stroke-width="1"/>
+            <text x="705" y="269" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="rgba(255,255,255,0.8)" font-weight="600">管理层 (记忆API + 整合)</text>
+          </svg>
+        </div>
+
+        <!-- 视图2: 四种记忆类型 -->
+        <div class="arch-view" id="view-memory-types">
+          <svg class="arch-svg" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg">
+            <text x="450" y="26" text-anchor="middle" font-family="system-ui,sans-serif" font-size="15" fill="white" font-weight="700">四种记忆类型 · 认知模型</text>
+
+            <rect x="30" y="50" width="190" height="250" rx="12" fill="rgba(100,216,255,0.04)" stroke="rgba(100,216,255,0.25)" stroke-width="1.5"/>
+            <text x="125" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#64D8FF" font-weight="700">⚡ 工作记忆</text>
+            <line x1="50" y1="90" x2="200" y2="90" stroke="rgba(100,216,255,0.15)"/>
+            <text x="125" y="115" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">当前任务临时状态</text>
+            <text x="125" y="135" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">TTL 短 (默认5分钟)</text>
+            <text x="125" y="155" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">高频读写 KV存储</text>
+            <text x="125" y="195" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)" font-weight="600">存储: In-Memory KV</text>
+            <rect x="55" y="215" width="140" height="30" rx="6" fill="rgba(100,216,255,0.1)" stroke="rgba(100,216,255,0.2)"/>
+            <text x="125" y="235" text-anchor="middle" font-size="9" fill="#64D8FF">类比: CPU 寄存器</text>
+
+            <rect x="245" y="50" width="190" height="250" rx="12" fill="rgba(96,165,250,0.04)" stroke="rgba(96,165,250,0.25)" stroke-width="1.5"/>
+            <text x="340" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#60A5FA" font-weight="700">📖 情景记忆</text>
+            <line x1="265" y1="90" x2="415" y2="90" stroke="rgba(96,165,250,0.15)"/>
+            <text x="340" y="115" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">原始对话/事件记录</text>
+            <text x="340" y="135" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">带时间上下文+标签</text>
+            <text x="340" y="155" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">重要性评分 [0-1]</text>
+            <text x="340" y="195" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)" font-weight="600">存储: KV + 向量 + 倒排</text>
+            <rect x="270" y="215" width="140" height="30" rx="6" fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.2)"/>
+            <text x="340" y="235" text-anchor="middle" font-size="9" fill="#60A5FA">类比: 内存 RAM</text>
+
+            <rect x="460" y="50" width="190" height="250" rx="12" fill="rgba(52,211,153,0.04)" stroke="rgba(52,211,153,0.25)" stroke-width="1.5"/>
+            <text x="555" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#34D399" font-weight="700">💎 语义记忆</text>
+            <line x1="480" y1="90" x2="630" y2="90" stroke="rgba(52,211,153,0.15)"/>
+            <text x="555" y="115" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">整合后的知识/事实</text>
+            <text x="555" y="135" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">由整合引擎自动生成</text>
+            <text x="555" y="155" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">source_ids 追溯来源</text>
+            <text x="555" y="195" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)" font-weight="600">存储: KV + 向量</text>
+            <rect x="485" y="215" width="140" height="30" rx="6" fill="rgba(52,211,153,0.1)" stroke="rgba(52,211,153,0.2)"/>
+            <text x="555" y="235" text-anchor="middle" font-size="9" fill="#34D399">类比: 长期记忆</text>
+
+            <rect x="675" y="50" width="190" height="250" rx="12" fill="rgba(251,191,36,0.04)" stroke="rgba(251,191,36,0.25)" stroke-width="1.5"/>
+            <text x="770" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" fill="#FBBF24" font-weight="700">🔧 程序记忆</text>
+            <line x1="695" y1="90" x2="845" y2="90" stroke="rgba(251,191,36,0.15)"/>
+            <text x="770" y="115" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">如何做的流程/技能</text>
+            <text x="770" y="135" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">trigger → steps 结构</text>
+            <text x="770" y="155" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">成功率+调用次数</text>
+            <text x="770" y="195" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.8)" font-weight="600">存储: KV (结构化)</text>
+            <rect x="700" y="215" width="140" height="30" rx="6" fill="rgba(251,191,36,0.1)" stroke="rgba(251,191,36,0.2)"/>
+            <text x="770" y="235" text-anchor="middle" font-size="9" fill="#FBBF24">类比: 肌肉记忆</text>
+
+            <text x="340" y="305" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.35)">▲ 情景记忆经整合 → 语义记忆（模拟人脑巩固） ▲</text>
+            <line x1="340" y1="298" x2="555" y2="210" stroke="rgba(255,255,255,0.1)" stroke-width="0.5" stroke-dasharray="5,4"/>
+          </svg>
+        </div>
+
+        <!-- 视图3: HNSW 检索 -->
+        <div class="arch-view" id="view-hnsw">
+          <svg class="arch-svg" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg">
+            <text x="450" y="26" text-anchor="middle" font-family="system-ui,sans-serif" font-size="15" fill="white" font-weight="700">HNSW 多层图检索原理</text>
+
+            <rect x="30" y="42" width="840" height="65" rx="8" fill="rgba(139,120,255,0.04)" stroke="rgba(139,120,255,0.2)" stroke-width="0.8" stroke-dasharray="4,2"/>
+            <text x="50" y="62" font-family="system-ui,sans-serif" font-size="10" fill="rgba(139,120,255,0.9)" font-weight="700">第 2 层 (高层 · 快速导航)</text>
+            <circle cx="250" cy="70" r="8" fill="rgba(139,120,255,0.2)" stroke="rgba(139,120,255,0.5)" stroke-width="1.5"/>
+            <circle cx="480" cy="70" r="8" fill="rgba(139,120,255,0.2)" stroke="rgba(139,120,255,0.5)" stroke-width="1.5"/>
+            <circle cx="700" cy="70" r="8" fill="rgba(139,120,255,0.2)" stroke="rgba(139,120,255,0.5)" stroke-width="1.5"/>
+            <line x1="258" y1="70" x2="472" y2="70" stroke="rgba(139,120,255,0.3)"/>
+            <line x1="488" y1="70" x2="692" y2="70" stroke="rgba(139,120,255,0.3)"/>
+
+            <rect x="30" y="115" width="840" height="65" rx="8" fill="rgba(100,216,255,0.04)" stroke="rgba(100,216,255,0.15)"/>
+            <text x="50" y="135" font-family="system-ui,sans-serif" font-size="10" fill="rgba(100,216,255,0.9)" font-weight="700">第 1 层 (中间层)</text>
+            <circle cx="180" cy="145" r="8" fill="rgba(100,216,255,0.2)" stroke="rgba(100,216,255,0.45)" stroke-width="1.2"/>
+            <circle cx="380" cy="145" r="8" fill="rgba(100,216,255,0.2)" stroke="rgba(100,216,255,0.45)" stroke-width="1.2"/>
+            <circle cx="560" cy="145" r="8" fill="rgba(100,216,255,0.2)" stroke="rgba(100,216,255,0.45)" stroke-width="1.2"/>
+            <circle cx="740" cy="145" r="8" fill="rgba(100,216,255,0.2)" stroke="rgba(100,216,255,0.45)" stroke-width="1.2"/>
+            <line x1="188" y1="145" x2="372" y2="145" stroke="rgba(100,216,255,0.3)"/>
+            <line x1="388" y1="145" x2="552" y2="145" stroke="rgba(100,216,255,0.3)"/>
+            <line x1="568" y1="145" x2="732" y2="145" stroke="rgba(100,216,255,0.3)"/>
+
+            <rect x="30" y="188" width="840" height="75" rx="8" fill="rgba(52,211,153,0.04)" stroke="rgba(52,211,153,0.15)"/>
+            <text x="50" y="208" font-family="system-ui,sans-serif" font-size="10" fill="#34D399" font-weight="700">第 0 层 (底层 · 精确搜索)</text>
+            <circle cx="120" cy="230" r="8" fill="rgba(52,211,153,0.2)" stroke="rgba(52,211,153,0.45)" stroke-width="1.2"/>
+            <circle cx="260" cy="225" r="8" fill="rgba(52,211,153,0.2)" stroke="rgba(52,211,153,0.45)" stroke-width="1.2"/>
+            <circle cx="400" cy="232" r="8" fill="rgba(52,211,153,0.2)" stroke="rgba(52,211,153,0.45)" stroke-width="1.2"/>
+            <circle cx="540" cy="228" r="8" fill="rgba(52,211,153,0.2)" stroke="rgba(52,211,153,0.45)" stroke-width="1.2"/>
+            <circle cx="680" cy="233" r="8" fill="rgba(52,211,153,0.2)" stroke="rgba(52,211,153,0.45)" stroke-width="1.2"/>
+            <circle cx="810" cy="228" r="8" fill="rgba(52,211,153,0.2)" stroke="rgba(52,211,153,0.45)" stroke-width="1.2"/>
+            <line x1="128" y1="230" x2="252" y2="225" stroke="rgba(52,211,153,0.25)"/>
+            <line x1="268" y1="225" x2="392" y2="232" stroke="rgba(52,211,153,0.25)"/>
+            <line x1="408" y1="232" x2="532" y2="228" stroke="rgba(52,211,153,0.25)"/>
+            <line x1="548" y1="228" x2="672" y2="233" stroke="rgba(52,211,153,0.25)"/>
+
+            <rect x="560" y="275" width="310" height="46" rx="8" fill="rgba(139,120,255,0.06)" stroke="rgba(139,120,255,0.2)"/>
+            <text x="715" y="294" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">查询从高层逐层下降 → 底层 efSearch 精细搜索</text>
+            <text x="715" y="310" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.35)">构建: O(N log N) | 查询: O(log N)</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- 视图切换按钮 -->
+      <div class="arch-dots" id="arch-dots">
+        <button class="arch-dot active" data-view="view-overview">架构总览</button>
+        <button class="arch-dot" data-view="view-memory-types">记忆类型</button>
+        <button class="arch-dot" data-view="view-hnsw">向量检索</button>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 记忆拓扑图 ═══════════════ -->
+    <section class="topology-section glass-panel reveal" data-section="topology">
+      <div class="panel-header">
+        <div class="panel-dot" style="background: var(--accent-gradient); box-shadow: 0 0 12px rgba(var(--accent-primary-rgb), 0.6);"></div>
+        <h2>记忆拓扑图</h2>
+        <span class="panel-badge">HNSW 多层图 · 悬停查看详情</span>
+      </div>
+      <div class="topology-wrap" id="topo-wrap">
+        <canvas id="topology-canvas"></canvas>
+        <div class="topo-tooltip" id="topo-tooltip">
+          <div class="tooltip-header">
+            <span class="tooltip-type" id="tooltip-type">EPISODIC</span>
+            <span class="tooltip-score" id="tooltip-score">0.95</span>
+          </div>
+          <div class="tooltip-content" id="tooltip-content">Loading...</div>
+          <div class="tooltip-meta">
+            <span>ID: <strong id="tooltip-id">---</strong></span>
+            <span>访问: <strong id="tooltip-access">0</strong></span>
+          </div>
+          <div class="tooltip-tags" id="tooltip-tags"></div>
+        </div>
+        <div class="topo-legend">
+          <div class="legend-item"><span class="legend-dot" style="background:#60A5FA"></span>情景</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#34D399"></span>语义</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#64D8FF"></span>工作</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#FBBF24"></span>程序</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 底部 ═══════════════ -->
+    <footer class="footer" data-section="footer">
+      <div class="footer-divider"></div>
+      <span class="footer-inner">◈ 星云智能体 · 莱茵生命记忆引擎实验室 · 机密文件 · v0.2.0</span>
+    </footer>
+  </div>
+
+  <!-- Toast 容器 -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

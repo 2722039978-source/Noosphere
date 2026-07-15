@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+<meta charset="utf-8">
+<title>Nebula Agent 项目介绍</title>
+<style>
+  @page { size: A4; margin: 2cm; }
+  body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; font-size: 11pt; color: #1a2634; line-height: 1.8; max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 22pt; color: #1e2d3d; border-bottom: 3px solid #3b82c4; padding-bottom: 10px; }
+  h2 { font-size: 15pt; color: #3b82c4; margin-top: 28px; border-left: 4px solid #3b82c4; padding-left: 10px; }
+  h3 { font-size: 12pt; color: #1e2d3d; margin-top: 20px; }
+  blockquote { border-left: 3px solid #7ec8e3; padding: 8px 16px; color: #5a6b7d; background: #f5f7fa; margin: 12px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th { background: #3b82c4; color: white; padding: 8px 12px; text-align: left; font-size: 10pt; }
+  td { border: 1px solid #d5dce6; padding: 8px 12px; font-size: 10pt; }
+  tr:nth-child(even) { background: #f8fbfd; }
+  code { background: #eef1f6; padding: 1px 5px; font-family: Consolas, monospace; font-size: 9pt; }
+  pre { background: #1e2d3d; color: #e8e8f0; padding: 12px 16px; font-family: Consolas, monospace; font-size: 9pt; }
+  .problem-box { background: #fff3f0; border: 1px solid #e8a838; padding: 14px; margin: 12px 0; border-radius: 4px; }
+  .solution-box { background: #f0f8f4; border: 1px solid #2d9d8e; padding: 14px; margin: 12px 0; border-radius: 4px; }
+  .flow-box { background: #eef4fb; border: 1px solid #5b9bd5; padding: 16px; margin: 16px 0; border-radius: 4px; text-align: center; }
+  .flow-box .arrow { color: #3b82c4; font-size: 18pt; }
+  .cards { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+  .card { flex: 1; min-width: 160px; border: 1px solid #d5dce6; padding: 12px; border-radius: 4px; }
+  .card h4 { margin: 0 0 6px 0; color: #3b82c4; font-size: 11pt; }
+  .card p { margin: 3px 0; font-size: 9pt; color: #5a6b7d; }
+</style>
+</head>
+<body>
+
+<h1>◈ Nebula Agent（星云智能体）</h1>
+
+<blockquote>
+<b>让你的 AI 工具真正"懂"你的项目。</b><br>
+扫描代码库 → 学习编码风格 → 自动注入到 AI 对话中。<br>
+零外部依赖，一个 Go 二进制文件搞定。
+</blockquote>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>它解决什么问题？</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<div class="problem-box">
+<b>❌ 你每天都在经历的痛点：</b><br><br>
+你打开 ChatGPT/DeepSeek/Claude：<br><br>
+<b>你</b>: "帮我给项目加一个认证中间件"<br>
+<b>AI</b>: "你的项目用什么语言？什么框架？有什么编码规范？..."<br><br>
+<b>你</b>: "用 Go，Gin 框架，JWT 认证，统一返回 {code, data, msg} 格式"<br>
+<b>AI</b>: "好的..." (生成了不符合你风格的代码)<br><br>
+→ <b>每次对话都要重复解释</b><br>
+→ <b>生成的代码风格总是不对</b><br>
+→ <b>AI 根本不了解你的项目</b>
+</div>
+
+<div class="solution-box">
+<b>✅ 有了 Nebula 之后：</b><br><br>
+<b>你</b>: "帮我给项目加一个认证中间件"<br>
+<b>AI</b>: "好的。根据你的项目(Gin+JWT，PascalCase/camelCase，显式 error 返回，统一 {code,data,msg} 格式)，这是代码: ..."<br><br>
+→ <b>AI 已经"知道"你的项目了</b><br>
+→ <b>代码风格自动匹配</b><br>
+→ <b>0 次重复解释</b>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>怎么做到的？</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<div class="flow-box">
+<b>你的代码库</b> (Go/Python/TypeScript/...)<br>
+<span class="arrow">↓ ① nebula ingest --dir . (扫描项目)</span><br><br>
+<b>Nebula 记忆引擎 —— 学到了什么？</b><br>
+语言: Go(85%) | 框架: Gin, GORM, JWT | 命名: PascalCase/camelCase<br>
+错误处理: 显式 error 返回 | API 格式: {code, data, message}<br>
+⚠ 注意事项: JWT secret 在环境变量，不要硬编码<br><br>
+<span class="arrow">↓ ② 自动检索 + 拼接 System Prompt</span><br><br>
+<b>AI 收到的完整指令：</b><br>
+"## 项目上下文 (Nebula 注入)<br>
+技术栈: Go, Gin, GORM, JWT<br>
+编码风格: PascalCase/camelCase，显式error返回<br>
+⚠ JWT secret 在环境变量中<br>
+请遵循以上规范生成代码"<br><br>
+<span class="arrow">↓ ③ 发送给 AI</span><br><br>
+<b>你的 AI 工具</b> (ChatGPT / DeepSeek / Claude / ...)<br>
+<span class="arrow">↓</span><br>
+<b>AI 返回符合你风格的代码</b>
+</div>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>三种使用方式</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<h3>方式 1：浏览器直接对话（最简单）</h3>
+<pre>go run ./cmd/nebula-server --memory --port 8730
+# 打开 http://localhost:8730 → 右侧 AI 编程助手</pre>
+<p>内置 DeepSeek V4 Pro，<b>自动注入项目记忆</b>，打开即用。</p>
+
+<h3>方式 2：生成上下文 → 粘贴到任何 AI 工具</h3>
+<pre>go run ./cmd/nebula-code context "添加认证中间件" --lang go | clip
+# 打开 ChatGPT → 粘贴 → 直接提问</pre>
+<p>适合已经习惯用网页版 AI 工具的用户。</p>
+
+<h3>方式 3：嵌入你的代码中</h3>
+<pre>import "github.com/nebula-agent/nebula/engine"
+
+eng, _ := engine.Open(engine.MemoryOptions())
+sess := eng.Session("my-project")
+sess.RememberEpisodic("用户喜欢 Python", 0.8, []string{"preference"})
+results, _ := sess.Reminisce(&manager.SearchOptions{
+    Query: "编程语言", TopK: 5,
+})</pre>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>核心能力一览</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<table>
+<tr><th>能力</th><th>做什么</th><th>技术实现</th></tr>
+<tr><td>🔍 扫描项目</td><td>自动识别语言/框架/库/入口文件</td><td>文件扩展名映射 + go.mod 解析</td></tr>
+<tr><td>🎨 学习风格</td><td>提取命名规范、错误处理、偏好</td><td>正则模式匹配 + 频率统计</td></tr>
+<tr><td>⚠ 发现注意事项</td><td>从 WARNING/TODO/注意 注释提取</td><td>AST 注释扫描</td></tr>
+<tr><td>💾 存储记忆</td><td>工作/情景/语义/程序四种类型</td><td>LSM Tree + KV + HNSW</td></tr>
+<tr><td>🔎 语义检索</td><td>自然语言模糊查询</td><td>HNSW 向量近似最近邻</td></tr>
+<tr><td>📝 关键词检索</td><td>精确匹配函数名/标签</td><td>BM25 倒排索引 + 中英分词</td></tr>
+<tr><td>🔀 混合检索</td><td>向量+关键词+时间融合排序</td><td>RRF (Reciprocal Rank Fusion)</td></tr>
+<tr><td>📋 注入上下文</td><td>自动拼接到 AI System Prompt</td><td>ContextInjector</td></tr>
+<tr><td>💬 AI 对话</td><td>ChatGPT 风格界面 + 自动注入</td><td>DeepSeek V4 Pro API</td></tr>
+<tr><td>📤 导出/导入</td><td>团队共享记忆</td><td>JSON / Markdown</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>记忆类型（认知模型）</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<div class="cards">
+<div class="card"><h4>⚡ 工作记忆</h4><p>当前任务临时状态<br>TTL 5分钟<br>In-Memory KV 存储<br>类比: CPU 寄存器</p></div>
+<div class="card"><h4>📖 情景记忆</h4><p>对话/事件记录<br>保留 30 天<br>KV+向量+倒排索引<br>类比: RAM 内存</p></div>
+<div class="card"><h4>💎 语义记忆</h4><p>整合后的知识<br>永久保留<br>KV+向量存储<br>类比: 长期记忆</p></div>
+<div class="card"><h4>🔧 程序记忆</h4><p>技能/流程模式<br>持续学习优化<br>KV 结构化存储<br>类比: 肌肉记忆</p></div>
+</div>
+
+<p>旧的情景记忆 → <b>整合引擎自动压缩</b> → 语义记忆（模拟人脑记忆巩固过程）</p>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>架构总览</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<pre>
+                    AI 智能体 (Agent)
+                          │
+    ┌─────────────────────┼─────────────────────┐
+    │                     │                     │
+Python SDK             Go SDK              REST API
+    │                     │                     │
+    └─────────────────────┼─────────────────────┘
+                          │
+                ┌─────────────────┐
+                │  Memory Service │  ← 会话管理 · 多租户
+                └────────┬────────┘
+                         │
+                ┌────────┴────────┐
+                │    L1 Cache     │  ← 热点数据 LRU
+                └────────┬────────┘
+                         │
+    ┌────────────────────┼────────────────────┐
+    │            Memory Engine                │
+    ├──────────┬─────────┬────────────────────┤
+    │ Storage  │Retrieval│      Manager       │
+    ├──────────┼─────────┼────────────────────┤
+    │ LSM Tree │Embedder │ Memory API (CRUD)  │
+    │ KV Hash  │HNSW     │ Lifecycle (TTL)    │
+    │ Vector   │BM25+RRF │ Consolidation      │
+    └──────────┴─────────┴────────────────────┘
+</pre>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>技术栈</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<table>
+<tr><th>模块</th><th>技术</th><th>为什么</th></tr>
+<tr><td>存储引擎</td><td>自研 LSM Tree (WAL+SkipList+SSTable+Bloom)</td><td>零依赖，格式可控</td></tr>
+<tr><td>KV 缓存</td><td>32路分片 sync.Map + TTL 最小堆</td><td>O(1)读写，低锁竞争</td></tr>
+<tr><td>向量索引</td><td>自研纯 Go HNSW</td><td>无 CGo，可交叉编译 ARM</td></tr>
+<tr><td>关键词检索</td><td>BM25 倒排索引 + 中英分词</td><td>精确匹配，200行代码</td></tr>
+<tr><td>HTTP 服务</td><td>Go net/http 标准库</td><td>零框架依赖</td></tr>
+<tr><td>前端</td><td>原生 HTML/CSS/JS + Canvas</td><td>零 Node.js 依赖</td></tr>
+<tr><td>AI 模型</td><td>DeepSeek V4 Pro (可替换)</td><td>OpenAI 兼容协议</td></tr>
+</table>
+
+<p><b>设计原则：一个二进制文件，import 即用，零外部依赖。</b></p>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>项目结构</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<pre>
+nebula-agent/
+├── engine/                     ← 核心引擎（可嵌入 Go 包）
+│   ├── storage/lsm/              LSM Tree (WAL+SkipList+SSTable+Bloom)
+│   ├── storage/kv/               分片锁 KV + TTL
+│   ├── storage/vector/           纯 Go HNSW 向量索引
+│   ├── retrieval/                Embedder + 混合检索(RRF)
+│   ├── index/                    倒排索引 + BM25
+│   ├── manager/                  四种记忆 + 整合引擎
+│   └── cache/                    LRU 缓存
+├── analyzer/                   ← 代码分析（扫描·学习·注入）
+├── api/rest/                   ← REST API + DeepSeek 对话
+├── cmd/nebula-server/          ← 启动 Web 服务
+├── cmd/nebula-code/            ← CLI 终端工具
+├── web/                        ← 前端仪表盘（莱茵生命风格）
+├── sdk/go/                     ← Go SDK
+└── sdk/python/                 ← Python SDK
+</pre>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>快速开始</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<h3>Web 服务（带前端仪表盘）</h3>
+<pre>cd nebula-agent
+go run ./cmd/nebula-server --memory --port 8730
+# 浏览器打开 http://localhost:8730</pre>
+
+<h3>CLI 三步走</h3>
+<pre>
+# 1. 扫描项目，学习代码特征
+go run ./cmd/nebula-code ingest --dir .
+
+# 2. 查看引擎学到了什么
+go run ./cmd/nebula-code style
+go run ./cmd/nebula-code gotchas
+
+# 3. 生成 AI 上下文（复制粘贴到任何 AI 工具）
+go run ./cmd/nebula-code context "添加认证中间件" --lang go | clip
+</pre>
+
+<h3>嵌入你的 Go 代码</h3>
+<pre>import "github.com/nebula-agent/nebula/engine"
+
+eng, _ := engine.Open(engine.MemoryOptions())
+sess := eng.Session("my-project")
+sess.RememberEpisodic("用户喜欢 Python", 0.8, []string{"preference"})</pre>
+
+<!-- ═══════════════════════════════════════ -->
+<h2>落地场景</h2>
+<!-- ═══════════════════════════════════════ -->
+
+<table>
+<tr><th>场景</th><th>核心记忆</th><th>效果</th></tr>
+<tr><td>🤖 个人 AI 助手</td><td>情景 + 语义</td><td>跨会话记忆偏好，越用越懂你</td></tr>
+<tr><td>💬 智能客服</td><td>情景 + 语义</td><td>客户历史自动召回，无需重复询问</td></tr>
+<tr><td>💻 代码助手</td><td>工作 + 程序 + 语义</td><td>理解项目架构 + 学习你的编码风格</td></tr>
+<tr><td>🎮 游戏 NPC</td><td>情景 + 语义</td><td>NPC 记住玩家行为，对话动态变化</td></tr>
+<tr><td>📚 RAG 知识库</td><td>语义 + 向量</td><td>混合检索比纯向量更准 20-30%</td></tr>
+<tr><td>🌐 边缘 IoT</td><td>全四种</td><td>~15MB 二进制，ARM 直接跑</td></tr>
+</table>
+
+<blockquote>
+<b>Nebula Agent</b> — <i>让 AI 真正懂你的项目。扫描一次，受益每次对话。</i><br>
+v0.2.0 | Go | 零依赖 | MIT
+</blockquote>
+
+</body>
+</html>

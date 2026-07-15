@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevOps Agent — 模块架构文档</title>
+<style>
+  :root { --bg: #f5f7fa; --border: #d5dce6; --text: #1a2634; --text2: #5a6b7d; --blue: #3b82c4; --teal: #2d9d8e; --warn: #e8a838; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Microsoft YaHei','PingFang SC',sans-serif; background:#fff; color:#1a2634; line-height:1.8; max-width:900px; margin:0 auto; padding:40px 20px; }
+  @media print { body { max-width:100%; padding:20px; font-size:11px; } }
+  h1 { font-size:28px; border-bottom:2px solid #3b82c4; padding-bottom:12px; margin-bottom:8px; color:#1e2d3d; }
+  h1::before { content:'◈ '; color:#3b82c4; }
+  h2 { font-size:20px; margin:32px 0 12px; padding:8px 0; border-bottom:1px solid #d5dce6; color:#3b82c4; }
+  h3 { font-size:16px; margin:20px 0 8px; color:#1e2d3d; }
+  p { margin:8px 0; }
+  code { background:#eef1f6; padding:2px 6px; border-radius:2px; font-family:'Consolas','Monaco',monospace; font-size:13px; }
+  pre { background:#eef1f6; padding:14px 18px; border-radius:4px; overflow-x:auto; margin:12px 0; font-size:13px; border:1px solid #d5dce6; }
+  pre code { background:none; padding:0; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; }
+  th { background:#f0f6fc; padding:8px 12px; text-align:left; border:1px solid #d5dce6; font-weight:600; color:#3b82c4; }
+  td { padding:8px 12px; border:1px solid #d5dce6; }
+  tr:nth-child(even) { background:#fafbfc; }
+  ul, ol { margin:8px 0 8px 24px; }
+  li { margin:4px 0; }
+  strong { color:#1e2d3d; }
+  hr { border:none; border-top:1px solid #d5dce6; margin:24px 0; }
+  .header-line { height:3px; background:linear-gradient(90deg, transparent, #3b82c4, #2d9d8e, #3b82c4, transparent); margin-bottom:24px; }
+  .footer { margin-top:40px; padding-top:16px; border-top:1px solid #d5dce6; text-align:center; color:#8a9bb0; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="header-line"></div>
+<h1>DevOps Agent — 模块架构文档</h1>
+
+<h2>整体架构概览</h2>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│                     DevOps Agent 运维智能体                    │
+├───────────────┬───────────────┬──────────────┬──────────────┤
+│  agent/       │   tools/      │  metrics/    │  analyzer/   │
+│  核心引擎      │  工具调用      │  指标采集     │  日志分析     │
+├───────────────┴───────────────┼──────────────┴──────────────┤
+│          memory/              │          api/               │
+│       Nebula 记忆集成          │       REST API              │
+├───────────────────────────────┴─────────────────────────────┤
+│                       Nebula Agent                           │
+│          LSM Tree + HNSW + BM25 + KV Store                  │
+└─────────────────────────────────────────────────────────────┘</code></pre>
+
+<h2>模块详情</h2>
+
+<h3>1. agent/ — 核心引擎</h3>
+<p><strong>职责</strong>：Agent 生命周期管理、任务编排、工具推荐</p>
+<table>
+<tr><th>文件</th><th>功能</th></tr>
+<tr><td><code>types.go</code></td><td>所有核心类型定义：AgentState、ToolDef、AgentTask、AgentResponse 等</td></tr>
+<tr><td><code>agent.go</code></td><td>DevOpsAgent 主体：Diagnose() 诊断流程、工具引导推荐</td></tr>
+<tr><td><code>tool_registry.go</code></td><td>ToolRegistry：工具注册、查找、执行、按分类列出</td></tr>
+</table>
+
+<h3>2. tools/ — 运维工具实现</h3>
+<table>
+<tr><th>文件</th><th>工具</th><th>平台</th></tr>
+<tr><td><code>system.go</code></td><td>exec_command, get_system_info, list_processes, check_port</td><td>Win+Linux</td></tr>
+<tr><td><code>log.go</code></td><td>search_logs, parse_error_log, tail_log</td><td>Win (PowerShell)</td></tr>
+<tr><td><code>service.go</code></td><td>check_service, restart_service, list_services</td><td>Win+Linux</td></tr>
+</table>
+
+<h3>3. metrics/ — 系统指标采集</h3>
+<table>
+<tr><th>接口方法</th><th>功能</th><th>Win 实现</th><th>Linux 实现</th></tr>
+<tr><td><code>CollectCPU()</code></td><td>CPU 使用率</td><td>Win32_Processor</td><td>/proc/stat</td></tr>
+<tr><td><code>CollectMemory()</code></td><td>内存指标</td><td>Win32_OperatingSystem</td><td>/proc/meminfo</td></tr>
+<tr><td><code>CollectDisk()</code></td><td>磁盘指标</td><td>Win32_LogicalDisk</td><td>df -BG</td></tr>
+<tr><td><code>CollectProcesses()</code></td><td>TOP N 进程</td><td>Get-Process</td><td>ps aux</td></tr>
+</table>
+
+<h3>4. analyzer/ — 日志异常分析</h3>
+<p>规则引擎 + LLM 双层分析。预置 <strong>12 条异常规则</strong>包括：OOM_Killer、DiskFull、ConnectionRefused、ServiceCrash、DBConnectionFail 等。</p>
+
+<h3>5. memory/ — Nebula 记忆集成</h3>
+<table>
+<tr><th>方法</th><th>功能</th></tr>
+<tr><td><code>SaveFault()</code></td><td>双写：情景记忆(JSON) + 语义记忆(解决方案)</td></tr>
+<tr><td><code>SearchSimilarFaults()</code></td><td>混合检索历史故障</td></tr>
+<tr><td><code>SearchSolutions()</code></td><td>检索语义记忆中的解决方案</td></tr>
+<tr><td><code>GetFaultStats()</code></td><td>故障统计信息</td></tr>
+</table>
+
+<h3>6. api/ — REST API 端点</h3>
+<table>
+<tr><th>端点</th><th>方法</th><th>功能</th></tr>
+<tr><td><code>/api/v1/devops/status</code></td><td>GET</td><td>Agent 状态 + 指标</td></tr>
+<tr><td><code>/api/v1/devops/metrics</code></td><td>GET</td><td>系统指标快照</td></tr>
+<tr><td><code>/api/v1/devops/diagnose</code></td><td>POST</td><td>提交诊断任务</td></tr>
+<tr><td><code>/api/v1/devops/tools</code></td><td>GET</td><td>列出所有工具</td></tr>
+<tr><td><code>/api/v1/devops/tools/execute</code></td><td>POST</td><td>执行工具调用</td></tr>
+<tr><td><code>/api/v1/devops/logs/analyze</code></td><td>POST</td><td>日志分析</td></tr>
+<tr><td><code>/api/v1/devops/faults</code></td><td>GET/POST</td><td>故障记录 CRUD</td></tr>
+<tr><td><code>/api/v1/devops/faults/search</code></td><td>POST</td><td>搜索历史故障</td></tr>
+</table>
+
+<h2>数据流</h2>
+
+<h3>诊断流程</h3>
+<pre><code>用户输入 "CPU 使用率过高"
+    │ 1. 关键词分析 → 匹配工具
+    │ 2. 采集系统指标 (CPU/Mem/Disk)
+    │ 3. 搜索历史故障 (向量+关键词)
+    │ 4. 生成诊断报告
+    ▼
+AgentResponse { Diagnosis, MetricsSnapshot, RelatedFaults }</code></pre>
+
+<h3>工具调用流程</h3>
+<pre><code>POST /tools/execute {name:"list_processes", args:{...}}
+    → ToolRegistry.Get("list_processes")
+    → listProcessesTool(args)
+    → ToolResult {Success, Output, Duration}</code></pre>
+
+<div class="footer"><p>◈ DevOps Agent · 模块架构文档 · v0.1.0</p></div>
+</body>
+</html>

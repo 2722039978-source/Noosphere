@@ -1,0 +1,29 @@
+# 敏感配置 - API 密钥等
+config/.env
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# 数据文件
+data/
+*.db
+*.sqlite3
+
+# 日志
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 文档输出
+docs/

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevOps Agent — 系统指标采集模块文档</title>
+<style>
+  :root { --border: #d5dce6; --blue: #3b82c4; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Microsoft YaHei','PingFang SC',sans-serif; background:#fff; color:#1a2634; line-height:1.8; max-width:900px; margin:0 auto; padding:40px 20px; }
+  @media print { body { max-width:100%; padding:20px; font-size:11px; } }
+  h1 { font-size:28px; border-bottom:2px solid #3b82c4; padding-bottom:12px; color:#1e2d3d; }
+  h1::before { content:'◈ '; color:#3b82c4; }
+  h2 { font-size:20px; margin:32px 0 12px; padding:8px 0; border-bottom:1px solid #d5dce6; color:#3b82c4; }
+  h3 { font-size:16px; margin:20px 0 8px; color:#1e2d3d; }
+  code { background:#eef1f6; padding:2px 6px; border-radius:2px; font-family:'Consolas','Monaco',monospace; font-size:13px; }
+  pre { background:#eef1f6; padding:14px 18px; border-radius:4px; overflow-x:auto; margin:12px 0; font-size:13px; border:1px solid #d5dce6; }
+  pre code { background:none; padding:0; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; }
+  th { background:#f0f6fc; padding:8px 12px; text-align:left; border:1px solid #d5dce6; font-weight:600; color:#3b82c4; }
+  td { padding:8px 12px; border:1px solid #d5dce6; }
+  tr:nth-child(even) { background:#fafbfc; }
+  ul { margin:8px 0 8px 24px; }
+  li { margin:4px 0; }
+  .header-line { height:3px; background:linear-gradient(90deg, transparent, #3b82c4, #2d9d8e, #3b82c4, transparent); margin-bottom:24px; }
+  .footer { margin-top:40px; padding-top:16px; border-top:1px solid #d5dce6; text-align:center; color:#8a9bb0; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="header-line"></div>
+<h1>DevOps Agent — 系统指标采集模块文档</h1>
+
+<h2>概述</h2>
+<p>系统指标采集模块负责从操作系统层面采集 <strong>CPU、内存、磁盘、进程</strong> 等运维关键指标，同时支持 Windows 和 Linux 平台。</p>
+
+<h2>架构设计</h2>
+<pre><code>Collector (接口)
+    ▼
+SystemCollector (实现)
+    ├── CollectCPU()      → Win: Win32_Processor / Linux: /proc/stat
+    ├── CollectMemory()   → Win: Win32_OperatingSystem / Linux: /proc/meminfo
+    ├── CollectDisk()     → Win: Win32_LogicalDisk / Linux: df -BG
+    ├── CollectProcesses() → Win: Get-Process / Linux: ps aux
+    └── Collect()         → 聚合以上 + 5秒缓存</code></pre>
+
+<h2>采集指标详情</h2>
+
+<h3>CPU</h3>
+<table><tr><th>字段</th><th>说明</th><th>来源(Win)</th><th>来源(Linux)</th></tr>
+<tr><td>UsagePercent</td><td>使用率 %</td><td>Win32_Processor.LoadPercentage</td><td>/proc/stat 计算</td></tr>
+<tr><td>Cores</td><td>逻辑核心数</td><td>Win32_ComputerSystem</td><td>runtime.NumCPU()</td></tr>
+<tr><td>LoadAvg1/5/15</td><td>平均负载</td><td>N/A</td><td>/proc/loadavg</td></tr></table>
+
+<h3>内存</h3>
+<table><tr><th>字段</th><th>说明</th><th>来源(Win)</th><th>来源(Linux)</th></tr>
+<tr><td>TotalGB</td><td>总内存 GB</td><td>TotalVisibleMemorySize</td><td>/proc/meminfo MemTotal</td></tr>
+<tr><td>UsedGB</td><td>已用内存 GB</td><td>Total - Free</td><td>Total - Available</td></tr>
+<tr><td>AvailableGB</td><td>可用内存 GB</td><td>FreePhysicalMemory</td><td>/proc/meminfo MemAvailable</td></tr>
+<tr><td>UsagePercent</td><td>使用率 %</td><td>Used / Total</td><td>Used / Total</td></tr></table>
+
+<h3>磁盘</h3>
+<table><tr><th>字段</th><th>说明</th></tr>
+<tr><td>TotalGB / UsedGB</td><td>所有固定磁盘聚合总量</td></tr>
+<tr><td>UsagePercent</td><td>使用率 %</td></tr>
+<tr><td>Partitions[]</td><td>各分区详情（盘符/挂载点、容量、使用率）</td></tr></table>
+
+<h3>进程</h3>
+<table><tr><th>字段</th><th>说明</th></tr>
+<tr><td>PID / Name</td><td>进程ID和名称</td></tr>
+<tr><td>CPU / Memory</td><td>CPU使用率(%) / 内存占用(MB)</td></tr>
+<tr><td>Uptime / Status</td><td>运行时长 / 状态(running/not responding)</td></tr></table>
+
+<h2>性能优化</h2>
+<table><tr><th>优化</th><th>实现</th></tr>
+<tr><td>缓存机制</td><td>Collect() 5秒缓存，避免频繁系统调用</td></tr>
+<tr><td>并发安全</td><td>sync.RWMutex 保护缓存读写</td></tr>
+<tr><td>按需采集</td><td>单独采集 CPU/内存/磁盘时跳过缓存</td></tr></table>
+
+<h2>平台适配</h2>
+<table><tr><th>特性</th><th>Windows</th><th>Linux</th></tr>
+<tr><td>命令执行</td><td>PowerShell</td><td>sh -c / systemctl</td></tr>
+<tr><td>CPU 信息</td><td>WMI Win32_Processor</td><td>/proc/stat + /proc/loadavg</td></tr>
+<tr><td>内存信息</td><td>WMI Win32_OperatingSystem</td><td>/proc/meminfo</td></tr>
+<tr><td>磁盘信息</td><td>WMI Win32_LogicalDisk</td><td>df -BG --total</td></tr>
+<tr><td>进程列表</td><td>Get-Process</td><td>ps aux --sort=-%cpu</td></tr>
+</table>
+
+<h2>使用示例</h2>
+<pre><code>// Go 代码
+collector := metrics.NewSystemCollector()
+snapshot, _ := collector.Collect()
+fmt.Printf("CPU: %.1f%%, Mem: %.1f%%", snapshot.CPU.UsagePercent, snapshot.Memory.UsagePercent)
+
+// API 调用
+curl http://localhost:8740/api/v1/devops/metrics
+// → {"cpu":{"usage_percent":45.2}, "memory":{"usage_percent":57.8}, ...}</code></pre>
+
+<div class="footer"><p>◈ DevOps Agent · 指标采集模块文档 · v0.1.0</p></div>
+</body>
+</html>

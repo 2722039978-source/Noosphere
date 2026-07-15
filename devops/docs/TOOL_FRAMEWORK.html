@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevOps Agent — Tool Calling 框架文档</title>
+<style>
+  :root { --bg: #f5f7fa; --border: #d5dce6; --text: #1a2634; --blue: #3b82c4; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Microsoft YaHei','PingFang SC',sans-serif; background:#fff; color:#1a2634; line-height:1.8; max-width:900px; margin:0 auto; padding:40px 20px; }
+  @media print { body { max-width:100%; padding:20px; font-size:11px; } }
+  h1 { font-size:28px; border-bottom:2px solid #3b82c4; padding-bottom:12px; color:#1e2d3d; }
+  h1::before { content:'◈ '; color:#3b82c4; }
+  h2 { font-size:20px; margin:32px 0 12px; padding:8px 0; border-bottom:1px solid #d5dce6; color:#3b82c4; }
+  h3 { font-size:16px; margin:20px 0 8px; color:#1e2d3d; }
+  code { background:#eef1f6; padding:2px 6px; border-radius:2px; font-family:'Consolas','Monaco',monospace; font-size:13px; }
+  pre { background:#eef1f6; padding:14px 18px; border-radius:4px; overflow-x:auto; margin:12px 0; font-size:13px; border:1px solid #d5dce6; }
+  pre code { background:none; padding:0; }
+  table { width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; }
+  th { background:#f0f6fc; padding:8px 12px; text-align:left; border:1px solid #d5dce6; font-weight:600; color:#3b82c4; }
+  td { padding:8px 12px; border:1px solid #d5dce6; }
+  tr:nth-child(even) { background:#fafbfc; }
+  ul { margin:8px 0 8px 24px; }
+  li { margin:4px 0; }
+  .header-line { height:3px; background:linear-gradient(90deg, transparent, #3b82c4, #2d9d8e, #3b82c4, transparent); margin-bottom:24px; }
+  .footer { margin-top:40px; padding-top:16px; border-top:1px solid #d5dce6; text-align:center; color:#8a9bb0; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="header-line"></div>
+<h1>DevOps Agent — Tool Calling 框架文档</h1>
+
+<h2>概述</h2>
+<p>Tool Calling 框架是 DevOps Agent 的核心子系统，实现了系统命令、日志查询、服务管理等运维工具的<strong>注册、发现、推荐和执行</strong>。设计参考 OpenAI Function Calling / Anthropic Tool Use 接口风格，完全自研，零外部依赖。</p>
+
+<h2>核心概念</h2>
+
+<h3>ToolDef — 工具定义</h3>
+<pre><code>type ToolDef struct {
+    Name           string       // 工具名称（唯一标识）
+    Description    string       // 功能描述
+    Category       ToolCategory // system/log/service/network/metrics
+    Parameters     []ToolParam  // 参数列表
+    Examples       []string     // 使用示例
+    RiskLevel      string       // low/medium/high/critical
+    RequireConfirm bool         // 是否需要用户确认
+}</code></pre>
+
+<h3>ToolRegistry — 注册中心</h3>
+<pre><code>type ToolRegistry struct {
+    tools map[string]*ToolEntry  // name → {Def, Func}
+}
+// 核心方法: Register / Execute / ListDefs / ListByCategory</code></pre>
+
+<h3>ToolFunc — 执行函数</h3>
+<pre><code>type ToolFunc func(args map[string]any) (*ToolResult, error)</code></pre>
+
+<h2>工具分类</h2>
+<table>
+<tr><th>分类</th><th>常量</th><th>工具数</th><th>说明</th></tr>
+<tr><td>系统命令</td><td><code>CatSystem</code></td><td>3</td><td>exec_command, get_system_info, list_processes</td></tr>
+<tr><td>日志查询</td><td><code>CatLog</code></td><td>3</td><td>search_logs, parse_error_log, tail_log</td></tr>
+<tr><td>服务管理</td><td><code>CatService</code></td><td>3</td><td>check_service, restart_service, list_services</td></tr>
+<tr><td>网络诊断</td><td><code>CatNetwork</code></td><td>1</td><td>check_port</td></tr>
+</table>
+
+<h2>工具推荐机制</h2>
+<p>基于<strong>关键词匹配评分</strong>：每个工具预置一组关键词，用户查询中匹配到则加分（每个+20分，最高80分）。</p>
+
+<h2>使用方法</h2>
+
+<h3>定义 + 注册工具</h3>
+<pre><code>// 1. 定义
+toolDef := agent.ToolDef{
+    Name: "my_tool", Description: "我的工具",
+    Category: agent.CatSystem,
+    Parameters: []agent.ToolParam{
+        {Name: "target", Type: "string", Required: true},
+    },
+}
+
+// 2. 实现
+func myToolFunc(args map[string]any) (*agent.ToolResult, error) {
+    // 执行运维操作...
+    return &agent.ToolResult{Success: true, Output: "ok"}, nil
+}
+
+// 3. 注册
+agent.Registry().Register(toolDef, myToolFunc)</code></pre>
+
+<h3>API 调用</h3>
+<pre><code>curl -X POST http://localhost:8740/api/v1/devops/tools/execute \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my_tool","args":{"target":"server-01"}}'</code></pre>
+
+<h2>工具调用时序</h2>
+<pre><code>Client → POST /tools/execute → API Handler
+    → ToolRegistry.Execute(ToolCall)
+    → ToolRegistry.Get(name) → ToolEntry
+    → fn(args) → 执行操作
+    → ToolResult → JSON Response</code></pre>
+
+<h2>安全设计</h2>
+<table>
+<tr><th>机制</th><th>说明</th></tr>
+<tr><td>风险等级</td><td>low/medium/high/critical 四级</td></tr>
+<tr><td>RequireConfirm</td><td>高风险操作标记需确认</td></tr>
+<tr><td>超时控制</td><td>ExecuteWithContext() 支持 context 超时</td></tr>
+<tr><td>错误处理</td><td>执行失败返回 ToolResult{Success:false}，不 panic</td></tr>
+</table>
+
+<h2>扩展指南</h2>
+<ol>
+<li>在 <code>tools/</code> 下新建文件实现 <code>ToolFunc</code></li>
+<li>在对应的 <code>Register*Tools</code> 函数中注册</li>
+<li>在主入口调用注册函数</li>
+<li>在 <code>agent/agent.go</code> 的 keywords map 中添加关键词</li>
+</ol>
+
+<div class="footer"><p>◈ DevOps Agent · Tool Calling Framework 文档 · v0.1.0</p></div>
+</body>
+</html>

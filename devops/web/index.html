@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>运维智能体 — DevOps Agent</title>
+  <link rel="stylesheet" href="devops.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%23007AFF'/><stop offset='100%25' stop-color='%2300C7BE'/></linearGradient></defs><rect width='32' height='32' rx='8' fill='url(%23g)'/><text x='16' y='22' text-anchor='middle' fill='white' font-size='18'>◈</text></svg>">
+</head>
+<body>
+  <!-- 滚动进度条 -->
+  <div id="scroll-progress"></div>
+
+  <div class="app">
+    <!-- ═══════════════ 头部导航 ═══════════════ -->
+    <header class="header" data-section="header">
+      <div class="header-inner">
+        <div class="logo-area">
+          <div class="logo-mark">◈</div>
+          <div class="logo-text-block">
+            <h1>运维智能体</h1>
+            <span>DevOps Agent · 莱茵生命技术部</span>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="status-badge" id="status-indicator">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">系统就绪</span>
+          </div>
+          <span class="ver-badge">v0.2.0</span>
+          <button class="btn-icon" id="btn-refresh" title="刷新数据">⟳</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ═══ Project 套件导航 ═══ -->
+    <nav style="background:rgba(242,242,247,0.88);border-bottom:1px solid rgba(0,0,0,0.06);padding:0 20px;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:flex;align-items:center;height:36px;position:sticky;top:0;z-index:98">
+    <div style="max-width:1400px;margin:0 auto;width:100%;display:flex;align-items:center;gap:10px;font-size:11px">
+    <span style="color:rgba(0,0,0,0.25);font-weight:500;letter-spacing:0.03em">PROJECT</span>
+    <a href="http://localhost:8730" style="padding:3px 10px;border-radius:10px;color:rgba(0,0,0,0.5);text-decoration:none;font-weight:500;font-size:11px;transition:.15s" onmouseover="this.style.color='#8B78FF';this.style.background='rgba(139,120,255,0.1)'" onmouseout="this.style.color='rgba(0,0,0,0.5)';this.style.background='transparent'">☁ Nebula</a>
+    <a href="http://localhost:8765" style="padding:3px 10px;border-radius:10px;color:rgba(0,0,0,0.5);text-decoration:none;font-weight:500;font-size:11px;transition:.15s" onmouseover="this.style.color='#3b82c4';this.style.background='rgba(59,130,196,0.1)'" onmouseout="this.style.color='rgba(0,0,0,0.5)';this.style.background='transparent'">◆ CodeLens</a>
+    <a href="http://localhost:8740" style="padding:3px 10px;border-radius:10px;background:rgba(0,122,255,0.12);color:#007AFF;text-decoration:none;font-weight:600;font-size:11px">⎔ DevOps</a>
+    </div>
+    </nav>
+
+    <!-- ═══════════════ Hero 区 ═══════════════ -->
+    <section class="hero" data-section="hero">
+      <div class="hero-bg"></div>
+      <div class="hero-content">
+        <span class="hero-eyebrow">◈ 运维智能体</span>
+        <h1 class="hero-title">
+          让每一次故障<br><span class="hero-accent">都成为经验</span>
+        </h1>
+        <p class="hero-desc">
+          7×24 小时守护你的服务器。智能诊断、自动采集、经验积累——运维从未如此从容。
+        </p>
+        <div class="hero-vitals">
+          <div class="vital-ring-wrap" data-metric="cpu">
+            <div class="vital-ring" id="vital-cpu">
+              <svg viewBox="0 0 64 64">
+                <circle class="vital-ring-bg" cx="32" cy="32" r="28"/>
+                <circle class="vital-ring-fill" id="vital-cpu-fill" cx="32" cy="32" r="28"
+                  stroke="#007AFF" stroke-dasharray="175.93" stroke-dashoffset="175.93"/>
+              </svg>
+              <div class="vital-ring-center" id="vital-cpu-val">--</div>
+            </div>
+            <span class="vital-label">CPU</span>
+          </div>
+          <div class="vital-ring-wrap" data-metric="memory">
+            <div class="vital-ring" id="vital-mem">
+              <svg viewBox="0 0 64 64">
+                <circle class="vital-ring-bg" cx="32" cy="32" r="28"/>
+                <circle class="vital-ring-fill" id="vital-mem-fill" cx="32" cy="32" r="28"
+                  stroke="#34C759" stroke-dasharray="175.93" stroke-dashoffset="175.93"/>
+              </svg>
+              <div class="vital-ring-center" id="vital-mem-val">--</div>
+            </div>
+            <span class="vital-label">内存</span>
+          </div>
+          <div class="vital-ring-wrap" data-metric="disk">
+            <div class="vital-ring" id="vital-disk">
+              <svg viewBox="0 0 64 64">
+                <circle class="vital-ring-bg" cx="32" cy="32" r="28"/>
+                <circle class="vital-ring-fill" id="vital-disk-fill" cx="32" cy="32" r="28"
+                  stroke="#FF9500" stroke-dasharray="175.93" stroke-dashoffset="175.93"/>
+              </svg>
+              <div class="vital-ring-center" id="vital-disk-val">--</div>
+            </div>
+            <span class="vital-label">磁盘</span>
+          </div>
+          <div class="vital-ring-wrap" data-metric="health">
+            <div class="vital-ring" id="vital-health">
+              <svg viewBox="0 0 64 64">
+                <circle class="vital-ring-bg" cx="32" cy="32" r="28"/>
+                <circle class="vital-ring-fill" id="vital-health-fill" cx="32" cy="32" r="28"
+                  stroke="#34C759" stroke-dasharray="175.93" stroke-dashoffset="0"/>
+              </svg>
+              <div class="vital-ring-center" style="font-size:14px;">✓</div>
+            </div>
+            <span class="vital-label">健康</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 系统指标卡片 ═══════════════ -->
+    <section class="reveal" data-section="monitor">
+      <div style="margin-bottom: var(--space-4); display:flex; align-items:center; justify-content:space-between;">
+        <div>
+          <span class="section-eyebrow">实时指标</span>
+          <h2 class="section-title">系统运行状态</h2>
+        </div>
+        <span class="ver-badge" style="font-size:11px;">自动刷新 · 每5s</span>
+      </div>
+      <div class="monitor-grid">
+        <div class="monitor-card glass-card" id="card-cpu" data-metric="cpu" data-arch-node="subsystem-metrics">
+          <div class="card-label">CPU 使用率</div>
+          <div class="card-value" id="stat-cpu">--</div>
+          <div class="card-unit">% / <span id="stat-cores">--</span>核</div>
+          <div class="monitor-bar-wrap"><span class="monitor-bar-fill" id="bar-cpu"></span></div>
+        </div>
+        <div class="monitor-card glass-card" id="card-memory" data-metric="memory" data-arch-node="subsystem-metrics">
+          <div class="card-label">内存使用率</div>
+          <div class="card-value" id="stat-memory">--</div>
+          <div class="card-unit">% / <span id="stat-mem-used">--</span>GB</div>
+          <div class="monitor-bar-wrap"><span class="monitor-bar-fill" id="bar-memory"></span></div>
+        </div>
+        <div class="monitor-card glass-card" id="card-disk" data-metric="disk" data-arch-node="subsystem-metrics">
+          <div class="card-label">磁盘使用率</div>
+          <div class="card-value" id="stat-disk">--</div>
+          <div class="card-unit">% / <span id="stat-disk-used">--</span>GB</div>
+          <div class="monitor-bar-wrap"><span class="monitor-bar-fill" id="bar-disk"></span></div>
+        </div>
+        <div class="monitor-card glass-card" id="card-faults" data-metric="faults" data-arch-node="engine-faults">
+          <div class="card-label">故障记录</div>
+          <div class="card-value" id="stat-faults">--</div>
+          <div class="card-unit">条历史记录</div>
+          <div class="monitor-bar-wrap"><span class="monitor-bar-fill" id="bar-faults"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 主体双栏 ═══════════════ -->
+    <main class="main-grid reveal" data-section="operations">
+      <!-- 左栏：运维操作 -->
+      <section class="operation-panel glass-panel">
+        <div class="panel-header">
+          <div class="panel-dot"></div>
+          <h2>运维操作终端</h2>
+          <span class="panel-badge">协议 v1.0</span>
+        </div>
+
+        <!-- 模式切换 -->
+        <div class="segment-control" style="width:100%; margin-bottom: var(--space-6);" id="mode-segment">
+          <button class="segment-btn active" data-tab="diagnose">
+            <span class="segment-icon">◈</span>智能诊断
+          </button>
+          <button class="segment-btn" data-tab="tools">
+            <span class="segment-icon">🔧</span>工具调用
+          </button>
+          <button class="segment-btn" data-tab="logs">
+            <span class="segment-icon">📋</span>日志分析
+          </button>
+          <button class="segment-btn" data-tab="faults">
+            <span class="segment-icon">📚</span>故障记录
+          </button>
+        </div>
+
+        <!-- 智能诊断 -->
+        <div class="tab-content active" id="tab-diagnose">
+          <div class="form-group">
+            <label class="form-label">描述你遇到的问题</label>
+            <textarea id="diag-query" rows="3" placeholder="例如：服务器 CPU 突然飙升到 95%，网站响应变慢，帮我排查原因……"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">服务器名称</label>
+              <input type="text" id="diag-server" value="prod-server-01" placeholder="服务器名" class="glass-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label">标签（逗号分隔）</label>
+              <input type="text" id="diag-tags" placeholder="cpu, 性能, 紧急" class="glass-input">
+            </div>
+          </div>
+          <button class="btn-primary" id="btn-diagnose" style="width:100%;">
+            <span>◈</span> 开始智能诊断
+          </button>
+          <div class="diagnosis-output" id="diagnosis-output">
+            <div class="terminal-placeholder">等待诊断任务提交……</div>
+          </div>
+        </div>
+
+        <!-- 工具调用 -->
+        <div class="tab-content" id="tab-tools">
+          <div class="form-group">
+            <label class="form-label">选择工具</label>
+            <select id="tool-select">
+              <option value="">-- 请选择运维工具 --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">参数（JSON 格式）</label>
+            <textarea id="tool-args" rows="3" placeholder='{"command": "Get-Process | Sort-Object CPU -Descending | Select-Object -First 5"}'></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">快捷命令</label>
+            <select id="tool-preset" onchange="applyPreset()">
+              <option value="">-- 快捷命令模板 --</option>
+              <option value="sys_info">📊 获取系统信息</option>
+              <option value="top_cpu">🔝 CPU Top 10 进程</option>
+              <option value="top_mem">💾 内存 Top 10 进程</option>
+              <option value="check_8080">🔌 检查 8080 端口</option>
+              <option value="list_services">⚙️ 列出所有服务</option>
+              <option value="parse_errors">🔍 解析错误日志</option>
+            </select>
+          </div>
+          <button class="btn-primary" id="btn-execute-tool" style="width:100%;">
+            <span>▶</span> 执行工具
+          </button>
+          <div class="tool-output" id="tool-output">
+            <div class="terminal-placeholder">工具执行结果将显示在这里……</div>
+          </div>
+        </div>
+
+        <!-- 日志分析 -->
+        <div class="tab-content" id="tab-logs">
+          <div class="form-group">
+            <label class="form-label">日志文件路径</label>
+            <input type="text" id="log-path" placeholder="C:\logs\app.log 或 /var/log/syslog" class="glass-input">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">分析模式</label>
+              <select id="log-mode">
+                <option value="parse">解析错误日志</option>
+                <option value="search">关键词搜索</option>
+                <option value="tail">查看末尾行</option>
+              </select>
+            </div>
+            <div class="form-group" id="log-keyword-group" style="display:none">
+              <label class="form-label">搜索关键词</label>
+              <input type="text" id="log-keyword" placeholder="ERROR / Exception / timeout" class="glass-input">
+            </div>
+          </div>
+          <button class="btn-primary" id="btn-analyze-log" style="width:100%;">
+            <span>📋</span> 开始分析
+          </button>
+          <div class="log-output" id="log-output">
+            <div class="terminal-placeholder">日志分析结果将显示在这里……</div>
+          </div>
+        </div>
+
+        <!-- 故障记录 -->
+        <div class="tab-content" id="tab-faults">
+          <div class="form-group">
+            <label class="form-label">搜索历史故障</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="fault-search-query" placeholder="输入关键词搜索历史故障……" class="glass-input" style="flex:1;">
+              <button class="btn-secondary" id="btn-search-faults">🔍 搜索</button>
+            </div>
+          </div>
+          <div class="fault-stats" id="fault-stats">
+            <span>总计: <strong id="fs-total">--</strong></span>
+            <span class="sev-critical">严重: <strong id="fs-critical">--</strong></span>
+            <span class="sev-high">高危: <strong id="fs-high">--</strong></span>
+            <span class="sev-resolved">已解决: <strong id="fs-resolved">--</strong></span>
+          </div>
+          <div class="fault-list" id="fault-list">
+            <div class="terminal-placeholder">搜索结果显示在这里……</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右栏：进程 + 日志 + 系统参数 -->
+      <aside style="display:flex; flex-direction:column; gap: var(--space-5);">
+        <!-- 进程 TOP -->
+        <div class="glass-panel" style="padding: var(--space-5);">
+          <div class="panel-header" style="margin-bottom: var(--space-3);">
+            <div class="panel-dot"></div>
+            <h2>系统进程监控</h2>
+            <span class="panel-badge">TOP 15</span>
+          </div>
+          <div class="process-header">
+            <span class="ph-name">进程名</span>
+            <span class="ph-pid">PID</span>
+            <span class="ph-core">多核占用</span>
+            <span class="ph-cpu">单核%</span>
+            <span class="ph-mem">内存</span>
+            <span class="ph-bar">负载</span>
+          </div>
+          <div class="process-list" id="process-list">
+            <div class="terminal-placeholder">正在加载进程数据……</div>
+          </div>
+        </div>
+
+        <!-- 事件日志 -->
+        <div class="glass-panel" style="padding: var(--space-5);">
+          <div class="panel-header" style="margin-bottom: var(--space-3);">
+            <div class="panel-dot" style="background: var(--color-success);"></div>
+            <h2>实时事件日志</h2>
+            <span class="panel-badge">Event Stream</span>
+          </div>
+          <div class="log-stream" id="log-stream">
+            <div class="log-entry">
+              <span class="log-time">--:--:--</span>
+              <span class="log-msg">等待系统事件……</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 系统参数 -->
+        <div class="glass-panel" style="padding: var(--space-5);">
+          <div class="panel-header" style="margin-bottom: var(--space-3);">
+            <div class="panel-dot" style="background: var(--color-warning);"></div>
+            <h2>系统参数</h2>
+            <span class="panel-badge">诊断</span>
+          </div>
+          <div class="spec-table" id="spec-table">
+            <div class="spec-row"><span>操作系统</span><span id="sys-os">--</span></div>
+            <div class="spec-row"><span>主机名</span><span id="sys-hostname">--</span></div>
+            <div class="spec-row"><span>CPU 核心数</span><span id="sys-cores">--</span></div>
+            <div class="spec-row"><span>内存总量</span><span id="sys-total-mem">--</span></div>
+            <div class="spec-row"><span>可用工具</span><span id="sys-tools-count">--</span></div>
+            <div class="spec-row"><span>记忆引擎</span><span>Nebula LSM+HNSW</span></div>
+            <div class="spec-row"><span>通信协议</span><span>REST API</span></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- ═══════════════ 架构图展示 ═══════════════ -->
+    <section class="arch-display glass-panel reveal" id="arch-display" data-section="architecture">
+      <div class="arch-header">
+        <div>
+          <span class="section-eyebrow">系统架构</span>
+          <h2>DevOps Agent 运维智能体架构</h2>
+        </div>
+        <span class="arch-hint">— 点击下方切换视图 —</span>
+      </div>
+
+      <div class="arch-viewport" id="arch-viewport">
+        <!-- 视图1: 整体架构 -->
+        <div class="arch-view view-active" id="view-overview">
+          <svg class="arch-svg" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg">
+            <text x="450" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-size="15" fill="#1D1D1F" font-weight="700">DevOps Agent 运维智能体架构</text>
+            <rect x="320" y="38" width="260" height="28" rx="10" fill="rgba(0,122,255,0.06)" stroke="rgba(0,122,255,0.2)" stroke-width="1.2"/>
+            <text x="450" y="57" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#1D1D1F" font-weight="600">用户 / Web 仪表盘 / API</text>
+            <line x1="450" y1="66" x2="450" y2="82" stroke="rgba(0,122,255,0.3)" stroke-width="1"/>
+            <rect x="280" y="82" width="340" height="36" rx="10" fill="rgba(0,122,255,0.1)" stroke="rgba(0,122,255,0.35)" stroke-width="1.5"/>
+            <text x="450" y="105" text-anchor="middle" font-family="system-ui,sans-serif" font-size="13" fill="#1D1D1F" font-weight="700">DevOps Agent 核心引擎</text>
+            <line x1="340" y1="118" x2="180" y2="160" stroke="rgba(0,122,255,0.25)" stroke-width="0.8"/>
+            <line x1="420" y1="118" x2="340" y2="160" stroke="rgba(0,122,255,0.25)" stroke-width="0.8"/>
+            <line x1="500" y1="118" x2="560" y2="160" stroke="rgba(0,122,255,0.25)" stroke-width="0.8"/>
+            <line x1="560" y1="118" x2="730" y2="160" stroke="rgba(0,122,255,0.25)" stroke-width="0.8"/>
+            <rect x="80" y="160" width="200" height="28" rx="8" fill="rgba(0,122,255,0.04)" stroke="rgba(0,122,255,0.2)" stroke-width="1" id="subsystem-metrics" data-metric="cpu"/>
+            <text x="180" y="179" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#1D1D1F" font-weight="600">🖥️ 系统指标采集</text>
+            <rect x="290" y="160" width="200" height="28" rx="8" fill="rgba(0,199,190,0.04)" stroke="rgba(0,199,190,0.2)" stroke-width="1"/>
+            <text x="390" y="179" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#1D1D1F" font-weight="600">🔧 工具调用框架</text>
+            <rect x="500" y="160" width="200" height="28" rx="8" fill="rgba(88,86,214,0.04)" stroke="rgba(88,86,214,0.2)" stroke-width="1"/>
+            <text x="600" y="179" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#1D1D1F" font-weight="600">📋 日志异常分析</text>
+            <rect x="180" y="196" width="200" height="20" rx="6" fill="rgba(0,0,0,0.02)" stroke="rgba(0,0,0,0.06)"/>
+            <text x="280" y="210" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#86868B">CPU / 内存 / 磁盘 / 进程</text>
+            <rect x="500" y="196" width="200" height="20" rx="6" fill="rgba(0,0,0,0.02)" stroke="rgba(0,0,0,0.06)"/>
+            <text x="600" y="210" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#86868B">规则引擎 + LLM 推理</text>
+            <rect x="280" y="238" width="340" height="28" rx="8" fill="rgba(52,199,89,0.06)" stroke="rgba(52,199,89,0.25)" stroke-width="1.2" id="engine-faults" data-metric="faults"/>
+            <text x="450" y="257" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#34C759" font-weight="600">🧠 Nebula 记忆引擎 (故障记录存储)</text>
+            <line x1="340" y1="216" x2="400" y2="238" stroke="rgba(52,199,89,0.3)" stroke-width="0.8" stroke-dasharray="4,3"/>
+            <line x1="560" y1="216" x2="500" y2="238" stroke="rgba(52,199,89,0.3)" stroke-width="0.8" stroke-dasharray="4,3"/>
+            <rect x="320" y="280" width="260" height="28" rx="8" fill="rgba(255,149,0,0.05)" stroke="rgba(255,149,0,0.2)" stroke-width="1"/>
+            <text x="450" y="299" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#FF9500" font-weight="600">LLM 推理 (故障分析 + 解决方案生成)</text>
+            <line x1="450" y1="266" x2="450" y2="280" stroke="rgba(255,149,0,0.3)" stroke-width="0.6"/>
+          </svg>
+        </div>
+
+        <!-- 视图2: 工具调用流程 -->
+        <div class="arch-view" id="view-tool-flow">
+          <svg class="arch-svg" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg">
+            <text x="450" y="22" text-anchor="middle" font-family="system-ui,sans-serif" font-size="15" fill="#1D1D1F" font-weight="700">Tool Calling 框架 — 动态工具调用流程</text>
+            <rect x="30" y="45" width="160" height="45" rx="10" fill="rgba(0,122,255,0.04)" stroke="rgba(0,122,255,0.25)" stroke-width="1.5"/>
+            <text x="110" y="63" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#007AFF" font-weight="700">① 用户输入</text>
+            <text x="110" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#86868B">运维问题描述</text>
+            <text x="210" y="68" text-anchor="middle" font-size="14" fill="#007AFF">→</text>
+            <rect x="230" y="45" width="160" height="45" rx="10" fill="rgba(0,122,255,0.04)" stroke="rgba(0,122,255,0.25)" stroke-width="1.5"/>
+            <text x="310" y="63" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#007AFF" font-weight="700">② 工具匹配</text>
+            <text x="310" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#86868B">关键词→工具推荐</text>
+            <text x="410" y="68" text-anchor="middle" font-size="14" fill="#007AFF">→</text>
+            <rect x="430" y="45" width="160" height="45" rx="10" fill="rgba(0,122,255,0.04)" stroke="rgba(0,122,255,0.25)" stroke-width="1.5"/>
+            <text x="510" y="63" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#007AFF" font-weight="700">③ 权限检查</text>
+            <text x="510" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#86868B">风险等级 + 确认</text>
+            <text x="610" y="68" text-anchor="middle" font-size="14" fill="#007AFF">→</text>
+            <rect x="630" y="45" width="160" height="45" rx="10" fill="rgba(0,199,190,0.06)" stroke="rgba(0,199,190,0.3)" stroke-width="1.5"/>
+            <text x="710" y="63" text-anchor="middle" font-family="system-ui,sans-serif" font-size="10" fill="#00C7BE" font-weight="700">④ 执行 & 返回</text>
+            <text x="710" y="80" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#86868B">PowerShell / Shell</text>
+            <text x="450" y="128" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="#1D1D1F" font-weight="600">—— 工具分类 ——</text>
+            <rect x="40" y="155" width="150" height="48" rx="8" fill="rgba(0,122,255,0.03)" stroke="rgba(0,122,255,0.15)"/>
+            <text x="115" y="174" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#007AFF" font-weight="600">🖥️ 系统命令</text>
+            <text x="115" y="192" text-anchor="middle" font-size="7" fill="#86868B">exec / top / df / ps</text>
+            <rect x="205" y="155" width="150" height="48" rx="8" fill="rgba(0,122,255,0.03)" stroke="rgba(0,122,255,0.15)"/>
+            <text x="280" y="174" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#007AFF" font-weight="600">📋 日志查询</text>
+            <text x="280" y="192" text-anchor="middle" font-size="7" fill="#86868B">search / parse / tail</text>
+            <rect x="370" y="155" width="150" height="48" rx="8" fill="rgba(0,122,255,0.03)" stroke="rgba(0,122,255,0.15)"/>
+            <text x="445" y="174" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#007AFF" font-weight="600">⚙️ 服务管理</text>
+            <text x="445" y="192" text-anchor="middle" font-size="7" fill="#86868B">check / restart / list</text>
+            <rect x="535" y="155" width="150" height="48" rx="8" fill="rgba(0,122,255,0.03)" stroke="rgba(0,122,255,0.15)"/>
+            <text x="610" y="174" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#007AFF" font-weight="600">🌐 网络诊断</text>
+            <text x="610" y="192" text-anchor="middle" font-size="7" fill="#86868B">port / netstat / ping</text>
+            <rect x="700" y="155" width="150" height="48" rx="8" fill="rgba(0,122,255,0.03)" stroke="rgba(0,122,255,0.15)"/>
+            <text x="775" y="174" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#007AFF" font-weight="600">📊 指标采集</text>
+            <text x="775" y="192" text-anchor="middle" font-size="7" fill="#86868B">CPU/Mem/Disk/Proc</text>
+            <rect x="200" y="235" width="500" height="55" rx="8" fill="rgba(52,199,89,0.04)" stroke="rgba(52,199,89,0.2)"/>
+            <text x="450" y="256" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" fill="#34C759" font-weight="600">故障解决后自动保存到 Nebula Memory</text>
+            <text x="450" y="276" text-anchor="middle" font-family="system-ui,sans-serif" font-size="8" fill="#86868B">情景记忆(完整故障) → 语义记忆(解决方案知识) → 混合检索(相似故障匹配)</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="arch-dots" id="arch-dots">
+        <button class="arch-dot active" data-view="view-overview">整体架构</button>
+        <button class="arch-dot" data-view="view-tool-flow">工具调用流程</button>
+      </div>
+    </section>
+
+    <!-- ═══════════════ 底部 ═══════════════ -->
+    <footer class="footer" data-section="footer">
+      <div class="footer-divider"></div>
+      <span class="footer-inner">◈ DevOps Agent · 莱茵生命运维智能体 · 机密文件 · v0.2.0</span>
+    </footer>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="devops.js"></script>
+</body>
+</html>

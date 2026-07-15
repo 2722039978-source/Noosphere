@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ════════════════════════════════════════════════════
+   Noosphere 设计系统
+   Apple 的留白与克制 × 罗德岛终端的冷峻工业感
+   ════════════════════════════════════════════════════ */
+
+:root {
+  --void: #050505;
+  --graphite: #151515;
+  --tech: #00a8ff;
+  --frost: #f5f5f7;
+  /* HUD 角标参数 —— 银白取景框，蓝色不再作为背景装饰 */
+  --hud-c: rgba(245, 245, 247, 0.3);
+  --hud-s: 14px;
+  --hud-w: 1.5px;
+}
+
+html {
+  scroll-behavior: auto; /* 交给 Lenis 接管 */
+}
+
+body {
+  @apply bg-void text-frost antialiased;
+  font-feature-settings: "ss01", "cv11";
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgba(0, 168, 255, 0.35);
+  color: var(--frost);
+}
+
+/* ── 终端风滚动条 ── */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--void);
+}
+::-webkit-scrollbar-thumb {
+  background: #26292e;
+  border: 3px solid var(--void);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--tech);
+}
+
+@layer components {
+  /* ── 玻璃拟态面板 ── */
+  .glass {
+    @apply border border-white/[0.08] bg-white/[0.03] backdrop-blur-xl;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 24px 64px -24px rgba(0, 0, 0, 0.8);
+  }
+  .glass-strong {
+    @apply border border-white/[0.1] bg-[#0b0d10]/70 backdrop-blur-2xl;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.08),
+      0 32px 80px -32px rgba(0, 0, 0, 0.9);
+  }
+
+  /* ── 明日方舟式 HUD 四角括号 ──
+     8 个渐变各画一条短边，组成四个角的战术取景框 */
+  .hud-corners {
+    background-image: linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c)),
+      linear-gradient(var(--hud-c), var(--hud-c));
+    background-repeat: no-repeat;
+    background-size:
+      var(--hud-s) var(--hud-w), var(--hud-w) var(--hud-s),
+      var(--hud-s) var(--hud-w), var(--hud-w) var(--hud-s),
+      var(--hud-s) var(--hud-w), var(--hud-w) var(--hud-s),
+      var(--hud-s) var(--hud-w), var(--hud-w) var(--hud-s);
+    background-position:
+      top left, top left,
+      top right, top right,
+      bottom left, bottom left,
+      bottom right, bottom right;
+  }
+
+  /* ── HUD 小标签：等宽字体 + 超宽字距（银灰，蓝色只留给品牌与关键数据）── */
+  .hud-label {
+    @apply font-mono text-[10px] uppercase tracking-hud text-silver/70;
+  }
+
+  /* ── 科技网格底纹 ── */
+  .tech-grid-bg {
+    @apply bg-tech-grid bg-grid;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 30%, transparent 75%);
+  }
+
+  /* ── 扫描线 hover（导航用）── */
+  .nav-scan {
+    position: relative;
+    overflow: hidden;
+  }
+  .nav-scan::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 40%,
+      rgba(245, 245, 247, 0.1) 50%,
+      transparent 60%
+    );
+    transform: translateX(-120%);
+    transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .nav-scan:hover::after {
+    transform: translateX(120%);
+  }
+
+  /* ── 文字辉光 —— 以冷白为主，仅保留轻微蓝色余晖 ── */
+  .text-glow {
+    text-shadow:
+      0 0 16px rgba(245, 245, 247, 0.18),
+      0 0 40px rgba(0, 168, 255, 0.12);
+  }
+
+  /* ── 胶片颗粒噪点（提升"材质感"，避免纯色廉价感）── */
+  .noise::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    opacity: 0.028;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/* ── 尊重系统"减弱动态效果"设置 ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

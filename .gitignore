@@ -1,0 +1,49 @@
+# ═══════════ 密钥与本地配置（绝不入库）═══════════
+.env
+**/.env
+*.local
+
+# ═══════════ 二进制与构建产物 ═══════════
+*.exe
+*.dll
+*.so
+*.dylib
+dist/
+build/
+/out/
+
+# ═══════════ 运行时数据 ═══════════
+codelens/data/*
+!codelens/data/lsm_store/
+codelens/data/lsm_store/*
+!codelens/data/lsm_store/.gitkeep
+!codelens/data/vector_store/
+codelens/data/vector_store/*
+!codelens/data/vector_store/.gitkeep
+nebula-data/
+devops-memory/
+*.wal
+*.db
+*.sqlite3
+
+# ═══════════ Python ═══════════
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# ═══════════ Go ═══════════
+vendor/
+
+# ═══════════ Node / Next.js ═══════════
+node_modules/
+.next/
+
+# ═══════════ IDE / 系统 ═══════════
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.claude/
