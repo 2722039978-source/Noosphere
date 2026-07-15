@@ -1,11 +1,10 @@
 <div align="center">
 
-<img src="docs/icon.svg" alt="Noosphere" width="80" />
+<img src="web/public/logo.svg" alt="Noosphere" width="120" />
 
-# Noosphere
+# Noosphere（智慧圈）
 
-### An AI Operating Platform
-#### for Personalized Development, Memory &amp; Operations Intelligence
+### 一个持续学习、拥有记忆、与你共同成长的 AI 操作系统
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev)
@@ -14,502 +13,440 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-> *Not a single AI Agent. An AI Operating Platform that learns, remembers, and grows with you.*
+> *不是单个 AI Agent。是一个会学习、能记忆、陪你成长的 AI 操作系统。*
 
-[Getting Started](#-getting-started) ·
-[Architecture](#-platform-architecture) ·
-[Workspaces](#-workspaces) ·
+[快速开始](#-快速开始) ·
+[平台架构](#-平台架构) ·
+[工作区介绍](#-四个工作区) ·
 [AI Gateway](#-ai-gateway) ·
-[Documentation](docs/) ·
-[Contributing](CONTRIBUTING.md)
+[文档](docs/) ·
+[贡献指南](CONTRIBUTING.md)
 
 </div>
 
 ---
 
-## What is Noosphere?
+## Noosphere 是什么？
 
-Noosphere is a **unified AI Operating Platform** born from the evolution of multiple independent AI projects. As each project grew, we discovered the same capabilities being built over and over:
+Noosphere 不是一夜之间设计出来的。它是**演化出来的**。
 
-| Repeated Capability | Result |
-|---------------------|--------|
-| Model calling logic in every service | **AI Gateway** — unified model infrastructure |
-| Memory &amp; context management scattered everywhere | **Nebula** — centralized memory engine |
-| User preferences stored ad-hoc | **Workspace Model** — structured personalization |
-| Tool execution built per-project | **Shared SDK** — reusable agent toolkit |
+最初只是一个"让 AI 学会我的编码风格"的实验。后来加了记忆引擎、加了运维工具——每个项目都是独立的，各自运行在自己的端口上，各自调用各自的模型 API。
 
-Rather than maintaining four separate AI tools, we abstracted the shared infrastructure and built a **platform**.
+直到我们发现自己在三个项目里**写了三遍完全相同的代码**：
 
-```
-Small Projects  →  Shared Capabilities  →  Platform Abstraction  →  Noosphere
-```
+| 重复的能力 | 导致的后果 |
+|-----------|-----------|
+| 模型调用逻辑散落在每个服务里 | **AI Gateway** — 统一模型基础设施 |
+| 记忆和上下文管理各自为政 | **Nebula** — 集中式记忆引擎 |
+| 用户偏好到处 ad-hoc 存储 | **Workspace 模型** — 结构化个性化 |
+| 工具执行每个项目自己造一遍 | **共享 SDK** — 可复用的 Agent 工具集 |
 
----
-
-## Platform Architecture
+与其维护四个独立 AI 工具，不如把共享的基础设施抽象出来，建成一个**平台**。
 
 ```
-                          Noosphere AI Platform
-                               (:3000)
-    ┌─────────────────────────────────────────────────────────────┐
-    │                                                             │
-    │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
-    │   │ CodeLens │  │  Nebula  │  │OpsToolkit│  │AI Gateway │ │
-    │   │Developer │  │ Memory   │  │  AIOps   │  │Platform   │ │
-    │   │Intellig. │  │ Engine   │  │Workspace │  │Infrastr.  │ │
-    │   │Workspace │  │          │  │          │  │  (Settings)│ │
-    │   └────┬─────┘  └────┬─────┘  └────┬─────┘  └─────┬─────┘ │
-    │        │             │             │              │        │
-    │        └─────────────┼─────────────┼──────────────┘        │
-    │                      │             │                       │
-    │               ┌──────▼─────────────▼───────┐               │
-    │               │    AI Gateway SDK          │               │
-    │               │    (Go / Python / TS)      │               │
-    │               └─────────────┬──────────────┘               │
-    │                             │                              │
-    └─────────────────────────────┼──────────────────────────────┘
-                                  │
-                    ┌─────────────┼─────────────┐
-                    ▼             ▼             ▼
-              ┌─────────┐  ┌──────────┐  ┌──────────┐
-              │OpenAI   │  │DeepSeek  │  │Ollama    │
-              │Claude   │  │Gemini    │  │Custom API│
-              └─────────┘  └──────────┘  └──────────┘
-```
-
-**Every Workspace calls models through the AI Gateway SDK. No direct API access. One configuration, everywhere.**
-
----
-
-## Workspaces
-
-Noosphere is organized into **Workspaces** — each a dedicated AI-powered environment for a specific domain.
-
-### 🔍 CodeLens — Developer Intelligence Workspace
-
-> *Let AI learn to code like you do.*
-
-CodeLens doesn't just analyze code. It **learns your development persona**: naming conventions, error handling patterns, architectural preferences, and coding habits. Over time, it generates code that matches your style — not generic "best practices."
-
-| Capability | Description |
-|------------|-------------|
-| Style Learning | Detects naming conventions, formatting, and idiom preferences |
-| Project Structure Analysis | Builds AST-based knowledge graphs with call chains and dependency maps |
-| Behavioral Profile | Remembers how you handle errors, structure modules, and organize imports |
-| Personalized Generation | Generates code matching your established patterns |
-
-**Goal:** Make AI-generated code pass your review on the first attempt.
-
----
-
-### ☁️ Nebula Agent — Memory Engine
-
-> *Long-term memory as a core platform capability.*
-
-Nebula is the **memory backbone** of Noosphere. Every Workspace, every conversation, every learned preference is stored, indexed, and retrievable. Agent sessions persist across restarts. Context is managed automatically.
-
-| Memory Type | Purpose | TTL |
-|-------------|---------|-----|
-| Working Memory | Active task context | Session |
-| Episodic Memory | Past interactions &amp; decisions | Permanent |
-| Semantic Memory | Learned facts &amp; patterns | Permanent |
-| Procedural Memory | Learned workflows &amp; skills | Permanent |
-
-**Goal:** Enable AI that remembers yesterday's work, picks up interrupted tasks, and grows more helpful over time.
-
----
-
-### ⚙️ Ops Toolkit — AIOps Workspace
-
-> *Reduce the cognitive load of operations.*
-
-Log analysis, service monitoring, fault diagnosis — all powered by AI with access to your system's history. The Ops Toolkit correlates current incidents with past resolutions stored in Nebula's memory.
-
-| Capability | Description |
-|------------|-------------|
-| Log Analysis | Pattern-aware log parsing with anomaly detection |
-| Service Monitoring | Real-time metrics collection (CPU, memory, disk, network) |
-| Fault Diagnosis | Compares current incidents against stored fault history |
-| Automated Remediation | Suggests (and optionally executes) verified fixes |
-
-**Goal:** "How did we fix this last time?" — answered instantly.
-
----
-
-### 🔑 AI Gateway — Platform Infrastructure
-
-> *Model capabilities decoupled from business logic.*
-
-AI Gateway is **not a product**. It is platform infrastructure — accessible from `Settings → AI Gateway` in the platform navigation. Configure once, usable from every Workspace.
-
-| Feature | Description |
-|---------|-------------|
-| Multi-Provider | OpenAI · Claude · Gemini · DeepSeek · Ollama · Custom API |
-| Unified SDK | `chat()` / `streamChat()` / `vision()` / `embedding()` |
-| Model Testing | One-click connectivity check with latency &amp; token stats |
-| Call Logging | Full audit trail: every request, response, and error |
-| Token Analytics | Per-model and per-workspace usage statistics |
-| API Doc Import | Parse Swagger / OpenAPI / Markdown into structured endpoints |
-
-```
-CodeLens ──┐
-Nebula  ──┤── AI Gateway SDK ──► Your Models
-OpsToolkit─┘
+小项目  →  发现能力重复  →  抽象基础设施  →  Noosphere 平台
 ```
 
 ---
 
-## How It Works: A Day in the Life
+## 平台架构
+
+```
+                       Noosphere AI Platform
+                            (:3000 单一入口)
+ ┌──────────────────────────────────────────────────────────────┐
+ │                                                              │
+ │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
+ │  │ CodeLens │  │  Nebula  │  │  DevOps  │  │ AI Gateway │  │
+ │  │ 开发者   │  │  记忆    │  │  运维    │  │  平台基础  │  │
+ │  │ 智能工作区│  │  引擎    │  │  工作区  │  │  (系统设置) │  │
+ │  └────┬─────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘  │
+ │       │             │             │              │          │
+ │       └─────────────┼─────────────┼──────────────┘          │
+ │                     │             │                         │
+ │              ┌──────▼─────────────▼───────┐                 │
+ │              │     AI Gateway SDK         │                 │
+ │              │   (Go / Python / TS)       │                 │
+ │              └─────────────┬──────────────┘                 │
+ └────────────────────────────┼────────────────────────────────┘
+                              │
+                 ┌────────────┼────────────┐
+                 ▼            ▼            ▼
+           ┌─────────┐  ┌──────────┐  ┌──────────┐
+           │OpenAI   │  │DeepSeek  │  │Ollama    │
+           │Claude   │  │Gemini    │  │自定义 API│
+           └─────────┘  └──────────┘  └──────────┘
+```
+
+**所有工作区通过 AI Gateway SDK 调用模型。不直连。一处配置，全局生效。**
+
+---
+
+## 四个工作区
+
+### 🔍 CodeLens — 开发者智能工作区
+
+> 让 AI 学会像你一样写代码。
+
+CodeLens 不只是分析代码。它**学习你的开发人格**：命名习惯、错误处理模式、架构偏好。久而久之，它生成的代码带着你的风格——不是泛泛的"最佳实践"。
+
+- 风格学习：检测命名规范、格式化偏好、惯用写法
+- 项目分析：基于 AST 构建调用链和依赖图谱
+- 行为画像：记住你如何处理错误、组织模块、管理导入
+- 个性化生成：生成符合你个人模式的代码
+
+**目标：AI 生成的代码一次过审。**
+
+---
+
+### ☁️ Nebula Agent — 记忆引擎
+
+> 长期记忆是平台的核心能力，不是附加功能。
+
+Nebula 是 Noosphere 的**记忆主干**。每个工作区、每次对话、每条学到的偏好——全部存储、索引、可检索。会话跨重启持久化。上下文自动管理。
+
+| 记忆类型 | 用途 | 生命周期 |
+|---------|------|---------|
+| 工作记忆 | 当前任务上下文 | 会话级（默认 5 分钟） |
+| 情景记忆 | 过去的交互与决策 | 永久 |
+| 语义记忆 | 学到的事实与模式 | 永久 |
+| 程序记忆 | 掌握的工作流与技能 | 永久 |
+
+**目标：AI 记得昨天做了什么、能接续中断的任务、越用越聪明。**
+
+---
+
+### ⚙️ DevOps — 运维智能工作区
+
+> 降低运维的心智负担。
+
+日志分析、服务监控、故障诊断——全部 AI 驱动，且能访问你系统的历史记录。DevOps 会把当前故障与 Nebula 中存储的历史解决方案做关联匹配。
+
+- 日志分析：模式感知的日志解析与异常检测
+- 服务监控：实时采集 CPU / 内存 / 磁盘 / 网络
+- 故障诊断：当前故障与历史故障库自动比对
+- 自动修复：建议（并可选择执行）已验证的修复方案
+
+**目标："上次这个报错怎么修的？"——瞬间回答。**
+
+---
+
+### 🔑 AI Gateway — 平台基础设施
+
+> 模型能力与业务逻辑解耦。不是产品，是基础设施。
+
+AI Gateway 不作为独立产品存在。它是平台的**系统设置模块**，入口在导航栏的 Settings 图标 → `/settings/model`。配置一次，所有工作区共用。
+
+| 能力 | 说明 |
+|------|------|
+| 多提供商 | OpenAI · Claude · Gemini · DeepSeek · Ollama · 自定义 API |
+| 统一 SDK | `chat()` / `streamChat()` / `vision()` / `embedding()` |
+| 连接测试 | 一键测试延迟 + Token 统计 |
+| 调用日志 | 完整审计：每次请求、响应、错误 |
+| Token 分析 | 按模型、按工作区的用量统计 |
+
+---
+
+## 平台中的一天
 
 ```text
-08:00 — You open Noosphere. Nebula restores yesterday's context.
-        The task you were working on is right where you left it.
+08:00 — 打开 Noosphere。Nebula 自动恢复了昨天的上下文，
+        上次改到一半的任务就在眼前。
 
-09:15 — You ask CodeLens to refactor the auth module. It knows
-        you prefer explicit error returns over exceptions. It knows
-        your team's naming conventions. The generated code matches.
+09:15 — 让 CodeLens 重构 auth 模块。它知道你喜欢显式 error
+        返回而不是异常。知道团队的命名规范。生成的代码很对味。
 
-11:30 — An alert fires. Ops Toolkit identifies the pattern, searches
-        Nebula's fault memory, and surfaces the resolution from
-        an incident three weeks ago. Diagnosis time: 30 seconds.
+11:30 — 告警响了。DevOps 识别出故障模式，在 Nebula 的故障记忆
+        中匹配到三周前的一次类似事件。诊断耗时：30 秒。
 
-14:00 — You add a new Claude API key in AI Gateway settings.
-        All three Workspaces now have access. No code changes needed.
+14:00 — 在 AI Gateway 设置中新增了一个 Claude API Key。
+        三个工作区立刻都能用了。零代码改动。
 
-16:00 — Nebula has been learning all day. Your preferences,
-        decisions, and patterns are stored. Tomorrow, it starts
-        from where you left off — not from zero.
+16:00 — Nebula 已经学了一整天。你的偏好、决策、模式都存下来了。
+        明天打开平台，它从昨天结束的地方开始——不是从零开始。
 ```
 
 ---
 
-## Getting Started
+## 快速开始
 
-### Prerequisites
+### 环境要求
 
-| Tool | Version | Check |
-|------|---------|-------|
+| 工具 | 版本 | 检查命令 |
+|------|------|---------|
 | **Go** | 1.26+ | `go version` |
 | **Python** | 3.10+ | `python --version` |
 | **Node.js** | 20+ | `node --version` |
-| **Docker** (optional) | latest | `docker --version` |
+| **Docker**（可选） | latest | `docker --version` |
 
-### One-Click Launch
+### 一键启动
 
 ```bash
 cd Noosphere
 
-# Configure your LLM API key
+# 配置 API Key
 copy .env.example .env
-# Edit .env → add your DEEPSEEK_API_KEY
-# (Or configure later via Settings → AI Gateway in the UI)
+# 编辑 .env → 填入 DEEPSEEK_API_KEY
+# 或在平台 UI 中配置：Settings → AI Gateway
 
-# Launch everything
+# 一键启动全部服务
 start.bat
 ```
 
-This opens 4 terminal windows — one per service. Visit **http://localhost:3000**.
+会打开 4 个终端窗口。访问 **http://localhost:3000**。
 
-### Manual Launch
+### 手动启动
 
-If `start.bat` doesn't work on your system, start each service in its own terminal:
+如果 `start.bat` 不适用，依次打开 4 个终端：
 
-**Terminal 1 — Nebula (:8730):**
+**终端 1 — Nebula（记忆引擎 `:8730`）：**
 ```bash
 cd nebula
 go run ./cmd/nebula-server --data ./nebula-data --port 8730
 ```
 
-**Terminal 2 — DevOps (:8740):**
+**终端 2 — DevOps（运维工作区 `:8740`）：**
 ```bash
 cd devops
 go run ./cmd/devops-server --port 8740
 ```
 
-**Terminal 3 — CodeLens (:8765):**
+**终端 3 — CodeLens（开发者工作区 `:8765`）：**
 ```bash
 cd codelens
-pip install -r requirements.txt        # first time only
-copy config\.env.example config\.env   # first time only
+pip install -r requirements.txt        # 首次运行
+copy config\.env.example config\.env   # 首次运行
 python -m src.main serve
 ```
 
-**Terminal 4 — Platform Frontend (:3000):**
+**终端 4 — 平台前端（`:3000`）：**
 ```bash
 cd web
-npm install       # first time only
+npm install       # 首次运行
 npm run dev
 ```
 
-### Docker Compose
+### Docker 部署
 
 ```bash
 docker compose up -d
 ```
 
-### Access
+### 访问地址
 
-| URL | What |
-|-----|------|
-| `http://localhost:3000` | **Noosphere Platform** — Dashboard · Workspaces · Settings |
-| `http://localhost:3000/codelens` | CodeLens Workspace |
-| `http://localhost:3000/nebula` | Nebula Workspace |
-| `http://localhost:3000/devops` | Ops Toolkit Workspace |
-| `http://localhost:3000/settings/model` | AI Gateway Configuration |
+| 地址 | 内容 |
+|------|------|
+| `http://localhost:3000` | 🏠 **平台首页** — Dashboard + 状态总览 |
+| `http://localhost:3000/codelens` | 🔍 CodeLens 开发者工作区 |
+| `http://localhost:3000/nebula` | ☁️ Nebula 记忆引擎 |
+| `http://localhost:3000/devops` | ⚙️ DevOps 运维工作区 |
+| `http://localhost:3000/settings/model` | 🔑 AI Gateway 模型配置 |
 
-> **One port, one platform.** Backend APIs run internally — users never need to know about `:8765`, `:8730`, or `:8740`.
-
-<details>
-<summary><b>CodeLens</b> (Python 3.10+)</summary>
-
-```bash
-cd codelens
-pip install -r requirements.txt
-cp config/.env.example config/.env
-python -m src.main serve
-# API: http://localhost:8765  ·  Docs: http://localhost:8765/docs
-```
-</details>
-
-<details>
-<summary><b>Nebula Engine</b> (Go 1.26+)</summary>
-
-```bash
-cd nebula
-export DEEPSEEK_API_KEY=sk-xxx    # or: set DEEPSEEK_API_KEY=sk-xxx
-go run ./cmd/nebula-server --data ./nebula-data --port 8730
-# API + Dashboard: http://localhost:8730
-```
-</details>
-
-<details>
-<summary><b>Ops Toolkit</b> (Go 1.26+)</summary>
-
-```bash
-cd devops
-go run ./cmd/devops-server --port 8740
-# API + Dashboard: http://localhost:8740/web/
-```
-</details>
+> **一个端口。一个平台。** 后端服务（`:8765` `:8730` `:8740`）只对内，用户无需关心。
 
 ---
 
-## Technical Architecture
+## 技术架构
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
-│                    PRESENTATION LAYER                    │
+│                    表现层                                │
 │  Next.js 14 · React 18 · TypeScript · Three.js · GSAP   │
 │  Tailwind CSS · Framer Motion · Lucide Icons            │
-│  Single Port (:3000) · App Router · SSR                 │
+│  统一端口 (:3000) · App Router                          │
 ├──────────────────────────────────────────────────────────┤
-│                    WORKSPACE LAYER                       │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │  CodeLens   │  │   Nebula     │  │  Ops Toolkit   │  │
-│  │  Python     │  │   Go         │  │  Go            │  │
-│  │  :8765      │  │   :8730      │  │  :8740         │  │
-│  └──────┬──────┘  └──────┬───────┘  └───────┬────────┘  │
-├─────────┼────────────────┼──────────────────┼────────────┤
-│         └────────────────┼──────────────────┘            │
-│                   ┌──────▼──────┐                        │
-│                   │ AI Gateway  │   Platform Infra       │
-│                   │ SDK + API   │   (included, not       │
-│                   │ Route       │    standalone)         │
-│                   └─────────────┘                        │
+│                    工作区层                              │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────┐    │
+│  │  CodeLens  │  │   Nebula   │  │    DevOps      │    │
+│  │  Python    │  │   Go       │  │    Go          │    │
+│  │  :8765     │  │   :8730    │  │    :8740       │    │
+│  └─────┬──────┘  └─────┬──────┘  └──────┬─────────┘    │
+├────────┼───────────────┼─────────────────┼──────────────┤
+│        └───────────────┼─────────────────┘              │
+│                 ┌──────▼──────┐                          │
+│                 │ AI Gateway  │   平台基础设施           │
+│                 │ /settings/  │   系统设置模块           │
+│                 │   model     │   非独立服务             │
+│                 └─────────────┘                          │
 ├──────────────────────────────────────────────────────────┤
-│                    INFRASTRUCTURE LAYER                   │
-│  ┌────────────┐  ┌───────────┐  ┌──────────────────┐    │
-│  │ LSM-Tree   │  │ HNSW      │  │ NetworkX         │    │
-│  │ (WAL+SST)  │  │ Vector    │  │ Knowledge Graph  │    │
-│  │ Go/Python  │  │ Index     │  │ Python           │    │
-│  └────────────┘  └───────────┘  └──────────────────┘    │
-│  ┌────────────┐  ┌───────────┐  ┌──────────────────┐    │
-│  │ ChromaDB   │  │ BM25      │  │ RRF Fusion       │    │
-│  │ Vector DB  │  │ Keyword   │  │ Hybrid Search    │    │
-│  └────────────┘  └───────────┘  └──────────────────┘    │
+│                    基础设施层                            │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────────┐     │
+│  │ LSM-Tree │  │ HNSW      │  │ NetworkX         │     │
+│  │ WAL+SST  │  │ 向量索引  │  │ 知识图谱         │     │
+│  │ Go/Python│  │ Go/Python │  │ Python           │     │
+│  └──────────┘  └───────────┘  └──────────────────┘     │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────────┐     │
+│  │ ChromaDB │  │ BM25      │  │ RRF 混合融合     │     │
+│  │ 向量数据库│  │ 关键词检索│  │ 多路召回排序     │     │
+│  └──────────┘  └───────────┘  └──────────────────┘     │
 └──────────────────────────────────────────────────────────┘
 ```
 
-### Technology Stack
+### 技术栈
 
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 14 · React 18 · TypeScript · Tailwind CSS · Three.js · Framer Motion · GSAP |
-| **Backend (Go)** | Go 1.26 · net/http (stdlib) · LSM-Tree (self-built) · HNSW (self-built) · BM25 · RRF |
-| **Backend (Python)** | Python 3.10+ · FastAPI · Tree-sitter · NetworkX · ChromaDB · urllib (stdlib) |
-| **Storage** | Self-built LSM-Tree · In-Memory Sharded KV · ChromaDB · LevelDB |
-| **Vector Search** | HNSW (Go, zero CGo) · ChromaDB (Python) · Sentence Transformers |
-| **LLM Integration** | OpenAI-compatible protocol · Multi-provider routing · Streaming SSE |
-| **Deployment** | Docker Compose · Multi-stage builds · Alpine-based images · CGO_ENABLED=0 |
+| 层级 | 技术 |
+|------|------|
+| **前端** | Next.js 14 · React 18 · TypeScript · Tailwind CSS · Three.js · GSAP · Framer Motion |
+| **后端 (Go)** | Go 1.26 · net/http (标准库) · 自研 LSM-Tree · 自研 HNSW · BM25 · RRF |
+| **后端 (Python)** | Python 3.10+ · FastAPI · Tree-sitter · NetworkX · ChromaDB |
+| **存储** | 自研 LSM-Tree · 分片内存 KV · ChromaDB · LevelDB |
+| **向量检索** | HNSW（Go，零 CGo）· ChromaDB（Python）· Sentence Transformers |
+| **LLM** | OpenAI 兼容协议 · 多提供商路由 · 流式 SSE |
+| **部署** | Docker Compose · 多阶段构建 · Alpine · CGO_ENABLED=0 |
 
 ---
 
-## Project Structure
+## 项目结构
 
 ```
 noosphere/
-├── web/                        # 🌐 Platform Frontend (Next.js 14)
+├── web/                        # 🌐 平台前端 (Next.js 14)
 │   ├── src/
 │   │   ├── app/
-│   │   │   ├── page.tsx                     # / — Dashboard
+│   │   │   ├── page.tsx                     # / — 平台首页
 │   │   │   ├── codelens/page.tsx            # /codelens
 │   │   │   ├── nebula/page.tsx              # /nebula
 │   │   │   ├── devops/page.tsx              # /devops
-│   │   │   ├── settings/model/page.tsx      # /settings/model — AI Gateway
-│   │   │   └── api/gateway/route.ts         # LLM proxy route
+│   │   │   ├── settings/model/page.tsx      # AI Gateway 设置
+│   │   │   └── api/gateway/route.ts         # LLM 代理路由
 │   │   ├── components/
 │   │   │   ├── dashboard/  · workspace/  · gateway/
 │   │   │   ├── layout/     · ui/        · hero/
 │   │   │   └── sections/   · three/
-│   │   ├── hooks/          # useServiceStatus · useLiveMetrics
+│   │   ├── hooks/
 │   │   └── lib/            # services · data · gateway · motion
-│   └── Dockerfile
+│   └── public/logo.svg     # 项目 Logo
 │
-├── codelens/                   # 🔍 Developer Intelligence (Python)
+├── codelens/                   # 🔍 开发者智能 (Python)
 │   ├── src/
-│   │   ├── parser/             # Tree-sitter AST (7 languages)
-│   │   ├── indexer/            # Knowledge Graph (NetworkX)
-│   │   ├── storage/            # LSM-Tree + Vector Store
-│   │   ├── rag/                # Hybrid RAG + QA Engine
+│   │   ├── parser/             # Tree-sitter AST (7 种语言)
+│   │   ├── indexer/            # 知识图谱 (NetworkX)
+│   │   ├── storage/            # LSM-Tree + 向量存储
+│   │   ├── rag/                # 混合 RAG + 问答引擎
 │   │   ├── agent/              # CodeLensAgent + GitDiff + DocGen
-│   │   ├── api/                # FastAPI (:8765) + Dashboard
-│   │   └── workspace/          # Project scanner + LLM validator
+│   │   ├── api/                # FastAPI (:8765) + 仪表盘
+│   │   └── workspace/          # 项目扫描 + LLM 验证
 │   └── Dockerfile
 │
-├── nebula/                     # ☁️ Memory Engine (Go)
+├── nebula/                     # ☁️ 记忆引擎 (Go)
 │   ├── engine/
-│   │   ├── storage/lsm/        # Self-built LSM-Tree
-│   │   ├── storage/kv/         # Sharded In-Memory KV
-│   │   ├── storage/vector/     # HNSW (pure Go)
-│   │   ├── retrieval/          # Embedder + Hybrid + RRF
-│   │   ├── index/              # Inverted Index + BM25
-│   │   ├── cache/              # LRU Cache
-│   │   └── manager/            # 4 Memory Types + Consolidation
-│   ├── analyzer/               # Code Ingestion + Style Learning
+│   │   ├── storage/lsm/        # 自研 LSM-Tree
+│   │   ├── storage/kv/         # 分片内存 KV
+│   │   ├── storage/vector/     # HNSW (纯 Go)
+│   │   ├── retrieval/          # Embedder + 混合检索 + RRF
+│   │   ├── index/              # 倒排索引 + BM25
+│   │   ├── cache/              # LRU 缓存
+│   │   └── manager/            # 4 种记忆类型 + 记忆整合
+│   ├── analyzer/               # 代码摄取 + 风格学习
 │   ├── api/rest/               # Go HTTP Server (:8730)
 │   └── Dockerfile
 │
-├── devops/                     # ⚙️ AIOps (Go)
-│   ├── agent/                  # Task Orchestration + Tool Registry
-│   ├── tools/                  # System · Log · Service tools
-│   ├── memory/                 # Fault Store (embedded Nebula)
-│   ├── metrics/                # System Metrics Collector
-│   ├── analyzer/               # Log Pattern Analyzer
+├── devops/                     # ⚙️ 运维智能 (Go)
+│   ├── agent/                  # 任务编排 + 工具注册
+│   ├── tools/                  # 系统 · 日志 · 服务工具
+│   ├── memory/                 # 故障存储 (嵌入 Nebula)
+│   ├── metrics/                # 系统指标采集
+│   ├── analyzer/               # 日志模式分析
 │   ├── api/                    # REST API (:8740)
 │   └── Dockerfile
 │
-├── sdk/aiGateway/              # 🔑 Unified AI Gateway SDK
+├── sdk/aiGateway/              # 🔑 统一 SDK
 │   ├── go/client.go            # Go SDK (Nebula / DevOps)
 │   └── python/client.py        # Python SDK (CodeLens)
 │
-├── workspace/                  # 🗂 Project Inbox
-│   ├── projects/               # Drop projects here → auto-analyze
-│   └── llm_config.example.yaml # Multi-provider LLM config
+├── workspace/                  # 🗂 项目工作区
+│   ├── projects/               # 拖入项目 → 自动分析
+│   └── llm_config.example.yaml # 多提供商 LLM 配置
 │
-├── docs/                       # 📚 Documentation
-│   ├── ARCHITECTURE.md         # Deep architecture design
-│   └── API.md                  # Complete API reference
+├── docs/                       # 📚 文档
+│   ├── ARCHITECTURE.md         # 架构设计
+│   └── API.md                  # API 参考
 │
-├── docker-compose.yml          # One-command full deployment
-├── .env.example                # Environment template
+├── start.bat                   # 🚀 一键启动
+├── docker-compose.yml          # Docker 编排
+├── .env.example                # 环境变量模板
 ├── LICENSE                     # MIT
-└── CONTRIBUTING.md             # Contributor guide
+└── CONTRIBUTING.md             # 贡献指南
 ```
 
 ---
 
-## Design Philosophy
+## 设计哲学
 
-### Platform First
+### 平台优先
 
-Noosphere is not a collection of AI tools stitched together. It is a **platform**: shared infrastructure, unified model access, centralized memory, and a single user experience. Each Workspace is an extension of the platform, not a separate product.
+Noosphere 不是一个 AI 工具集合。它是一个**平台**：共享基础设施、统一模型访问、集中记忆存储、一致的用户体验。每个工作区是平台的扩展，不是独立产品。
 
-### Memory Driven
+### 记忆驱动
 
-Memory is a **core platform capability**, not an afterthought. Nebula provides working, episodic, semantic, and procedural memory types — all indexed, searchable, and automatically consolidated. Agents that remember yesterday are more useful today.
+记忆是**平台的核心能力**，不是附加功能。Nebula 提供四种记忆类型，全部可索引、可检索、可自动整合。有记忆的 AI 比没有的更有用。
 
-### Personalized AI
+### 个性化 AI
 
-CodeLens doesn't generate generic code. It learns **your** conventions. Nebula doesn't store generic context. It stores **your** history. The platform adapts to how you work, not the other way around.
+CodeLens 不生成通用代码。它学**你**的规范。Nebula 不存储通用上下文。它存储**你**的历史。平台适配你的工作方式。
 
-### Unified Infrastructure
+### 统一基础设施
 
-One model configuration. One SDK. One memory engine. Build a new Workspace and it inherits all platform capabilities — models, memory, monitoring — without reinventing any wheel.
+一处配置模型。一个 SDK。一个记忆引擎。新增工作区自动继承全部平台能力——模型、记忆、监控——无需重复建设。
 
-### Evolutionary Design
+### 演化式设计
 
-Noosphere wasn't designed upfront. It evolved:
+Noosphere 不是一次性设计出来的。它是演化出来的：
 
 ```text
-Code Style Learning  →  Memory Engine  →  Ops Toolkit
-                                            ↓
-                                    Shared capabilities
-                                    became visible
-                                            ↓
-                                       AI Gateway
-                                            ↓
-                                       Noosphere
+代码风格学习 → 记忆引擎 → 运维工具
+                    ↓
+              共享能力浮现
+                    ↓
+              AI Gateway
+                    ↓
+              Noosphere 平台
 ```
-
-This evolution continues. Each Workspace that joins the platform strengthens the shared infrastructure for all others.
 
 ---
 
 ## Roadmap
 
-| Phase | Status | Focus |
-|-------|--------|-------|
-| **Foundation** | ✅ Complete | Docker Compose · Unified config · Workspace model · AI Gateway |
-| **Integration** | ✅ Complete | Multi-provider LLM · SDK (Go/Python/TS) · Project scanner · Validation |
-| **Intelligence** | 🚧 In Progress | Cross-workspace memory sharing · Agent workflow engine · MCP Server |
-| **Ecosystem** | 📋 Planned | Plugin system · Style template marketplace · GitHub Actions CI · VSCode extension |
+| 阶段 | 状态 | 内容 |
+|------|------|------|
+| **基础** | ✅ 完成 | Docker Compose · 统一配置 · Workspace 模型 · AI Gateway |
+| **整合** | ✅ 完成 | 多提供商 LLM · SDK (Go/Python/TS) · 项目扫描 · 验证诊断 |
+| **智能** | 🚧 进行中 | 跨工作区记忆共享 · Agent 工作流引擎 · MCP Server |
+| **生态** | 📋 计划中 | 插件系统 · 风格模板市场 · CI · VSCode 扩展 |
 
 ---
 
-## Contributing
-
-Noosphere is evolving. We welcome contributions at every level:
-
-- **Workspace ideas** — new domains where AI + Memory can help
-- **Provider integrations** — add support for new LLM providers
-- **Memory patterns** — improve how Nebula consolidates and retrieves
-- **Documentation** — help us tell the story better
-
-Start by reading [CONTRIBUTING.md](CONTRIBUTING.md), then open an issue or PR.
-
----
-
-## FAQ
+## 常见问题
 
 <details>
-<summary><b>What LLMs does Noosphere support?</b></summary>
+<summary><b>支持哪些大模型？</b></summary>
 
-OpenAI · Anthropic Claude · Google Gemini · DeepSeek · Ollama (local) · any OpenAI-compatible API. All configured in one place: <code>/settings/model</code>.
+OpenAI · Anthropic Claude · Google Gemini · DeepSeek · Ollama（本地）· 任何兼容 OpenAI API 的服务。全部在 <code>/settings/model</code> 一处配置。
 </details>
 
 <details>
-<summary><b>Does my code leave my machine?</b></summary>
+<summary><b>代码会被上传到云端吗？</b></summary>
 
-No. All indexing, knowledge graphs, and memory storage are local (LSM-Tree, ChromaDB, Docker volumes). Only the specific code snippets relevant to your query are sent to the LLM provider — never the entire codebase.
+不会。所有索引、图谱、记忆存储均在本地（LSM-Tree、ChromaDB、Docker 卷）。只有与你查询相关的代码片段会发送给 LLM 提供商——绝不会是整个代码库。
 </details>
 
 <details>
-<summary><b>Do I need to run all three Workspaces?</b></summary>
+<summary><b>三个工作区必须全部运行吗？</b></summary>
 
-No. Each Workspace is independently useful. Run just CodeLens for code intelligence, or just Ops Toolkit for monitoring. Together they share Nebula's memory for cross-domain context.
+不必。每个工作区独立可用。只跑 CodeLens 做代码分析，或只跑 DevOps 做监控，都能正常工作。一起跑时共享 Nebula 的记忆实现跨域上下文。
 </details>
 
 <details>
-<summary><b>How does the platform handle multiple LLM keys?</b></summary>
+<summary><b>如何管理多个 LLM API Key？</b></summary>
 
-Configure all your API keys in <code>workspace/llm_config.yaml</code> or via the Settings UI at <code>/settings/model</code>. The AI Gateway SDK automatically routes calls to the appropriate provider. Keys never leave your machine.
+在 <code>workspace/llm_config.yaml</code> 中配置，或在平台 UI <code>/settings/model</code> 中管理。AI Gateway SDK 自动路由到对应提供商。Key 不会离开你的机器。
 </details>
 
 ---
 
 <div align="center">
 
-**Noosphere** — *An AI Operating Platform that learns, remembers, and grows with you.*
+**Noosphere** — *一个持续学习、拥有记忆、与你共同成长的 AI 操作系统。*
 
 [MIT](LICENSE) · Made with ❤️ by Noosphere Contributors · 2026
 

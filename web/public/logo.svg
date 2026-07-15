@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#00A8FF"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer ring -->
+  <circle cx="60" cy="60" r="54" stroke="url(#g1)" stroke-width="1.5" fill="none" opacity="0.3"/>
+  <circle cx="60" cy="60" r="48" stroke="url(#g2)" stroke-width="0.8" fill="none" opacity="0.2" stroke-dasharray="8 4"/>
+
+  <!-- Orbit ring tilted -->
+  <ellipse cx="60" cy="60" rx="42" ry="16" stroke="url(#g1)" stroke-width="0.8" fill="none" opacity="0.35" transform="rotate(-20 60 60)"/>
+
+  <!-- Inner sphere - translucent core -->
+  <circle cx="60" cy="60" r="28" fill="url(#g1)" opacity="0.12" filter="url(#glow)"/>
+  <circle cx="60" cy="60" r="16" fill="url(#g2)" opacity="0.25"/>
+
+  <!-- Central bright core -->
+  <circle cx="60" cy="60" r="6" fill="#00A8FF" filter="url(#glow)"/>
+
+  <!-- Orbiting dots -->
+  <circle cx="60" cy="18" r="2.5" fill="#6366f1" filter="url(#glow)"/>
+  <circle cx="90" cy="42" r="2" fill="#00A8FF" filter="url(#glow)"/>
+  <circle cx="88" cy="78" r="2.5" fill="#8b5cf6" filter="url(#glow)"/>
+  <circle cx="60" cy="96" r="2" fill="#6366f1" filter="url(#glow)"/>
+  <circle cx="30" cy="78" r="2.5" fill="#00A8FF" filter="url(#glow)"/>
+  <circle cx="28" cy="42" r="2" fill="#8b5cf6" filter="url(#glow)"/>
+
+  <!-- Surface accent lines (brain/network pattern) -->
+  <path d="M45 38 L55 50 L48 62" stroke="#00A8FF" stroke-width="0.7" fill="none" opacity="0.4"/>
+  <path d="M75 38 L65 50 L72 62" stroke="#8b5cf6" stroke-width="0.7" fill="none" opacity="0.4"/>
+  <path d="M42 80 L52 68 L45 56" stroke="#6366f1" stroke-width="0.7" fill="none" opacity="0.4"/>
+  <path d="M78 80 L68 68 L75 56" stroke="#00A8FF" stroke-width="0.7" fill="none" opacity="0.4"/>
+
+  <!-- Bottom text space marker -->
+  <path d="M25 104 L95 104" stroke="url(#g1)" stroke-width="0.5" opacity="0.2"/>
+</svg>
