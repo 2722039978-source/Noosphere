@@ -1,0 +1,50 @@
+# ============================================================
+# Noosphere Workspace — LLM 配置模板
+# 复制为 llm_config.yaml 并填入你的 API 密钥
+#   cp llm_config.example.yaml llm_config.yaml
+# ============================================================
+
+# 默认使用的提供商（对应下方 providers 中的 name）
+default_provider: deepseek
+
+# ─── LLM 提供商列表 ───
+# 可以配置多个提供商，在项目分析时按需切换
+providers:
+  - name: deepseek
+    type: deepseek              # deepseek / openai / anthropic / openai_compat
+    api_key: sk-your-api-key-here
+    base_url: https://api.deepseek.com
+    model: deepseek-v4-pro
+    enabled: true
+    # 可选参数
+    temperature: 0.1
+    max_tokens: 4096
+    # reasoning_effort: medium   # DeepSeek V4 专用
+
+  - name: openai
+    type: openai
+    api_key: sk-your-openai-key-here
+    base_url: https://api.openai.com/v1
+    model: gpt-4o
+    enabled: false
+    temperature: 0.1
+    max_tokens: 4096
+
+  - name: anthropic
+    type: anthropic
+    api_key: sk-ant-your-key-here
+    base_url: https://api.anthropic.com
+    model: claude-sonnet-5
+    enabled: false
+    temperature: 0.1
+    max_tokens: 4096
+
+  # 兼容 OpenAI 协议的第三方服务（Ollama / vLLM / LocalAI 等）
+  - name: local
+    type: openai_compat
+    api_key: ollama               # Ollama 不需要真实 Key
+    base_url: http://localhost:11434/v1
+    model: qwen3:latest
+    enabled: false
+    temperature: 0.1
+    max_tokens: 4096

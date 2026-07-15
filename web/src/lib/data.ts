@@ -9,6 +9,7 @@ export const NAV_LINKS = [
   { label: "智能系统", href: "#systems" },
   { label: "技术架构", href: "#architecture" },
   { label: "产品矩阵", href: "#products" },
+  { label: "AI Gateway", href: "/ai-gateway" },
   { label: "未来计划", href: "#roadmap" },
 ] as const;
 

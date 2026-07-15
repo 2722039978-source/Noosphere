@@ -1,140 +1,234 @@
-# API 参考
+# API Reference
 
-三个服务均为独立 REST API，可单独调用，也可组合使用。
+All services are accessible through the **Noosphere Platform at `:3000`**. Backend APIs are internal but can be accessed directly for development.
 
-| 服务 | Base URL | 交互式文档 |
-|------|----------|-----------|
-| 🔍 CodeLens | `http://localhost:8765` | http://localhost:8765/docs （Swagger） |
-| ☁️ Nebula | `http://localhost:8730` | 控制台 http://localhost:8730 |
-| ⚙️ DevOps | `http://localhost:8740` | 控制台 http://localhost:8740/web/ |
+| Service | Platform Route | Internal Base | Docs |
+|---------|---------------|---------------|------|
+| 🔑 AI Gateway | `/settings/model` (UI) + `/api/gateway` (API) | `:3000` (embedded) | — |
+| 🔍 CodeLens | `/codelens` (UI) | `:8765` | http://localhost:8765/docs |
+| ☁️ Nebula | `/nebula` (UI) | `:8730` | http://localhost:8730 |
+| ⚙️ DevOps | `/devops` (UI) | `:8740` | http://localhost:8740/web/ |
 
 ---
 
-## 🔍 CodeLens（`:8765`，前缀 `/api/v1`）
+## 🔑 AI Gateway (`/api/gateway` · Platform Embedded)
 
-### 索引与状态
+AI Gateway is not a standalone service. It runs as a Next.js API Route inside the platform at `:3000`.
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/api/v1/health` | 健康检查 |
-| `GET` | `/api/v1/status` | 索引状态（文件数 / 实体数 / 关系数） |
-| `POST` | `/api/v1/index` | 构建 / 重建项目索引 |
+### Model Management
 
-### 代码理解
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/gateway/models` | List configured models |
+| `POST` | `/api/gateway/models` | Add or update a model |
+| `DELETE` | `/api/gateway/models/{id}` | Remove a model |
+| `POST` | `/api/gateway/models/{id}/test` | Test model connectivity |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/v1/qa` | 基于 RAG 的代码问答 |
-| `POST` | `/api/v1/search` | 语义搜索代码实体 |
-| `POST` | `/api/v1/analyze/file` | 单文件结构分析 |
-| `POST` | `/api/v1/analyze/explain` | 代码片段解释 |
-| `WS` | `/api/v1/ws/chat` | 流式对话（WebSocket） |
+### Unified LLM Calls
 
-### 图谱查询
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/gateway/chat` | Chat completion — auto-routes to configured provider |
+| `POST` | `/api/gateway/chat/stream` | Streaming chat (SSE) |
+| `POST` | `/api/gateway/vision` | Vision / image understanding |
+| `POST` | `/api/gateway/embedding` | Text embeddings |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/api/v1/call-chain/{entity_name}` | 追踪调用链 |
-| `GET` | `/api/v1/impact/{entity_name}` | 修改影响分析（谁会受影响） |
-| `GET` | `/api/v1/knowledge-graph/stats` | 图谱统计 |
-| `GET` | `/api/v1/knowledge-graph/node/{name}` | 查询单个节点及其关系 |
-| `GET` | `/api/v1/knowledge-graph/export` | 导出完整图谱 |
+### Monitoring
 
-### 工程辅助
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/v1/git/diff` | Git Diff 风险分析 |
-| `POST` | `/api/v1/docs/generate` | 自动生成项目文档 |
-| `GET` | `/api/v1/issues` | 潜在问题列表 |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/gateway/health` | Health check |
+| `GET` | `/api/gateway/stats` | Usage stats by model and project |
+| `GET` | `/api/gateway/logs` | Recent call logs |
 
 ```bash
-# 示例：谁调用了 authenticate？
-curl "http://localhost:8765/api/v1/call-chain/authenticate"
+# Test a model
+curl -X POST http://localhost:3000/api/gateway/models/deepseek-v4/test
 
-# 示例：代码问答
+# Chat through Gateway
+curl -X POST http://localhost:3000/api/gateway/chat \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"Hello"}],"project":"codelens"}'
+
+# Get usage stats
+curl http://localhost:3000/api/gateway/stats
+```
+
+---
+
+## 🔍 CodeLens (`:8765` · Developer Intelligence Workspace)
+
+All routes prefixed with `/api/v1`.
+
+### Index & Status
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/health` | Health check |
+| `GET` | `/api/v1/status` | Index status (files / entities / relations) |
+| `POST` | `/api/v1/index` | Build / rebuild project index |
+
+### Code Understanding
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/qa` | RAG-based code Q&A |
+| `POST` | `/api/v1/search` | Semantic code search |
+| `POST` | `/api/v1/analyze/file` | Single-file structure analysis |
+| `POST` | `/api/v1/analyze/explain` | Code snippet explanation |
+| `WS` | `/api/v1/ws/chat` | Streaming chat (WebSocket) |
+
+### Graph Queries
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/call-chain/{entity}` | Trace call chain |
+| `GET` | `/api/v1/impact/{entity}` | Impact analysis |
+| `GET` | `/api/v1/knowledge-graph/stats` | Graph statistics |
+| `GET` | `/api/v1/knowledge-graph/node/{name}` | Query a single node |
+| `GET` | `/api/v1/knowledge-graph/export` | Export full graph |
+
+### Engineering
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/git/diff` | Git Diff risk analysis |
+| `POST` | `/api/v1/docs/generate` | Auto-generate project docs |
+| `GET` | `/api/v1/issues` | Potential code issues |
+
+### Workspace & Validation
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/workspace/scan` | Scan workspace for projects |
+| `GET` | `/api/v1/workspace/projects` | List discovered projects |
+| `GET` | `/api/v1/workspace/projects/{name}` | Project details |
+| `POST` | `/api/v1/workspace/projects/{name}/analyze` | Analyze a project |
+| `POST` | `/api/v1/workspace/validate/llm` | Test LLM connectivity |
+| `POST` | `/api/v1/workspace/validate/tools` | Validate tool chain I/O |
+| `POST` | `/api/v1/workspace/validate/all` | Full system diagnostic |
+
+```bash
+# Q&A
 curl -X POST http://localhost:8765/api/v1/qa \
   -H "Content-Type: application/json" \
-  -d '{"question": "用户认证的完整流程是怎样的？"}'
+  -d '{"question": "How does authentication work?"}'
+
+# Trace call chain
+curl "http://localhost:8765/api/v1/call-chain/authenticate?max_depth=5"
+
+# Scan projects
+curl -X POST http://localhost:8765/api/v1/workspace/scan
 ```
 
 ---
 
-## ☁️ Nebula（`:8730`）
+## ☁️ Nebula (`:8730` · Memory Engine)
 
-### 会话与记忆
+### Sessions & Memory
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/health` | 健康检查 |
-| `GET` | `/api/v1/stats` | 引擎统计 |
-| `POST` | `/api/v1/sessions` | 创建会话 |
-| `GET` | `/api/v1/sessions` | 列出会话 |
-| `DELETE` | `/api/v1/sessions/{id}` | 删除会话 |
-| `POST` | `/api/v1/sessions/{id}/memories` | 存储记忆 |
-| `GET` | `/api/v1/sessions/{id}/memories/{mid}` | 获取记忆 |
-| `DELETE` | `/api/v1/sessions/{id}/memories/{mid}` | 删除记忆 |
-| `POST` | `/api/v1/sessions/{id}/search` | 检索记忆（`mode`: `hybrid` / `vector` / `keyword` / `temporal`） |
-| `GET` | `/api/v1/sessions/{id}/stats` | 会话统计 |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/api/v1/stats` | Engine statistics |
+| `POST` | `/api/v1/sessions` | Create session |
+| `GET` | `/api/v1/sessions` | List sessions |
+| `DELETE` | `/api/v1/sessions/{id}` | Delete session |
+| `POST` | `/api/v1/sessions/{id}/memories` | Store memory |
+| `GET` | `/api/v1/sessions/{id}/memories/{mid}` | Get memory |
+| `DELETE` | `/api/v1/sessions/{id}/memories/{mid}` | Delete memory |
+| `POST` | `/api/v1/sessions/{id}/search` | Search memories (hybrid/vector/keyword/temporal) |
+| `GET` | `/api/v1/sessions/{id}/stats` | Session statistics |
 
-### AI 对话
+### AI Chat
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/v1/chat` | 带记忆自动注入的 DeepSeek 对话（需配置 `DEEPSEEK_API_KEY`） |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/chat` | Chat with auto memory injection |
 
 ```bash
-# 示例：存一条记忆，再语义检索
+# Create session & store memory
 curl -X POST http://localhost:8730/api/v1/sessions \
-  -H "Content-Type: application/json" -d '{"name": "my-project"}'
+  -H "Content-Type: application/json" -d '{"session_id": "my-agent"}'
 
-curl -X POST http://localhost:8730/api/v1/sessions/{id}/search \
+curl -X POST http://localhost:8730/api/v1/sessions/my-agent/memories \
   -H "Content-Type: application/json" \
-  -d '{"query": "错误处理规范", "mode": "hybrid", "top_k": 5}'
+  -d '{"content": "Error handling uses explicit returns, no panic", "type": "semantic", "importance": 0.8}'
+
+# Semantic search
+curl -X POST http://localhost:8730/api/v1/sessions/my-agent/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "error handling pattern", "top_k": 5}'
 ```
 
 ---
 
-## ⚙️ DevOps（`:8740`，前缀 `/api/v1/devops`）
+## ⚙️ DevOps (`:8740` · AIOps Workspace)
 
-### 状态与指标
+All routes prefixed with `/api/v1/devops`.
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/health` | 健康检查 |
-| `GET` | `/api/v1/devops/status` | Agent 状态 |
-| `GET` | `/api/v1/devops/metrics` | 实时系统指标（CPU / 内存 / 磁盘 / 网络） |
+### Status & Metrics
 
-### 诊断与工具
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/api/v1/devops/status` | Agent status |
+| `GET` | `/api/v1/devops/metrics` | Real-time CPU/Memory/Disk/Network |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/v1/devops/diagnose` | 自然语言故障诊断（结合历史故障记忆 + LLM 推理） |
-| `GET` | `/api/v1/devops/tools` | 列出已注册的运维工具 |
-| `POST` | `/api/v1/devops/tools/execute` | 执行指定工具 |
+### Diagnosis & Tools
 
-### 日志与故障记忆
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/devops/diagnose` | Natural language fault diagnosis |
+| `GET` | `/api/v1/devops/tools` | List registered tools |
+| `POST` | `/api/v1/devops/tools/execute` | Execute a tool |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/v1/devops/logs/analyze` | 日志异常检测与分析 |
-| `POST` | `/api/v1/devops/logs/search` | 日志检索 |
-| `GET` | `/api/v1/devops/faults` | 故障经验列表 |
-| `POST` | `/api/v1/devops/faults/search` | 语义检索历史故障（"上次这个报错怎么解决的"） |
+### Logs & Fault Memory
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/devops/logs/analyze` | Log anomaly analysis |
+| `POST` | `/api/v1/devops/logs/search` | Log search |
+| `GET` | `/api/v1/devops/faults` | Fault experience list |
+| `POST` | `/api/v1/devops/faults/search` | Semantic fault search |
 
 ```bash
-# 示例：诊断 + 检索历史故障
+# Diagnose
 curl -X POST http://localhost:8740/api/v1/devops/diagnose \
   -H "Content-Type: application/json" \
-  -d '{"question": "最近 1 小时 CPU 异常升高"}'
+  -d '{"query": "CPU spike in the last hour", "session_id": "ops-1"}'
 
+# Search historical faults
 curl -X POST http://localhost:8740/api/v1/devops/faults/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "数据库连接池耗尽"}'
+  -d '{"query": "database connection pool exhausted"}'
 ```
 
 ---
 
-## 认证说明
+## Authentication
 
-当前版本所有 API **面向本地 / 内网使用，无内置认证**。如需公网暴露，请置于反向代理（Nginx / Caddy）之后并自行添加认证层。LLM 相关端点依赖环境变量 `DEEPSEEK_API_KEY`（见根目录 [.env.example](../.env.example)）。
+All APIs are designed for **local / intranet use** with no built-in authentication. For public exposure, place behind a reverse proxy (Nginx/Caddy) with your own auth layer.
+
+### LLM Key Configuration (3-tier priority)
+
+1. `workspace/llm_config.yaml` — Multi-provider config (recommended, supports DeepSeek/OpenAI/Anthropic/Ollama)
+2. `.env` file — `DEEPSEEK_API_KEY`
+3. Environment variable — `DEEPSEEK_API_KEY`
+
+**Manage via UI:** Open `/settings/model` in the platform.
+
+## Quick Start
+
+```bash
+# Launch all services
+cd Noosphere && start.bat
+
+# Or one at a time
+cd nebula    && go run ./cmd/nebula-server --port 8730
+cd devops    && go run ./cmd/devops-server --port 8740
+cd codelens  && python -m src.main serve
+cd web       && npm run dev
+
+# Open http://localhost:3000
+```

@@ -1,129 +1,278 @@
-# 架构设计
+# Architecture Design
 
-> Noosphere 的目标不是"更大的记忆"，而是**更高的单位 token 信息密度**。
-> 本文描述三个服务的内部架构、数据流与设计取舍。
+> Noosphere is an **AI Operating Platform**, not a collection of independent tools.
+> This document describes the platform topology, layer responsibilities, data flow, and design decisions.
 
 ---
 
-## 总体拓扑
+## Platform Topology
 
-```mermaid
-graph LR
-    subgraph HOST["宿主机 / Docker 网络"]
-        CL["CodeLens<br/>:8765 HTTP / :8766 WS"]
-        NB["Nebula<br/>:8730"]
-        DO["DevOps<br/>:8740"]
-    end
-
-    U["开发者 / AI Agent"] --> CL
-    U --> NB
-    U --> DO
-    DO -.->|"嵌入 Nebula 记忆引擎<br/>(go.mod replace ../nebula)"| NB
+```
+                     Noosphere Platform (:3000)
+        ┌──────────────────────────────────────────────────┐
+        │              Next.js 14 · Single Entry Point      │
+        │                                                  │
+        │  /              Dashboard                        │
+        │  /codelens      CodeLens Workspace               │
+        │  /nebula        Nebula Workspace                 │
+        │  /devops        DevOps Workspace                 │
+        │  /settings/model AI Gateway (Settings)           │
+        │  /api/gateway   LLM Proxy Route                  │
+        └──────┬──────────┬──────────┬─────────────────────┘
+               │          │          │
+          ┌────▼────┐ ┌───▼────┐ ┌──▼─────┐
+          │CodeLens │ │ Nebula │ │ DevOps │
+          │ :8765   │ │ :8730  │ │ :8740  │
+          │ Python  │ │  Go    │ │  Go    │
+          └─────────┘ └────────┘ └────────┘
+               Internal API services (not user-facing)
 ```
 
-- 三个服务**互不阻塞**：任意一个宕机不影响其他两个。
-- DevOps 在编译期以 Go module 方式嵌入 Nebula 的 `engine` 包（源码级复用，非网络调用）。
-- 端口分配：`8730`（Nebula）、`8740`（DevOps）、`8765/8766`（CodeLens），互不冲突。
+**Key design decisions:**
+
+- **Single port `:3000`** — Users access one URL. All pages routed through Next.js App Router.
+- **AI Gateway is NOT a standalone service** — Embedded as `/settings/model` (UI) + `/api/gateway` (LLM proxy route). No separate port.
+- **Backend APIs are internal** — CodeLens/Nebula/DevOps run on their ports for the platform to consume. Users never need to know about `:8765`, `:8730`, or `:8740`.
+- **Port allocation**: `3000` (platform), `8765/8766` (CodeLens), `8730` (Nebula), `8740` (DevOps).
 
 ---
 
-## Layer 1 — CodeLens（Python）
+## Layer Architecture
 
-**职责：把平面代码变成可查询的结构化图谱。**
-
-```mermaid
-graph TB
-    SRC[("源代码")] --> PARSER["parser/<br/>Tree-sitter 多语言 AST 解析"]
-    PARSER --> ENTITY["实体提取<br/>函数 / 类 / 方法 / 导入"]
-    ENTITY --> KG["indexer/<br/>NetworkX 知识图谱<br/>调用 · 继承 · 依赖"]
-    ENTITY --> VEC["storage/<br/>ChromaDB 向量索引"]
-    ENTITY --> LSM["storage/<br/>LSM-Tree 实体存储"]
-    KG & VEC & LSM --> RAG["rag/<br/>混合检索 + DeepSeek 问答"]
-    RAG --> API["api/<br/>FastAPI :8765 + WebSocket :8766"]
+```
+┌──────────────────────────────────────────────────────────┐
+│                 PRESENTATION LAYER                       │
+│  Next.js 14 · React 18 · TypeScript · Three.js · GSAP   │
+│  Tailwind CSS · Framer Motion · Lucide Icons            │
+│  Single Port (:3000) · App Router                       │
+├──────────────────────────────────────────────────────────┤
+│                  WORKSPACE LAYER                         │
+│  ┌────────────┐  ┌────────────┐  ┌──────────────────┐   │
+│  │ CodeLens   │  │  Nebula    │  │  DevOps          │   │
+│  │ Developer  │  │  Memory    │  │  AIOps           │   │
+│  │ Intelligence│  │  Engine   │  │  Workspace       │   │
+│  │ Python     │  │  Go        │  │  Go              │   │
+│  └─────┬──────┘  └─────┬──────┘  └───────┬──────────┘   │
+├────────┼───────────────┼──────────────────┼──────────────┤
+│        └───────────────┼──────────────────┘              │
+│                 ┌──────▼──────┐                          │
+│                 │ AI Gateway  │   Platform Infrastructure│
+│                 │ (Settings)  │   /settings/model        │
+│                 │ /api/gateway│   LLM proxy route        │
+│                 └─────────────┘                          │
+├──────────────────────────────────────────────────────────┤
+│                 INFRASTRUCTURE LAYER                     │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────────┐     │
+│  │ LSM-Tree │  │ HNSW      │  │ NetworkX         │     │
+│  │ WAL+SST  │  │ Vector    │  │ Knowledge Graph  │     │
+│  │ Go/Python│  │ Index     │  │ Python           │     │
+│  └──────────┘  └───────────┘  └──────────────────┘     │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────────┐     │
+│  │ ChromaDB │  │ BM25      │  │ RRF Fusion       │     │
+│  │ Vector DB│  │ Keyword   │  │ Hybrid Search    │     │
+│  └──────────┘  └───────────┘  └──────────────────┘     │
+└──────────────────────────────────────────────────────────┘
 ```
 
-| 组件 | 技术 | 作用 |
-|------|------|------|
-| 解析层 | Tree-sitter（7 种语言） | 语法级精确解析，非正则匹配 |
-| 图谱层 | NetworkX | 调用图 / 继承图 / 依赖图，支持 N 度关系遍历 |
-| 存储层 | LevelDB (LSM-Tree) + ChromaDB | 实体 KV 存储 + 语义向量检索 |
-| 问答层 | DeepSeek + 混合 RAG | 图谱检索 + 向量检索 → 结构化上下文 → LLM |
-
-**关键设计**：查询"谁调用了 X"不走 LLM，而是图谱 O(1) 查询——这是 99.6% token 节省的来源。LLM 只在最后一步做自然语言综合。
-
 ---
 
-## Layer 2 — Nebula（Go）
+## Layer 1 — CodeLens (Python, Developer Intelligence Workspace)
 
-**职责：学习代码风格，形成可注入的约束；同时是一个通用嵌入式记忆引擎。**
+**Mission: Turn flat code into queryable structured knowledge.**
 
-```mermaid
-graph TB
-    CODE[("代码仓库")] --> ING["analyzer/ingester<br/>代码扫描"]
-    ING --> STYLE["analyzer/style<br/>命名 / 错误处理 / 框架偏好提取"]
-    STYLE --> ENGINE["engine/<br/>记忆引擎"]
-
-    subgraph ENGINE_DETAIL["engine/ 内部"]
-        LSMS["storage/ LSM-Tree<br/>WAL + MemTable + SSTable"]
-        HNSW["index/ HNSW 向量索引"]
-        BM25["retrieval/ BM25 关键词"]
-        RRF["retrieval/ RRF 混合融合"]
-    end
-
-    ENGINE --- ENGINE_DETAIL
-    ENGINE --> INJ["analyzer/injector<br/>System Prompt 约束生成"]
-    INJ --> OUT["注入 AI 对话"]
+```
+Source Code → Tree-sitter AST → Entity Extraction
+                                    ↓
+                ┌───────────────────────────────────┐
+                │       Knowledge Graph (NetworkX)   │
+                │  Nodes: Functions, Classes, ...    │
+                │  Edges: Calls, Inherits, Imports   │
+                └───────────────┬───────────────────┘
+                                ↓
+         ┌──────────────────────────────────────────┐
+         │           Dual Storage                    │
+         │  ┌─────────────┐  ┌──────────────────┐   │
+         │  │  LSM Store  │  │  Vector Store    │   │
+         │  │ (Structured)│  │  (ChromaDB)      │   │
+         │  └─────────────┘  └────────┬─────────┘   │
+         └────────────────────────────┼────────────┘
+                                      ↓
+         ┌──────────────────────────────────────────┐
+         │           RAG Retrieval                   │
+         │  Semantic + Structural + Keyword Hybrid   │
+         └────────────────┬─────────────────────────┘
+                          ↓
+         ┌──────────────────────────────────────────┐
+         │        LLM-Augmented Generation           │
+         │  (via AI Gateway /api/gateway/chat)      │
+         └──────────────────────────────────────────┘
 ```
 
-| 组件 | 技术 | 作用 |
-|------|------|------|
-| 存储引擎 | 自研 LSM-Tree（WAL 保障持久化） | 高写入吞吐的记忆存储 |
-| 向量检索 | HNSW | 近似最近邻语义检索 |
-| 关键词检索 | BM25 | 精确术语匹配 |
-| 融合排序 | RRF（Reciprocal Rank Fusion） | 语义 + 关键词双路召回融合 |
-| Embedding | 可插拔（mock / Ollama / OpenAI 兼容） | `--embedder` 参数切换 |
-
-**关键设计**：`engine` 包零外部依赖、可嵌入（DevOps 就是第一个宿主）。服务模式与嵌入模式共用同一套引擎代码。
+| Component | Technology | Role |
+|-----------|-----------|------|
+| Parser | Tree-sitter (7 languages) | Syntax-level AST, not regex |
+| Graph | NetworkX | Call/Inheritance/Dependency graphs |
+| Storage | LSM-Tree + ChromaDB | Entity KV + Semantic vector search |
+| RAG | Hybrid RRF Fusion | Graph + Vector + Keyword retrieval |
+| LLM | AI Gateway proxy | All LLM calls go through `/api/gateway/chat` |
 
 ---
 
-## Layer 3 — DevOps（Go）
+## Layer 2 — Nebula (Go, Memory Engine)
 
-**职责：把一次性的故障处理变成可复用的组织记忆。**
+**Mission: Give AI long-term memory — four memory types, one engine.**
 
-```mermaid
-graph TB
-    SYS[("系统指标 / 服务 / 日志")] --> COLL["metrics/collector<br/>指标采集"]
-    SYS --> LOGA["analyzer/log_analyzer<br/>日志异常检测"]
-    COLL & LOGA --> AGENT["agent/<br/>诊断编排 + 工具调度"]
-    AGENT --> TOOLS["tools/<br/>system · service · log"]
-    AGENT --> MEM["memory/fault_store<br/>故障经验存储<br/>(内嵌 Nebula engine)"]
-    MEM -->|"相似故障检索"| AGENT
-    AGENT --> API["api/routes<br/>:8740 REST + Web 控制台"]
+| Memory Type | Purpose | TTL |
+|-------------|---------|-----|
+| Working | Active task context, like CPU registers | Session (5min default) |
+| Episodic | Past interactions & decisions, like RAM | Permanent |
+| Semantic | Learned facts & patterns, like long-term memory | Permanent |
+| Procedural | Learned workflows & skills, like muscle memory | Permanent |
+
+**Core engine (zero external dependencies):**
+
+| Component | Technology | Role |
+|-----------|-----------|------|
+| LSM-Tree | Self-built (WAL + SkipList MemTable + SSTable + Bloom Filter) | Persistent memory storage |
+| HNSW | Pure Go, zero CGo | Approximate nearest neighbor search |
+| BM25 | Self-built inverted index | Exact keyword matching |
+| RRF | Reciprocal Rank Fusion | Hybrid semantic + keyword ranking |
+| Embedder | Pluggable (mock / Ollama / OpenAI-compatible) | Text → vector conversion |
+
+**Key design:** The `engine` package is embeddable — DevOps imports it as a Go module (`replace ../nebula`). Same engine code serves both standalone and embedded modes.
+
+---
+
+## Layer 3 — DevOps (Go, AIOps Workspace)
+
+**Mission: Turn one-off incident response into reusable organizational memory.**
+
+```
+System Metrics / Services / Logs
+          ↓
+    ┌─────┴─────┐
+    │ Collector │  CPU · Memory · Disk · Network · Processes
+    │ Analyzer  │  Log pattern detection + LLM root cause
+    └─────┬─────┘
+          ↓
+    ┌─────┴─────┐
+    │  Agent    │  Diagnosis orchestration + Tool dispatch
+    └─────┬─────┘
+          ↓
+    ┌─────┴──────────────────┐
+    │  Tool Registry          │
+    │  system · log · service │  Extensible tool framework
+    └─────┬──────────────────┘
+          ↓
+    ┌─────┴─────┐
+    │Fault Store│  Fault → Diagnosis → Solution triples
+    │(Nebula)   │  Semantic search for similar past incidents
+    └───────────┘
 ```
 
-| 组件 | 作用 |
-|------|------|
-| `metrics/` | CPU / 内存 / 磁盘 / 网络指标采集 |
-| `analyzer/` | 日志模式识别 + LLM 根因推理 |
-| `tools/` | 可注册的运维工具框架（系统 / 服务 / 日志三类内置） |
-| `memory/` | 故障 → 诊断 → 解决方案 三元组持久化，支持语义检索 |
-
-**关键设计**：诊断时**先检索历史故障记忆**再调用 LLM——"上周见过的故障"直接命中方案，无需重新推理。
+**Key design:** Diagnosis searches historical fault memory BEFORE calling LLM — "how did we fix this last time?" is answered instantly.
 
 ---
 
-## 数据与安全
+## AI Gateway — Platform Infrastructure (NOT a standalone product)
 
-| 事项 | 策略 |
-|------|------|
-| API Key | 只从环境变量 / `.env` 读取，源码零硬编码；`.env` 被 `.gitignore` 与 `.dockerignore` 双重排除 |
-| 数据落盘 | 全部本地：CodeLens → Docker 卷 `codelens-data`；Nebula → `nebula-data`；DevOps → `devops-memory` |
-| 出网流量 | 仅问答/诊断时向 `api.deepseek.com` 发送相关片段，索引与检索全程本地 |
-| 容器构建 | Go 服务多阶段构建（`golang:1.26-alpine` → `alpine:3.20`），产物 ~10MB；`CGO_ENABLED=0` 静态编译 |
+AI Gateway is platform infrastructure, accessible from `Settings → AI Gateway`.
 
-## 构建细节备忘
+```
+CodeLens ──┐
+Nebula  ──┤── AI Gateway (/api/gateway) ──► User's Models
+DevOps  ──┘
+```
 
-- **DevOps 的构建上下文必须是仓库根目录**：它通过 `replace github.com/nebula-agent/nebula => ../nebula` 引用 Nebula 源码。`docker-compose.yml` 已将其 `context` 设为 `.`，`dockerfile` 设为 `devops/Dockerfile`。
-- 两个 Go 服务的 Web 控制台从工作目录 `./web` 提供静态文件，运行镜像中已按此布局放置。
-- CodeLens 的 `plyvel` 依赖 LevelDB C 库，Dockerfile 中通过 `libleveldb-dev` 解决；本地安装失败时可用 `run.bat` 的最小安装模式跳过。
+| Feature | Location |
+|---------|----------|
+| Model management UI | `/settings/model` |
+| LLM proxy | `/api/gateway/chat` (Next.js API Route) |
+| Model config file | `workspace/llm_config.yaml` |
+| SDK (Go) | `sdk/aiGateway/go/client.go` |
+| SDK (Python) | `sdk/aiGateway/python/client.py` |
+
+**All Workspace LLM calls go through the Gateway.** No direct model API access.
+
+---
+
+## Data Flow: A Day in the Platform
+
+```text
+1. User opens http://localhost:3000
+   → Next.js renders Dashboard
+   → useServiceStatus polls CodeLens/Nebula/DevOps health
+   → Dashboard shows online status + current model + token usage
+
+2. User navigates to /codelens
+   → WorkspaceLayout renders with iframe embedding CodeLens :8765
+   → CodeLens chat calls /api/gateway/chat (Next.js API route)
+   → API route reads model config, routes to user's LLM provider
+   → Response returned with token stats logged
+
+3. User configures a new model at /settings/model
+   → Form submits to /api/gateway/models
+   → Config written to workspace/llm_config.yaml
+   → All Workspaces immediately have access to the new model
+
+4. Nebula backend (Go) needs an embedding
+   → Uses Go SDK: client.Embedding(...)
+   → SDK reads workspace/llm_config.yaml directly
+   → Routes call to configured provider
+   → No HTTP proxy needed for backend services
+```
+
+---
+
+## Data & Security
+
+| Concern | Strategy |
+|---------|----------|
+| API Keys | `workspace/llm_config.yaml` (gitignored), `.env`, env vars — three-tier read |
+| Data storage | All local: CodeLens → Docker volume `codelens-data`; Nebula → `nebula-data`; DevOps → `devops-memory` |
+| Network egress | Only relevant code snippets sent to LLM provider during Q&A/diagnosis. Indexing and retrieval are fully local. |
+| Container builds | Go services: multi-stage (`golang:1.26-alpine` → `alpine:3.20`), ~10MB artifacts, `CGO_ENABLED=0` static compilation |
+
+## Build Notes
+
+- **DevOps build context must be repository root**: It references Nebula via `replace github.com/nebula-agent/nebula => ../nebula`. `docker-compose.yml` sets `context: .` and `dockerfile: devops/Dockerfile`.
+- Go services serve static web consoles from `./web/` in their working directory.
+- CodeLens's `plyvel` requires LevelDB C library — `libleveldb-dev` in Dockerfile; on local install failure, `run.bat` falls back to minimal mode.
+
+---
+
+## Usage
+
+### Start the Platform
+
+```bash
+cd Noosphere
+
+# One-click launch (Windows)
+start.bat
+
+# Or: Docker Compose
+docker compose up -d
+
+# Or: Manual (4 terminals)
+# Terminal 1: cd nebula && go run ./cmd/nebula-server --port 8730
+# Terminal 2: cd devops && go run ./cmd/devops-server --port 8740
+# Terminal 3: cd codelens && python -m src.main serve
+# Terminal 4: cd web && npm run dev
+```
+
+### Configure Models
+
+1. Open `http://localhost:3000/settings/model`
+2. Add your LLM provider (OpenAI / Claude / DeepSeek / Ollama)
+3. Test connectivity
+4. All Workspaces now have access
+
+### Verify Health
+
+```bash
+curl http://localhost:3000/api/gateway/health
+curl http://localhost:8765/api/v1/health
+curl http://localhost:8730/health
+curl http://localhost:8740/health
+```

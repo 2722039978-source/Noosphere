@@ -64,8 +64,10 @@
 - 目录树可视化
 
 ### 7. Web API & 交互界面
-- FastAPI RESTful API（10+ 端点）
+- FastAPI RESTful API（20+ 端点）
 - WebSocket 实时问答
+- **工作区管理**：扫描 → 识别 → 分析 → 验证
+- **LLM 验证**：多提供商连通性测试 + 工具链 I/O 诊断
 - 内置 Web Chat 界面
 - 自动生成 Swagger / ReDoc API 文档
 
@@ -357,6 +359,14 @@ impact = kg.get_impact_analysis("Database")
 | `GET` | `/api/v1/knowledge-graph/node/{name}` | 获取图谱节点 |
 | `GET` | `/api/v1/knowledge-graph/export` | 导出知识图谱 |
 | `GET` | `/api/v1/issues` | 代码问题检测 |
+| `POST` | `/api/v1/workspace/scan` | 🆕 扫描工作区项目 |
+| `GET` | `/api/v1/workspace/projects` | 🆕 列出已发现项目 |
+| `GET` | `/api/v1/workspace/projects/{name}` | 🆕 项目详情 |
+| `POST` | `/api/v1/workspace/projects/{name}/analyze` | 🆕 分析指定项目 |
+| `POST` | `/api/v1/workspace/validate/llm` | 🆕 LLM 连通性验证 |
+| `POST` | `/api/v1/workspace/validate/tools` | 🆕 工具链 I/O 验证 |
+| `POST` | `/api/v1/workspace/validate/all` | 🆕 一键全量诊断 |
+| `GET` | `/api/v1/workspace/config/llm` | 🆕 LLM 配置状态 |
 | `WS` | `/api/v1/ws/chat` | WebSocket 实时问答 |
 
 ### API 调用示例
@@ -423,10 +433,14 @@ CodeLens AI/
 │   │   ├── code_agent.py         # 核心智能 Agent
 │   │   ├── git_diff_analyzer.py  # Git Diff 分析 Agent
 │   │   └── doc_generator.py      # 自动文档生成器
+│   ├── workspace/                 # 🆕 工作区模块
+│   │   ├── __init__.py
+│   │   ├── manager.py            # 工作区管理 + 项目扫描 + LLM 配置
+│   │   └── validator.py          # LLM 连通性验证 + 工具链 I/O 诊断
 │   └── api/                       # Web API 模块
 │       ├── __init__.py
 │       ├── server.py             # FastAPI 服务器 + Web UI
-│       └── routes.py             # API 路由 (14个端点)
+│       └── routes.py             # API 路由 (20+ 端点)
 ├── tests/
 │   ├── __init__.py
 │   └── test_parser.py           # 解析器单元测试
@@ -515,10 +529,14 @@ api:
 
 | 变量 | 说明 |
 |------|------|
-| `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `ANTHROPIC_API_KEY` | Anthropic API 密钥 |
-| `OPENAI_MODEL` | 使用的 OpenAI 模型 |
-| `ANTHROPIC_MODEL` | 使用的 Anthropic 模型 |
+| `DEEPSEEK_API_KEY` | DeepSeek API 密钥（兼容方式） |
+| `DEEPSEEK_MODEL` | DeepSeek 模型名（默认 deepseek-v4-pro） |
+| `DEEPSEEK_BASE_URL` | DeepSeek API 地址 |
+| `OPENAI_API_KEY` | OpenAI API 密钥（兼容方式） |
+| `ANTHROPIC_API_KEY` | Anthropic API 密钥（兼容方式） |
+| `WORKSPACE_DIR` | 工作区目录路径（默认 ../workspace） |
+
+> 🆕 推荐使用 `workspace/llm_config.yaml` 管理多提供商 LLM 配置，详见 [workspace/llm_config.example.yaml](../workspace/llm_config.example.yaml)。
 
 ---
 
@@ -576,6 +594,9 @@ python -m pytest tests/ --cov=src --cov-report=html
 
 ## 📝 开发计划
 
+- [x] 工作区项目扫描与自动识别
+- [x] 多 LLM 提供商支持（DeepSeek / OpenAI / Anthropic / Ollama）
+- [x] LLM 连通性验证 + 工具链 I/O 诊断
 - [ ] VSCode 扩展集成
 - [ ] 多仓库联合分析
 - [ ] 代码变更预测与建议

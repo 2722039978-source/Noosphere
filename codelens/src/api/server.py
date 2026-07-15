@@ -13,7 +13,7 @@ from .routes import setup_routes
 
 
 # ============================================================
-# 统一中文 Web 界面 - 独立项目 + 联调导航
+# 统一中文 Web 界面 — 概览 + 工作区（LLM配置·项目管理·验证诊断）全整合
 # ============================================================
 INDEX_HTML = r"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -83,9 +83,94 @@ body.dark .nav{background:rgba(20,24,32,0.8)}
 .stat-label{font-size:11px;color:var(--text-secondary);margin-top:3px;font-weight:500}
 .stat-icon{font-size:20px;display:block;margin-bottom:2px}
 
+/* Tab 导航 */
+.tab-nav{display:flex;gap:2px;background:var(--card-border);border-radius:10px;padding:3px;margin-bottom:20px;width:fit-content}
+.tab-nav button{padding:8px 20px;border:none;background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;cursor:pointer;border-radius:7px;transition:.15s;font-family:inherit}
+.tab-nav button:hover{color:var(--text)}
+.tab-nav button.active{background:var(--card-bg);color:var(--text);box-shadow:var(--shadow-sm)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+/* sub-tabs */
+.subtabs{display:flex;gap:2px;background:var(--card-border);border-radius:8px;padding:2px;margin-bottom:14px;width:fit-content}
+.subtabs button{padding:6px 14px;border:none;background:transparent;color:var(--text-secondary);font-size:11.5px;font-weight:600;cursor:pointer;border-radius:6px;transition:.15s;font-family:inherit}
+.subtabs button:hover{color:var(--text)}
+.subtabs button.active{background:var(--card-bg);color:var(--text);box-shadow:var(--shadow-sm)}
+
+/* Provider Cards */
+.provider-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.provider-card{background:var(--card-bg);border:2px solid var(--card-border);border-radius:var(--radius);padding:18px;transition:.15s;position:relative}
+.provider-card:hover{border-color:var(--primary);box-shadow:0 0 20px rgba(99,102,241,0.1)}
+.provider-card.connected{border-color:var(--green)}
+.provider-card.error{border-color:var(--red)}
+.provider-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.provider-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;flex-shrink:0}
+.provider-icon.ds{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff}
+.provider-icon.oai{background:linear-gradient(135deg,#10a37f,#1a7f64);color:#fff}
+.provider-icon.anth{background:linear-gradient(135deg,#d97706,#b45309);color:#fff}
+.provider-icon.local{background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff}
+.provider-name{font-weight:700;font-size:14px}
+.provider-type{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px}
+.provider-status{position:absolute;top:14px;right:14px;font-size:10px;font-weight:600;padding:3px 8px;border-radius:10px}
+.provider-status.connected{background:rgba(34,166,126,0.1);color:var(--green)}
+.provider-status.disconnected{background:rgba(217,74,58,0.1);color:var(--red)}
+.provider-body{display:flex;flex-direction:column;gap:8px}
+.form-group{display:flex;flex-direction:column;gap:3px}
+.form-group label{font-size:10px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.5px}
+.form-group input,.form-group select{background:var(--bg);border:1px solid var(--card-border);border-radius:6px;padding:7px 10px;font-size:12.5px;color:var(--text);outline:none;transition:.15s;font-family:inherit}
+.form-group input:focus,.form-group select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,130,196,0.1)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.provider-actions{display:flex;gap:6px;margin-top:2px}
+
+/* Project items */
+.project-list{display:flex;flex-direction:column;gap:6px}
+.project-item{display:flex;align-items:center;gap:12px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);padding:12px 14px;transition:.15s}
+.project-item:hover{border-color:var(--primary)}
+.project-icon-sm{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.project-icon-sm.go{background:rgba(0,173,216,0.1);color:#00add8}
+.project-icon-sm.py{background:rgba(55,118,171,0.1);color:#3776ab}
+.project-icon-sm.js{background:rgba(247,223,30,0.1);color:#f7df1e}
+.project-icon-sm.other{background:rgba(99,102,241,0.1);color:var(--primary)}
+.project-info-sm{flex:1;min-width:0}
+.project-name-sm{font-weight:700;font-size:13px}
+.project-meta-sm{font-size:10.5px;color:var(--text-muted);display:flex;gap:8px;flex-wrap:wrap;margin-top:1px}
+.project-status{font-size:10px;font-weight:600;padding:3px 8px;border-radius:8px;flex-shrink:0}
+.status-done{background:rgba(34,166,126,0.1);color:var(--green)}
+.status-pending{background:rgba(232,150,47,0.1);color:var(--orange)}
+.status-error{background:rgba(217,74,58,0.1);color:var(--red)}
+
+/* Validation */
+.val-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.val-stat{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--card-border);padding:16px;text-align:center}
+.val-stat .val-num{font-size:28px;font-weight:800}
+.val-stat.pass .val-num{color:var(--green)}
+.val-stat.fail .val-num{color:var(--red)}
+.val-stat.total .val-num{color:var(--primary)}
+.val-stat .val-label{font-size:10px;color:var(--text-secondary);margin-top:2px;text-transform:uppercase;letter-spacing:0.5px}
+.result-list{display:flex;flex-direction:column;gap:5px;max-height:400px;overflow-y:auto}
+.result-item{display:flex;align-items:center;gap:8px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);padding:10px 12px;font-size:12px}
+.result-item .r-name{flex:1;font-weight:500}
+.result-item .r-latency{font-size:10px;color:var(--text-muted);font-family:Consolas,monospace}
+.result-item .r-status{font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px}
+.r-pass{background:rgba(34,166,126,0.1);color:var(--green)}
+.r-fail{background:rgba(217,74,58,0.1);color:var(--red)}
+
+/* Toast */
+.toast{position:fixed;top:16px;right:16px;z-index:1000;padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:600;box-shadow:var(--shadow-lg);animation:slideIn .3s;max-width:360px}
+.toast.success{background:var(--green);color:#fff}
+.toast.error{background:var(--red);color:#fff}
+.toast.info{background:var(--primary);color:#fff}
+@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* spinner override for tabs */
+.spinner-sm{width:14px;height:14px;border:2px solid var(--card-border);border-top-color:var(--primary);border-radius:50%;animation:spin .6s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn-outline-sm{background:transparent;color:var(--primary);border:1px solid var(--primary);padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;transition:.15s;font-family:inherit}
+.btn-outline-sm:hover{background:var(--primary-light)}
+
 /* 双栏 */
 .main-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
-@media(max-width:820px){.main-grid,.stats-grid{grid-template-columns:1fr}}
+@media(max-width:820px){.main-grid,.stats-grid,.val-summary{grid-template-columns:1fr}}
 
 /* 卡片 */
 .card{background:var(--card-bg);border-radius:var(--radius);box-shadow:var(--shadow-sm);border:1px solid var(--card-border);overflow:hidden}
@@ -179,6 +264,7 @@ CodeLens AI
 <a href="http://localhost:8730">☁ Nebula</a>
 <a href="http://localhost:8765" class="active">◆ CodeLens</a>
 <a href="http://localhost:8740">⎔ DevOps</a>
+<a href="/workspace">🗂 Workspace</a>
 </div>
 <div class="nav-spacer"></div>
 <span class="nav-status"><span class="nav-dot"></span><span id="nav-text">就绪</span></span>
@@ -195,6 +281,15 @@ CodeLens AI
 <div class="tagline">深入理解你的代码库 —— 解析代码结构、构建知识图谱、智能问答与变更分析</div>
 <div class="sub">基于 Tree-sitter AST 解析 + NetworkX 知识图谱 + ChromaDB 向量检索 + DeepSeek 大模型</div>
 </div>
+
+<!-- ====== Tab 导航 ====== -->
+<div class="tab-nav">
+<button class="active" onclick="switchMainTab('overview')">🏠 总览</button>
+<button onclick="switchMainTab('workspace')">🗂 工作区 · LLM + 项目 + 诊断</button>
+</div>
+
+<!-- ====== Tab: 总览 ====== -->
+<div class="tab-panel active" id="panel-overview">
 
 <!-- 套件关联 -->
 <div class="suite-bar">
@@ -340,6 +435,73 @@ API 接口参考（14 个 REST 端点 + WebSocket）
 <div style="text-align:center;margin-top:10px;font-size:12px;color:var(--text-muted)">完整文档：<a href="/docs" style="color:var(--primary);font-weight:500">Swagger UI</a> · <a href="/redoc" style="color:var(--primary);font-weight:500">ReDoc</a></div>
 </div>
 </div>
+</div><!-- end panel-overview -->
+
+<!-- ====== Tab: 工作区 ====== -->
+<div class="tab-panel" id="panel-workspace">
+
+<!-- 子 Tab: LLM配置 / 项目管理 / 验证诊断 -->
+<div class="subtabs">
+<button class="active" onclick="switchSubTab('llm')">🔑 LLM 配置</button>
+<button onclick="switchSubTab('projects')">📁 项目管理</button>
+<button onclick="switchSubTab('validate')">✅ 验证诊断</button>
+</div>
+
+<!-- ── LLM 配置子面板 ── -->
+<div class="subpanel active" id="sub-llm">
+<div class="card">
+<div class="card-header"><span class="dot blue"></span>🔑 大模型 API 配置</div>
+<div class="card-body">
+<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">支持多提供商同时配置。填入 API Key → 测试连接 → 自动在分析中可用。</p>
+<div class="provider-grid" id="providerGrid"></div>
+<div style="margin-top:12px;display:flex;gap:8px">
+<button class="btn" style="background:var(--primary);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" onclick="saveAllConfig()">💾 保存全部</button>
+<button class="btn-outline-sm" onclick="loadConfig()">🔄 重新加载</button>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ── 项目管理子面板 ── -->
+<div class="subpanel" id="sub-projects">
+<div class="card">
+<div class="card-header"><span class="dot green"></span>📁 项目工作区 <code style="font-size:10px;color:var(--text-muted);font-weight:400;margin-left:6px">workspace/projects/</code></div>
+<div class="card-body">
+<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">
+<button class="btn" style="background:var(--primary);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" onclick="scanProjects()" id="scanBtn">🔍 扫描项目</button>
+<button class="btn-outline-sm" onclick="loadProjects()">🔄 刷新</button>
+<span style="font-size:11px;color:var(--text-muted)">将项目文件夹拖入 workspace/projects/ 后扫描</span>
+</div>
+<div class="project-list" id="projectList">
+<div style="text-align:center;padding:24px;color:var(--text-muted)">📂 点击「扫描项目」发现项目</div>
+</div>
+</div>
+</div>
+</div>
+
+<!-- ── 验证诊断子面板 ── -->
+<div class="subpanel" id="sub-validate">
+<div class="card">
+<div class="card-header"><span class="dot orange"></span>✅ 系统验证与诊断</div>
+<div class="card-body">
+<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+<button class="btn" style="background:var(--primary);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" onclick="runValidation('llm')">🔗 LLM 连通性</button>
+<button class="btn" style="background:var(--primary);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" onclick="runValidation('tools')">🔧 工具链 I/O</button>
+<button class="btn" style="background:var(--green);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit" onclick="runValidation('all')">🚀 全量诊断</button>
+</div>
+<div class="val-summary">
+<div class="val-stat total"><div class="val-num" id="valTotal">--</div><div class="val-label">总测试数</div></div>
+<div class="val-stat pass"><div class="val-num" id="valPass">--</div><div class="val-label">通过</div></div>
+<div class="val-stat fail"><div class="val-num" id="valFail">--</div><div class="val-label">失败</div></div>
+</div>
+<div class="result-list" id="resultList">
+<div style="text-align:center;padding:20px;color:var(--text-muted)">🔬 点击上方按钮运行诊断</div>
+</div>
+</div>
+</div>
+</div>
+
+</div><!-- end panel-workspace -->
 
 <div class="footer">
 <b>CodeLens AI</b> v1.0 · 代码智能理解平台 · <a href="http://localhost:8730">Nebula Agent</a> · <a href="http://localhost:8740">DevOps Agent</a>
@@ -397,6 +559,175 @@ const inp=document.getElementById('chatInput');inp.value=prompts[act]||'';inp.fo
 }
 function toggleAPI(){document.getElementById('apiBody').classList.toggle('open');document.querySelector('.api-toggle').classList.toggle('open')}
 
+// ===== Tab切换 =====
+function switchMainTab(name){
+document.querySelectorAll('.tab-nav button').forEach(b=>b.classList.remove('active'));
+document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+event.target.classList.add('active');
+document.getElementById('panel-'+name).classList.add('active');
+if(name==='workspace'){loadConfig();loadProjects()}
+}
+function switchSubTab(name){
+document.querySelectorAll('.subtabs button').forEach(b=>b.classList.remove('active'));
+document.querySelectorAll('.subpanel').forEach(p=>p.classList.remove('active'));
+event.target.classList.add('active');
+document.getElementById('sub-'+name).classList.add('active');
+}
+
+// ===== Workspace: LLM Config =====
+const DEFAULTS=[
+{name:'deepseek',type:'deepseek',icon:'ds',label:'DeepSeek',model:'deepseek-v4-pro',base_url:'https://api.deepseek.com',api_key:'',enabled:true},
+{name:'openai',type:'openai',icon:'oai',label:'OpenAI',model:'gpt-4o',base_url:'https://api.openai.com/v1',api_key:'',enabled:false},
+{name:'anthropic',type:'anthropic',icon:'anth',label:'Anthropic',model:'claude-sonnet-5',base_url:'https://api.anthropic.com',api_key:'',enabled:false},
+{name:'local',type:'openai_compat',icon:'local',label:'Ollama/本地',model:'qwen3:latest',base_url:'http://localhost:11434/v1',api_key:'ollama',enabled:false}
+];
+let providers=JSON.parse(JSON.stringify(DEFAULTS));
+let providerStatus={};
+
+async function loadConfig(){
+try{
+const r=await fetch('/api/v1/workspace/config/llm');const d=await r.json();
+if(d.providers&&d.providers.length){
+d.providers.forEach((p,i)=>{
+if(providers[i]){
+providers[i].enabled=p.enabled;
+providers[i].api_key_configured=p.api_key_configured;
+providers[i].api_key_masked=p.api_key_masked;
+if(p.model) providers[i].model=p.model;
+if(p.base_url) providers[i].base_url=p.base_url;
+}
+});
+}
+}catch(e){}
+renderProviders();
+}
+
+function renderProviders(){
+const grid=document.getElementById('providerGrid');
+grid.innerHTML=providers.map((p,i)=>{
+const connected=providerStatus[p.name]==='ok';
+const testing=providerStatus[p.name]==='testing';
+const error=providerStatus[p.name]==='error';
+let s='';
+if(connected) s='<span class="provider-status connected">✓</span>';
+else if(testing) s='<span class="provider-status disconnected"><span class="spinner-sm"></span></span>';
+else if(error) s='<span class="provider-status disconnected">✗</span>';
+else if(p.api_key_configured) s='<span class="provider-status connected">已配</span>';
+
+return '<div class="provider-card'+(connected?' connected':(error?' error':''))+'">'+s+
+'<div class="provider-header"><div class="provider-icon '+p.icon+'">'+p.label[0]+'</div><div><div class="provider-name">'+p.label+'</div><div class="provider-type">'+p.type+'</div></div></div>'+
+'<div class="provider-body">'+
+'<div class="form-group"><label>API Key</label><input type="password" id="key-'+i+'" placeholder="'+(p.api_key_masked||'sk-...')+'" value="'+(p.api_key||'')+'" onfocus="this.type=\'text\'" onblur="if(!this.value)this.type=\'password\'"></div>'+
+'<div class="form-row"><div class="form-group"><label>Base URL</label><input type="text" id="url-'+i+'" value="'+p.base_url+'"></div><div class="form-group"><label>Model</label><input type="text" id="model-'+i+'" value="'+p.model+'"></div></div>'+
+'<div class="provider-actions"><button class="btn-outline-sm" onclick="testProvider('+i+')" '+(testing?'disabled':'')+'>'+(testing?'<span class="spinner-sm"></span> ':'')+'🔗 测试</button><label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary);cursor:pointer;margin-left:6px"><input type="checkbox" id="enabled-'+i+'" '+(p.enabled?'checked':'')+' onchange="providers['+i+'].enabled=this.checked"> 启用</label></div>'+
+'<div id="test-result-'+i+'" style="font-size:10px;margin-top:2px"></div>'+
+'</div></div>';
+}).join('');
+}
+
+async function testProvider(idx){
+const p=providers[idx];
+const keyEl=document.getElementById('key-'+idx);
+const apiKey=keyEl.value.trim()||p.api_key||'';
+if(!apiKey||apiKey.includes('your-api-key')){alert('请先填入 '+p.label+' 的 API Key');return}
+providerStatus[p.name]='testing';renderProviders();
+try{
+const r=await fetch('/api/v1/workspace/validate/llm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:p.name})});
+const d=await r.json();
+const el=document.getElementById('test-result-'+idx);
+if(d.result&&d.result.passed){
+providerStatus[p.name]='ok';
+el.innerHTML='<span style="color:var(--green)">✓ '+Math.round(d.result.latency_ms)+'ms</span>';
+}else{
+providerStatus[p.name]='error';
+el.innerHTML='<span style="color:var(--red)">✗ '+(d.result?d.result.error:'连接失败')+'</span>';
+}
+}catch(e){providerStatus[p.name]='error';document.getElementById('test-result-'+idx).innerHTML='<span style="color:var(--red)">✗ '+e.message+'</span>'}
+renderProviders();
+}
+
+async function saveAllConfig(){
+let yaml='# Noosphere Workspace - LLM Configuration\n# Saved from Web UI\n\ndefault_provider: '+(providers.find(p=>p.enabled)||providers[0]).name+'\n\nproviders:\n';
+providers.forEach((p,i)=>{
+const k=document.getElementById('key-'+i);const u=document.getElementById('url-'+i);const m=document.getElementById('model-'+i);
+yaml+='  - name: '+p.name+'\n    type: '+p.type+'\n    api_key: "'+(k&&k.value.trim()||p.api_key||'')+'"\n    base_url: '+(u&&u.value.trim()||p.base_url)+'\n    model: '+(m&&m.value.trim()||p.model)+'\n    enabled: '+(p.enabled!==false)+'\n';
+});
+try{
+const r=await fetch('/api/v1/workspace/config/llm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({yaml_content:yaml})});
+if(r.ok){showToast('配置已保存到 workspace/llm_config.yaml','success')}else{showToast('保存失败，请查看控制台','error');console.log(yaml)}
+}catch(e){showToast('保存失败: '+e.message,'error')}
+}
+
+// ===== Workspace: Projects =====
+async function loadProjects(){
+try{
+const r=await fetch('/api/v1/workspace/projects');const d=await r.json();
+const list=document.getElementById('projectList');
+const projects=d.projects||[];
+if(!projects.length){list.innerHTML='<div style="text-align:center;padding:24px;color:var(--text-muted)">📂 还没有项目 — 将项目文件夹放入 workspace/projects/ 后点击扫描</div>';return}
+list.innerHTML=projects.map(p=>{
+let icon='other';const langs=(p.languages||[]).map(l=>l.toLowerCase()).join(' ');
+if(langs.includes('go')) icon='go';else if(langs.includes('python')) icon='py';else if(langs.includes('javascript')) icon='js';
+const statusClass='status-'+(p.scan_status||'pending');
+const statusText={pending:'待分析',scanning:'扫描中',done:'已分析',error:'出错'}[p.scan_status]||'待分析';
+let tags='';
+if(p.languages&&p.languages.length) tags+=p.languages.slice(0,3).map(l=>'<span>💻 '+l+'</span>').join('');
+if(p.frameworks&&p.frameworks.length) tags+='<span>📦 '+p.frameworks.slice(0,2).join(', ')+'</span>';
+tags+='<span>📄 '+p.total_files+' 文件</span>';
+return '<div class="project-item"><div class="project-icon-sm '+icon+'">'+(p.languages&&p.languages[0]?p.languages[0][0].toUpperCase():'?')+'</div><div class="project-info-sm"><div class="project-name-sm">'+p.name+'</div><div class="project-meta-sm">'+tags+'</div></div><span class="project-status '+statusClass+'">'+statusText+'</span><button class="btn-outline-sm" onclick="analyzeProject(\''+p.name+'\')">🔍 分析</button></div>';
+}).join('');
+}catch(e){document.getElementById('projectList').innerHTML='<div style="text-align:center;padding:24px;color:var(--red)">⚠ 加载失败: '+e.message+'</div>'}
+}
+
+async function scanProjects(){
+const btn=document.getElementById('scanBtn');btn.innerHTML='<span class="spinner-sm"></span> 扫描中...';btn.disabled=true;
+try{
+const r=await fetch('/api/v1/workspace/scan',{method:'POST'});const d=await r.json();
+showToast('发现 '+d.count+' 个项目','success');loadProjects();
+}catch(e){showToast('扫描失败: '+e.message,'error')}
+btn.innerHTML='🔍 扫描项目';btn.disabled=false;
+}
+
+async function analyzeProject(name){
+showToast('正在分析: '+name+'...','info');
+try{
+const r=await fetch('/api/v1/workspace/projects/'+encodeURIComponent(name)+'/analyze',{method:'POST'});
+const d=await r.json();
+if(r.ok){showToast('分析完成: '+name,'success');loadProjects();loadStatus()}
+else{showToast('分析失败: '+(d.detail||'未知错误'),'error')}
+}catch(e){showToast('分析失败: '+e.message,'error')}
+}
+
+// ===== Workspace: Validation =====
+async function runValidation(type){
+const endpoints={llm:'/api/v1/workspace/validate/llm',tools:'/api/v1/workspace/validate/tools',all:'/api/v1/workspace/validate/all'};
+const rl=document.getElementById('resultList');
+rl.innerHTML='<div style="text-align:center;padding:20px"><span class="spinner-sm"></span> 正在测试...</div>';
+try{
+const r=await fetch(endpoints[type],{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+const d=await r.json();
+document.getElementById('valTotal').textContent=d.total_tests||0;
+document.getElementById('valPass').textContent=d.passed_tests||0;
+document.getElementById('valFail').textContent=d.failed_tests||0;
+let results=[];
+if(d.results) results=d.results;
+if(d.llm_report&&d.llm_report.results) results=[...results,...d.llm_report.results];
+if(d.tool_report&&d.tool_report.results) results=[...results,...d.tool_report.results];
+if(d.e2e_report&&d.e2e_report.results) results=[...results,...d.e2e_report.results];
+if(!results.length){rl.innerHTML='<div style="text-align:center;padding:20px;color:var(--text-secondary)">✓ '+d.summary+'</div>';return}
+rl.innerHTML=results.map(r=>'<div class="result-item"><span>'+(r.passed?'✅':'❌')+'</span><span class="r-name">'+r.test_name+'</span>'+(r.latency_ms?'<span class="r-latency">'+Math.round(r.latency_ms)+'ms</span>':'')+'<span class="r-status '+(r.passed?'r-pass':'r-fail')+'">'+(r.passed?'通过':'失败')+'</span></div>'+(r.error?'<div style="font-size:10px;color:var(--red);margin-left:28px">'+r.error+'</div>':'')).join('');
+if(d.overall_status==='ok') showToast('全部验证通过！','success');
+else if(d.overall_status==='partial') showToast(d.summary,'info');
+}catch(e){rl.innerHTML='<div style="text-align:center;padding:20px;color:var(--red)">❌ '+e.message+'</div>'}
+}
+
+// ===== Toast =====
+function showToast(msg,type){
+const t=document.createElement('div');t.className='toast '+type;t.textContent=msg;
+document.body.appendChild(t);
+setTimeout(()=>{t.style.opacity='0';t.style.transition='opacity .3s';setTimeout(()=>t.remove(),300)},3000);
+}
+
 // 加载动画
 const s=document.createElement('style');s.textContent='.ld{animation:b 1.4s infinite;display:inline-block}.ld:nth-child(2){animation-delay:0.2s}.ld:nth-child(3){animation-delay:0.4s}@keyframes b{0%,100%{opacity:1}50%{opacity:0.3}}';document.head.appendChild(s)
 </script>
@@ -416,6 +747,10 @@ class APIServer:
                            allow_methods=["*"], allow_headers=["*"])
         router = setup_routes(self.agent)
         app.include_router(router)
+
+        # Register workspace save endpoint
+        from .workspace_page import setup_workspace_routes
+        setup_workspace_routes(app)
 
         @app.get("/", response_class=HTMLResponse)
         async def index():

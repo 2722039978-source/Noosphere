@@ -5,7 +5,7 @@
  */
 
 export interface ServiceEndpoint {
-  id: "codelens" | "nebula" | "devops";
+  id: "gateway" | "codelens" | "nebula" | "devops";
   name: string;
   codename: string;
   port: number;
@@ -18,6 +18,15 @@ export interface ServiceEndpoint {
 }
 
 export const SERVICES: ServiceEndpoint[] = [
+  {
+    id: "gateway",
+    name: "AI Gateway",
+    codename: "GATEWAY",
+    port: 8800,
+    base: process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8800",
+    health: "/health",
+    console: "http://localhost:8800",
+  },
   {
     id: "codelens",
     name: "CodeLens",
@@ -48,6 +57,6 @@ export const SERVICES: ServiceEndpoint[] = [
 ];
 
 /** DevOps 实时指标端点（在线时 HUD 展示真实 CPU / 内存数据） */
-export const DEVOPS_METRICS_URL = `${SERVICES[2].base}/api/v1/devops/metrics`;
+export const DEVOPS_METRICS_URL = `${SERVICES[3].base}/api/v1/devops/metrics`;
 
 export type ServiceStatus = "checking" | "online" | "offline";

@@ -2,6 +2,8 @@
 .env
 **/.env
 *.local
+workspace/llm_config.yaml
+workspace/.workspace_state.json
 
 # ═══════════ 二进制与构建产物 ═══════════
 *.exe
