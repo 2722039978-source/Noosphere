@@ -1,0 +1,53 @@
+/* Operational companion to RhineLabUI's immersive archive. */
+.ns-model-form { border-top: 1px solid var(--border-strong); padding: 24px 0; }.ns-model-form legend { font-size: 15px; font-weight: 600; margin-bottom: 20px; }.ns-model-fields { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,220px),1fr)); gap: 22px; }.ns-model-fields label { display: block; margin-bottom: 8px; font-size: 11px; color: var(--text-2); }.ns-model-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 24px; }.ns-model-form-actions label { display: flex; align-items: center; gap: 9px; margin-right: auto; font-size: 12px; }.ns-model-form-actions input { accent-color: var(--brand); }.ns-form-error { color: var(--err); border-left: 2px solid var(--err); padding: 12px 15px; margin-top: 15px; background: var(--bg-input); font-size: 12px; line-height: 1.8; }
+:root, html.light { --bg-app: #eae5e1; --bg-raised: #f0ece7; --bg-elevated: #f7f4ef; --bg-input: #f7f4ef80; --brand: #8d704e; --brand-bright: #715535; --brand-dim: #cbb39740; --acc-nebula: #75718d; --acc-gateway: #6c798b; --acc-codelens: #52746e; --acc-devops: #9b713e; }
+.ns-app-shell { background-image: none; }
+.ns-masthead { height: 106px; border-bottom: 0; padding: 0 34px; }
+.ns-wordmark strong { font-size: 29px; letter-spacing: -.07em; }.ns-wordmark span { font-size: 8px; letter-spacing: .07em; }
+.ns-masthead-section { border: 0; padding: 0; margin-left: 16px; }.ns-masthead-section > span { font-size: 8px; letter-spacing: .1em; color: var(--text-3); }.ns-masthead-section b { font-size: 23px; }
+.ns-masthead-current { padding-right: 3px; font-size: 9px; letter-spacing: .13em; }.ns-masthead-current > span:first-child { color: var(--text-3); }.ns-masthead-current > span:last-child::before { content: ''; width: 4px; height: 4px; background: var(--module-accent); }
+.ns-sidebar { width: 204px; border-right: 0; padding: 4px 18px 20px 22px; }
+.ns-sidebar-heading { margin: 16px 10px 22px; font-size: 8px; letter-spacing: .15em; color: var(--text-3); }
+.ns-index-nav { gap: 5px; }.ns-index-item { position: relative; padding: 16px 10px; border: 0; min-height: 65px; }.ns-index-item.is-active { background: var(--secondary); }.ns-index-item.is-active::before { content: ''; width: 3px; position: absolute; left: 0; top: 17px; bottom: 17px; background: var(--module-accent); }
+.ns-index-label { font-size: 13px; font-weight: 600; }.ns-index-english { font-size: 7px; letter-spacing: .1em; margin-top: 5px; }.ns-index-number { font-size: 9px; }.ns-index-arrow { width: 12px; }.ns-sidebar-foot { border-top: 1px solid var(--border-soft); margin: auto 10px 0; padding: 22px 0 0; font-size: 7px; line-height: 1.8; }
+.ns-app-shell main { margin-right: 24px; margin-bottom: 16px; background: var(--bg-raised); border: 1px solid var(--border-soft); }
+.ns-page-wrap { max-width: 1360px; margin: 0 auto; padding: 36px 38px 45px; gap: 28px; }
+.ns-page-header { padding-bottom: 27px; border-bottom: 1px solid var(--border-strong); align-items: flex-end; }
+.ns-page-header .ns-kicker { font-size: 8px; letter-spacing: .14em; color: var(--text-3); }.ns-page-header .ns-kicker::before { content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 10px; vertical-align: 1px; background: var(--module-accent); }
+.ns-page-header h1 { font-size: 38px; font-weight: 400; letter-spacing: -.045em; margin: 11px 0 8px; }.ns-page-header p { font-size: 12px; line-height: 1.7; }
+.ns-section-label { font-size: 9px; letter-spacing: .14em; }.ns-surface { border-width: 1px 0 0; border-color: var(--border-soft); background: transparent; box-shadow: none; }.ns-surface > h2 { font-weight: 600; }.ns-lift:hover { background: var(--secondary); }
+.ns-button { font-size: 12px; letter-spacing: .015em; }.ns-button[data-slot=button] { box-shadow: none; }.ns-button:not(:disabled):active { transform: translateY(1px); }
+[data-slot=input], [data-slot=select-trigger], textarea { border-radius: 0; box-shadow: none; font-size: 13px; }
+[data-slot=input]:focus-visible, textarea:focus-visible { outline-offset: 2px; }
+[data-slot=dialog-content] { border-top: 3px solid var(--primary); border-radius: 0; }
+[data-slot=tabs-list] { border-radius: 0; background: transparent; border-bottom: 1px solid var(--border-soft); }
+[data-slot=tabs-trigger] { border-radius: 0; font-size: 12px; }[data-slot=tabs-trigger][data-state=active] { box-shadow: none; background: var(--secondary); }
+.ns-chat-session-header { min-height: 83px; padding-left: 30px; background: transparent; }.ns-chat-session-header h1 { font-size: 16px; font-weight: 500; }.ns-chat-session-header .ns-kicker { font-size: 8px; letter-spacing: .16em; }
+.ns-chat-empty { max-width: 790px; }.ns-chat-empty h2 { font-size: clamp(32px,3.7vw,58px); font-weight: 300; letter-spacing: -.04em; }.ns-chat-empty h2 strong { font-weight: 500; }.ns-chat-empty > .ns-kicker { font-size: 9px; }.ns-chat-empty > div:last-of-type button { min-height: 63px; }
+.ns-statusbar { border-top: 0; min-height: 33px; padding: 0 34px 5px; font-size: 9px; background: transparent; }.ns-footer-signature { font-size: 9px; }
+.ns-experience-settings > div:first-child { margin-bottom: 20px; }.ns-preference-row { display: flex; align-items: center; justify-content: space-between; gap: 25px; padding: 17px 0; border-top: 1px solid var(--border-soft); }.ns-preference-row label { font-size: 13px; }.ns-preference-row small { display: block; margin-top: 5px; font-size: 11px; color: var(--text-3); }.ns-preference-row select { max-width: 45%; min-width: 155px; border: 1px solid var(--border-soft); padding: 9px 12px; background: var(--bg-input); color: var(--text-1); font: inherit; font-size: 12px; }.ns-preference-row input { width: 17px; height: 17px; accent-color: var(--brand); }
+html.dark .ns-app-shell main { background: var(--bg-raised); }html.dark .ns-index-item.is-active { background: #ffffff09; }
+@media (max-width: 1279px) { .ns-page-wrap { padding: 27px 25px; }.ns-sidebar { width: 186px; padding-left: 15px; padding-right: 13px; }.ns-masthead { height: 89px; padding: 0 26px; }.ns-masthead-section { margin-left: 0; }.ns-app-shell main { margin-right: 18px; } }
+@media (max-width: 1023px) { .ns-app-shell main { margin: 0 16px 10px; }.ns-masthead-current { margin-left: auto; }.ns-page-header h1 { font-size: 32px; }.ns-nav-dialog .ns-sidebar { padding-top: 24px; } }
+@media (max-width: 639px) { .ns-masthead { height: 80px; padding: 0 19px; gap: 10px; }.ns-wordmark strong { font-size: 25px; }.ns-wordmark span { font-size: 7px; }.ns-masthead-current { display: none; }.ns-mobile-menu { margin-left: auto; }.ns-app-shell main { margin: 0; border-width: 1px 0 0; }.ns-page-wrap { padding: 23px 20px 32px; gap: 22px; }.ns-page-header { padding-bottom: 22px; }.ns-page-header h1 { font-size: 32px; }.ns-statusbar { padding: 6px 16px; min-height: 35px; }.ns-chat-session-header { padding: 14px 18px; }.ns-chat-empty { padding: 35px 24px; }.ns-chat-empty h2 { font-size: 38px; }.ns-preference-row { flex-wrap: wrap; gap: 12px; }.ns-preference-row select { max-width: 100%; }.ns-page-wrap .ns-surface { padding-left: 0; padding-right: 0; } }
+@media (prefers-reduced-motion: reduce) { .ns-app-shell *, .ns-app-shell *::before, .ns-app-shell *::after { animation: none !important; transition: none !important; } }
+
+/* Readable dossier hierarchy at native Windows scaling. */
+.ns-index-label { font-size: 14px; }
+.ns-index-english, .ns-sidebar-heading, .ns-masthead-section > span, .ns-masthead-current, .ns-page-header .ns-kicker, .ns-chat-session-header .ns-kicker { font-size: 10px; }
+.ns-index-number, .ns-sidebar-foot, .ns-footer-signature, .ns-statusbar { font-size: 11px; }
+.ns-page-header p, .ns-model-fields label, .ns-preference-row small { font-size: 13px; line-height: 1.7; }
+.ns-button, [data-slot=input], [data-slot=select-trigger], .ns-preference-row select, [data-slot=tabs-trigger] { font-size: 14px; }
+.ns-model-form-actions label, .ns-preference-row label { font-size: 14px; }
+.ns-page-wrap .ns-surface { border: 1px solid var(--border-soft); background: var(--bg-elevated); }
+.ns-surface { position: relative; }
+.ns-page-wrap .ns-surface::before { content: ''; position: absolute; top: -1px; left: -1px; width: 22px; height: 2px; background: var(--module-accent,var(--brand)); }
+.ns-model-form { padding: 26px; border: 1px solid var(--module-accent,var(--border-strong)); background: var(--bg-elevated); }
+.ns-model-form legend { font-size: 18px; padding: 0; }
+.ns-model-form-actions { padding-top: 18px; border-top: 1px solid var(--border-soft); }
+.ns-statusbar { gap: 16px; min-height: 36px; }
+.ns-memory-sidebar { border-right: 1px solid var(--border-soft); }
+.ns-chat-empty > .ns-kicker { font-size: 11px; }
+.ns-chat-session-header { border-bottom: 1px solid var(--border-soft); }
+.ns-message-body { font-size: 15px; }
+@media (max-width: 639px) { .ns-page-wrap .ns-surface { padding-left: 18px; padding-right: 18px; }.ns-model-form { padding: 18px; }.ns-statusbar { font-size: 10px; }.ns-footer-signature { font-size: 10px; }.ns-masthead { gap: 8px; } }

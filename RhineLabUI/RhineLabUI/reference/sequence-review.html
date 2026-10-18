@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><title>先抬起后波浪检查</title>
+  <style>
+    body {
+      background: #eae5e1;
+      color: #303329;
+      font: 13px monospace;
+    }
+    #scene {
+      width: 960px;
+      height: 540px;
+    }
+    pre {
+      white-space: pre-wrap;
+    }
+  </style>
+  <div id="scene"></div>
+  <pre id="result">正在检查动画先后关系…</pre>
+  <script type="module">
+    import { ArchiveScene } from "/src/scene.ts";
+    import { selectionWave } from "/src/motion.ts";
+    import { columnFiles } from "/src/data.ts";
+    import { wrap, sameCell } from "/src/archive-loop.ts";
+    const s = new ArchiveScene(document.querySelector("#scene"), selectionWave, true);
+    await s.load();
+    const draw = s.composer.render.bind(s.composer);
+    s.composer.render = () => {};
+    let time = 0,
+      index = 0,
+      latestPulse = -1;
+    let trackedHeights = null;
+    const errors = [],
+      emissions = [];
+    const expect = (v, m) => {
+      if (!v) errors.push(m);
+    };
+    const step = (count = 1) => {
+      for (let f = 0; f < count; f++) {
+        s.update((time += 1 / 60));
+        trackedHeights?.push(s.model.position.y);
+        const pulse = s.pulses.at(-1);
+        if (pulse && pulse.time !== latestPulse) {
+          latestPulse = pulse.time;
+          const old = s.outgoing.filter(
+            (o) =>
+              o.cell.lane === s.selectedCell.lane &&
+              Math.abs(o.cell.row - s.selectedCell.row) <= 4,
+          );
+          const margin = old.length
+            ? Math.min(
+                ...old.map((o) => s.model.position.y - o.group.position.y),
+              )
+            : null;
+          emissions.push({
+            time,
+            lift: s.lift.value,
+            margin,
+            cell: { ...s.selectedCell },
+          });
+          expect(s.lift.value >= 0.35, "Wave starts before the new file rises");
+          expect(
+            margin === null || margin > 0.015 - 1e-8,
+            "Wave starts while the previous file is higher",
+          );
+          expect(
+            sameCell(pulse, s.selectedCell),
+            "An obsolete selection emits a delayed wave",
+          );
+        }
+      }
+    };
+    function move(direction) {
+      const files = columnFiles(s.selectedCell.lane % 5);
+      index = files[wrap(files.indexOf(index) + direction, files.length)];
+      s.select(index, { axis: "row", direction });
+    }
+    s.setMode("archive");
+    s.select(0);
+    step(300);
+    const initial = emissions.length;
+    const start = time;
+    move(1);
+    trackedHeights = [];
+    step(12);
+    expect(
+      emissions.length === initial,
+      "Wave starts simultaneously with lift",
+    );
+    step(120);
+    expect(
+      emissions.length === initial + 1,
+      "Selection fails to emit one wave",
+    );
+    const firstDelay = emissions.at(-1).time - start;
+    let peak = -Infinity,
+      maxDrop = 0;
+    for (const height of trackedHeights) {
+      peak = Math.max(peak, height);
+      maxDrop = Math.max(maxDrop, peak - height);
+    }
+    trackedHeights = null;
+    expect(
+      maxDrop < 0.005,
+      "The selected file jumps and falls after its initial rise",
+    );
+    const rapidStart = emissions.length;
+    for (let i = 0; i < 12; i++) {
+      move(1);
+      step(6);
+    }
+    expect(
+      emissions.length === rapidStart,
+      "Abandoned rapid selections emitted queued waves",
+    );
+    step(180);
+    expect(
+      emissions.length === rapidStart + 1,
+      "Last rapid selection did not emit exactly one wave",
+    );
+    const oldCell = { ...s.selectedCell },
+      oldIndex = index;
+    move(1);
+    step(6);
+    s.select(oldIndex, { cell: oldCell });
+    index = oldIndex;
+    step(180);
+    expect(s.pendingPulse === null, "Rapid reversal never settled");
+    s.setMode("detail");
+    step(300);
+    expect(s.canInspect, "Detail inspection lost clearance");
+    s.rotation = s.targetRotation = 0.8;
+    step();
+    s.setMode("archive");
+    move(1);
+    const rotatedStart = emissions.length;
+    step(20);
+    expect(
+      emissions.length === rotatedStart,
+      "Wave starts before rotated old card aligns",
+    );
+    step(300);
+    expect(
+      emissions.length === rotatedStart + 1,
+      "Wave missing after detail return",
+    );
+    s.setReduced(true);
+    move(1);
+    const reducedStart = emissions.length;
+    step(180);
+    expect(emissions.length === reducedStart, "Reduced motion emits a wave");
+    s.setReduced(false);
+    move(1);
+    s.setMode("hidden");
+    step(120);
+    expect(s.pendingPulse === null, "Replay leaves a pending wave");
+    document.querySelector("#result").textContent = JSON.stringify(
+      { passed: !errors.length, errors, firstDelay, maxDrop, emissions },
+      null,
+      2,
+    );
+    draw();
+  </script>
+</html>

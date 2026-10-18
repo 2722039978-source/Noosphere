@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Rhine Lab · 光影对照</title>
+    <link rel="stylesheet" href="/reference/wave-compare.css" />
+    <style>
+      #original {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .caption span {
+        max-width: 60%;
+        text-align: right;
+      }
+      .shot[aria-pressed="true"] {
+        background: #353b30;
+        color: #f4f0e9;
+      }
+      .scene {
+        pointer-events: none;
+      }
+      #status {
+        font-size: 12px;
+        color: #666b5d;
+        margin: 18px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <style>
+      .view::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+        background:
+          linear-gradient(
+            180deg,
+            #eae5e1 0%,
+            rgba(234, 229, 225, 0.82) 11%,
+            transparent 40%
+          ),
+          linear-gradient(0deg, rgba(234, 229, 225, 0.94) 0%, transparent 19%),
+          radial-gradient(
+            ellipse at 48% 48%,
+            transparent 35%,
+            rgba(234, 229, 225, 0.38) 85%
+          );
+      }
+      #original {
+        z-index: 2;
+      }
+    </style>
+    <main>
+      <header>
+        <div>
+          <span class="eyebrow">RHINE LAB / LIGHT STUDY</span>
+          <h1>光影对照</h1>
+        </div>
+        <a href="/?scene=archive" target="_blank" rel="noopener"
+          >体验当前版本 ↗</a
+        >
+      </header>
+      <p class="intro">
+        主界面已恢复原始基线的运动、颜色与光照。右侧保留光影实验供回看。
+      </p>
+      <section class="toolbar">
+        <label
+          >左侧
+          <select id="source">
+            <option value="original">原视频</option>
+            <option value="baseline">基线（当前采用）</option>
+          </select></label
+        ><button class="shot" data-frame="690">27.60 秒 · 阵列入场</button
+        ><button class="shot" data-frame="729">29.16 秒 · 波峰</button
+        ><button class="shot" data-frame="787" aria-pressed="true">
+          31.48 秒 · 阵列</button
+        ><button class="shot" data-frame="975">39.00 秒 · 特写</button>
+      </section>
+      <section class="views">
+        <article>
+          <div class="caption">
+            <h2 id="left-title">原视频</h2>
+            <span>同一关键帧</span>
+          </div>
+          <div class="view" id="before">
+            <div class="scene"></div>
+            <img
+              id="original"
+              src="/reference/motion/0787.jpg"
+              alt="原视频第 787 帧"
+            />
+          </div>
+        </article>
+        <article>
+          <div class="caption">
+            <h2>光影实验</h2>
+            <span>相同模型与镜头</span>
+          </div>
+          <div class="view" id="after"><div class="scene"></div></div>
+        </article>
+      </section>
+      <p id="status" role="status">正在加载两份实时场景…</p>
+      <footer>
+        可切换左侧为基线（当前采用），直接观察光影变化。原片图片仅用于本地审阅。<a
+          href="/reference/wave-compare.html"
+          >运动版本对比 ↗</a
+        >
+      </footer>
+    </main>
+    <script type="module">
+      import { ArchiveScene } from "/src/scene.ts";
+      import { baselineSelectionWave, smooth } from "/src/motion.ts";
+      const $ = (q) => document.querySelector(q),
+        scenes = [
+          new ArchiveScene(
+            $("#before .scene"),
+            baselineSelectionWave,
+            false,
+            "baseline",
+          ),
+          new ArchiveScene(
+            $("#after .scene"),
+            baselineSelectionWave,
+            false,
+            "refined",
+          ),
+        ];
+      const draws = scenes.map((s) => s.composer.render.bind(s.composer));
+      scenes.forEach((s) => (s.composer.render = () => {}));
+      let current = 787,
+        ready = false;
+      function render() {
+        const shot = current / 25 - 5,
+          zoom =
+            0.55 * smooth((shot - 27.3) / 1.65) +
+            0.45 * smooth((shot - 29) / 5);
+        scenes.forEach((s, i) => {
+          s.update(100, { reveal: 1, lift: 0, zoom, time: shot });
+          if (i === 1 || $("#source").value === "baseline") draws[i]();
+        });
+        $("#original").src =
+          `/reference/motion/${String(current).padStart(4, "0")}.jpg`;
+        $("#original").alt = `原视频第 ${current} 帧`;
+        $("#original").hidden = $("#source").value !== "original";
+        $("#left-title").textContent =
+          $("#source").value === "original" ? "原视频" : "基线（当前采用）";
+        document
+          .querySelectorAll("[data-frame]")
+          .forEach((b) =>
+            b.setAttribute(
+              "aria-pressed",
+              String(Number(b.dataset.frame) === current),
+            ),
+          );
+        const delta =
+          scenes[0].camera.position.distanceTo(scenes[1].camera.position) +
+          scenes[0].model.position.distanceTo(scenes[1].model.position);
+        $("#status").textContent =
+          `${(current / 25).toFixed(2)} 秒 · 模型位置与相机${delta < 1e-8 ? "一致" : "存在偏差"}。查看斜面的透光色、细亮边和层间阴影。`;
+      }
+      function resize() {
+        scenes.forEach((s) => {
+          s.resize();
+          s.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+          s.composer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+        });
+        if (ready) render();
+      }
+      $("#source").onchange = () => {
+        if (ready) render();
+      };
+      document.querySelectorAll("[data-frame]").forEach(
+        (b) =>
+          (b.onclick = () => {
+            current = Number(b.dataset.frame);
+            if (ready) render();
+          }),
+      );
+      addEventListener("resize", resize);
+      try {
+        await document.fonts.ready;
+        await Promise.all(scenes.map((s) => s.load()));
+        scenes.forEach((s) => {
+          s.setMode("hidden");
+          s.select(0);
+        });
+        resize();
+        ready = true;
+        render();
+      } catch (e) {
+        $("#status").textContent = `加载失败：${e.message}`;
+        console.error(e);
+      }
+    </script>
+  </body>
+</html>

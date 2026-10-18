@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Rhine Lab · 切换波浪对比</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="stylesheet" href="/reference/wave-compare.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <span class="eyebrow">RHINE LAB / MOTION STUDY</span>
+          <h1>切换波浪对比</h1>
+        </div>
+        <a href="/?scene=archive" target="_blank" rel="noopener"
+          >打开当前交互 ↗</a
+        >
+      </header>
+      <p class="intro">
+        当前主界面已恢复原始基线。左侧选中与波浪同时开始；右侧保留先抬起后波浪的实验方案，便于回看。
+      </p>
+      <section class="toolbar" aria-label="对比设置">
+        <label
+          >动作
+          <select id="scenario">
+            <option value="next">向后切换一次 ↓</option>
+            <option value="previous">向前切换一次 ↑</option>
+            <option value="repeat">连续向后切换四次</option>
+            <option value="reverse">向后，再向前</option>
+          </select></label
+        >
+        <label
+          >左侧
+          <select id="baseline">
+            <option value="original">当前采用 · 原始基线</option>
+            <option value="previous">实验 · 去掉负波谷</option>
+          </select></label
+        >
+        <label
+          >速度
+          <select id="speed">
+            <option value="1">正常 · 1×</option>
+            <option value="0.5">慢放 · 0.5×</option>
+            <option value="0.25" selected>慢放 · 0.25×</option>
+          </select></label
+        >
+        <label class="check"
+          ><input type="checkbox" id="zoom" />放大选中区域</label
+        >
+        <label class="check"
+          ><input type="checkbox" id="loop" checked />循环播放</label
+        >
+      </section>
+      <section class="views" aria-label="同步场景">
+        <article>
+          <div class="caption">
+            <h2><i class="baseline"></i>同时播放</h2>
+            <span id="before-phase">就位</span>
+          </div>
+          <div class="view" id="before">
+            <div class="scene"></div>
+            <div class="marker" aria-hidden="true"><span>选中档案</span></div>
+          </div>
+        </article>
+        <article>
+          <div class="caption">
+            <h2><i class="current"></i>实验 · 先抬起，再波动</h2>
+            <span id="after-phase">就位</span>
+          </div>
+          <div class="view" id="after">
+            <div class="scene"></div>
+            <div class="marker" aria-hidden="true"><span>选中档案</span></div>
+          </div>
+        </article>
+      </section>
+      <section class="transport" aria-label="播放控制">
+        <button id="play" disabled>正在准备…</button
+        ><button id="restart" disabled>从头播放</button
+        ><button id="prev" disabled aria-label="前一帧">← 前一帧</button
+        ><button id="next" disabled aria-label="后一帧">后一帧 →</button
+        ><button id="peak" disabled>跳到最大差异</button
+        ><output id="stamp">0.00 / 3.20 秒</output>
+      </section>
+      <input
+        id="timeline"
+        type="range"
+        min="0"
+        max="192"
+        step="1"
+        value="0"
+        aria-label="同步动画时间轴"
+        disabled
+      />
+      <section class="readout" aria-label="差异说明">
+        <div>
+          <span class="eyebrow">当前选中档案 · 高度差</span
+          ><strong id="difference">—</strong>
+        </div>
+        <p id="explanation" role="status">正在加载两份相同的三维场景…</p>
+      </section>
+      <section class="chart">
+        <div class="chart-heading">
+          <h2>选中档案的实际高度</h2>
+          <span>横轴为切换后的时间；纵轴为相对起始高度（场景单位）</span>
+        </div>
+        <svg
+          id="chart"
+          viewBox="0 0 1120 190"
+          role="img"
+          aria-label="基线与实验版本的档案高度曲线"
+        ></svg>
+        <p class="chart-note">
+          虚线标记切换时刻。连续切换时，曲线会接续新选中档案的高度。
+        </p>
+      </section>
+      <footer>
+        原始基线 aeddd8f · 上一版 2048536 ·
+        两侧共用相同模型、材质、相机与固定时间步长。<span id="check"></span>
+      </footer>
+    </main>
+    <script type="module" src="/reference/wave-compare.js"></script>
+  </body>
+</html>

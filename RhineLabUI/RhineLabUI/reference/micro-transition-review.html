@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" />
+  <title>标题与查看器过渡检查</title>
+  <style>
+    body {
+      margin: 0;
+      background: #eae5e1;
+      color: #252620;
+      font: 13px monospace;
+    }
+    iframe {
+      width: 1100px;
+      height: 620px;
+      border: 0;
+    }
+    pre {
+      padding: 16px;
+      white-space: pre-wrap;
+    }
+  </style>
+  <iframe src="/?scene=archive" title="真实交互场景"></iframe>
+  <pre id="result">正在检查…</pre>
+  <script type="module">
+    import { records } from "/src/data.ts";
+    import { ScrubTitle } from "/src/scrub-title.ts";
+    const iframe = document.querySelector("iframe"),
+      result = document.querySelector("#result");
+    const checks = [];
+    const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+    function check(ok, label) {
+      if (!ok) throw new Error(label);
+      checks.push(label);
+    }
+    async function until(fn) {
+      const start = performance.now();
+      while (!fn()) {
+        if (performance.now() - start > 10000) throw new Error("等待状态超时");
+        await pause(25);
+      }
+    }
+    try {
+      await until(
+        () =>
+          iframe.contentWindow.rhine?.stats().loaded &&
+          !iframe.contentDocument.querySelector("#loading") &&
+          iframe.contentWindow.rhine.stats().mode === "archive",
+      );
+      const win = iframe.contentWindow,
+        doc = iframe.contentDocument,
+        app = win.rhine;
+      app.archive();
+      await pause(300);
+      const title = doc.querySelector("#selected-title");
+      app.select(1);
+      check(!title.dataset.scrubbing, "普通切换直接显示标题");
+      app.select(2);
+      app.select(3);
+      check(title.dataset.scrubbing === "true", "快速切换进入横条状态");
+      const width = title.style.width;
+      app.select(4);
+      app.select(5);
+      check(title.style.width === width, "连续切换时横条宽度稳定");
+      // Seek the short intro to its end; background tabs may throttle real timers.
+      win.getComputedStyle(title, "::after").opacity;
+      title
+        .getAnimations({ subtree: true })
+        .forEach((animation) => animation.finish());
+      check(
+        win.getComputedStyle(title, "::after").opacity === "1",
+        "闪动结束后保持实心横条",
+      );
+      await until(() => !title.dataset.scrubbing);
+      check(
+        !title.dataset.scrubbing && title.textContent === records[5].title,
+        "停止后显示最后标题",
+      );
+      app.select(6);
+      app.select(7);
+      app.detail();
+      check(!title.dataset.scrubbing, "切进详情取消待恢复的标题动画");
+      await until(() => app.stats().canInspect);
+      const opener = doc.querySelector('[data-action="model-viewer"]');
+      opener.focus();
+      opener.click();
+      const viewer = doc.querySelector(".model-viewer");
+      check(
+        viewer.dataset.transition === "opening" && !viewer.hidden,
+        "查看器保留进入动画阶段",
+      );
+      const before = win.getComputedStyle(viewer).opacity;
+      viewer
+        .querySelector("canvas")
+        .dispatchEvent(
+          new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      check(
+        viewer.dataset.transition === "closing" && !viewer.hidden,
+        "进入途中 Esc 转入退出动画",
+      );
+      check(
+        doc.querySelector("#detail-ui").inert,
+        "退出动画结束前详情仍不接收输入",
+      );
+      await until(() => viewer.hidden);
+      check(
+        !doc.querySelector("#detail-ui").inert && doc.activeElement === opener,
+        "退出结束恢复详情与原按钮焦点",
+      );
+      opener.click();
+      await until(
+        () =>
+          viewer.dataset.transition === "open" &&
+          JSON.parse(viewer.dataset.stats || "{}").ready,
+      );
+      check(!viewer.hidden, "中途关闭后可重新打开并加载模型");
+      viewer.querySelector('[data-viewer="explode"]').click();
+      await pause(100);
+      viewer.querySelector('[data-viewer="close"]').click();
+      viewer.querySelector('[data-viewer="close"]').click();
+      await until(() => viewer.hidden);
+      check(
+        !doc.querySelector("#detail-ui").inert,
+        "拆解中重复关闭也能完整退出",
+      );
+      const host = document.createElement("span");
+      host.textContent = "初始";
+      document.body.append(host);
+      const text = new ScrubTitle(host);
+      text.update("标题一", true);
+      text.update("标题二", true);
+      text.update("最终标题", false);
+      check(
+        !host.dataset.scrubbing &&
+          host.textContent === "最终标题" &&
+          host.getAnimations().length === 0,
+        "减少动态效果立即显示最终标题",
+      );
+      host.remove();
+      result.textContent = JSON.stringify({ passed: true, checks }, null, 2);
+    } catch (error) {
+      result.textContent = JSON.stringify(
+        { passed: false, checks, error: error.message },
+        null,
+        2,
+      );
+      console.error(error);
+    }
+  </script>
+</html>

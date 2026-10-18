@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>详情切换雾效回归检查</title>
+<style>body{margin:0;background:#e8e5e1;color:#252620;font:14px monospace}nav{padding:12px}a{color:inherit;margin-right:18px}#scene{width:960px;height:540px}pre{white-space:pre-wrap;padding:12px}</style>
+<nav><a href="?t=0.6">进入 0.6s</a><a href="?t=1">进入 1s</a><a href="?t=1.5">进入 1.5s</a><a href="?t=3">进入 3s</a><a href="?exit=1&t=1">退出 1s</a></nav>
+<div id="scene"></div><pre id="result">运行检查…</pre>
+<script type="module">
+import * as THREE from 'three';
+import { ArchiveScene } from '/src/scene.ts';
+const params=new URLSearchParams(location.search);
+const scene=new ArchiveScene(document.querySelector('#scene'));
+if(params.has('near'))scene.camera.near=Number(params.get('near'));
+await scene.load();
+scene.select(24);
+// Run the real scene update at deterministic times; only draw the final frame.
+const render=scene.composer.render.bind(scene.composer);
+scene.composer.render=()=>{};
+let time=0;
+const step=()=>scene.update(time+=1/60);
+scene.setMode('archive');
+for(let i=0;i<300;i++)step();
+if(params.has('reduced'))scene.setReduced(true);
+if(!params.has('idle'))scene.setMode('detail');
+if(params.has('exit')){
+  for(let i=0;i<300;i++)step();
+  scene.rotation=scene.targetRotation=Number(params.get('angle')??0);
+  step();
+  scene.setMode('archive');
+  if(params.has('swap'))scene.select(25);
+}
+const samples=[];
+const seconds=Number(params.get('t')??1);
+for(let i=0;i<Math.round(seconds*60);i++){
+  step();
+  const depth=-scene.model.position.clone().add(new THREE.Vector3(0,1.85,0)).applyMatrix4(scene.camera.matrixWorldInverse).z;
+  const d=scene.detail;
+  const oldDistance=THREE.MathUtils.lerp(140,72,d);
+  samples.push({
+    actualFog:THREE.MathUtils.smoothstep(depth,scene.scene.fog.near,scene.scene.fog.far),
+    previousFog:THREE.MathUtils.smoothstep(depth,oldDistance+THREE.MathUtils.lerp(5,-1,d),oldDistance+THREE.MathUtils.lerp(25,12,d)),
+    rangeError:Math.abs(scene.scene.fog.near-scene.camera.position.distanceTo(scene.cameraAim)-THREE.MathUtils.lerp(5,-1,d)),
+    idleGain:scene.idleGain,
+    modelY:scene.model.position.y,
+  });
+}
+if(params.has('angle')&&!params.has('exit')){
+  scene.rotation=scene.targetRotation=Number(params.get('angle'));
+  step();
+}
+if(params.has('sharp')){
+  scene.bokeh.enabled=false;
+  scene.renderer.setPixelRatio(1);
+  scene.composer.setPixelRatio(1);
+}
+if(params.has('close')){
+  const box=document.querySelector('#scene');
+  box.style.width='1100px';box.style.height='800px';
+  scene.renderer.setSize(1100,800);
+  scene.composer.setSize(1100,800);
+  scene.camera.setViewOffset(1920,1080,0,180,1100,800);
+}
+if(params.has('noao'))scene.ao.enabled=false;
+if(params.has('noshadow'))scene.renderer.shadowMap.enabled=false;
+if(params.has('offset')){
+  for(const mesh of scene.model.children){
+    if(mesh.userData.surface==='Amber_Lightguide'){
+      mesh.material.polygonOffset=params.get('offset')!=='0';
+      mesh.material.polygonOffsetFactor=-1;
+      mesh.material.polygonOffsetUnits=-2;
+    }
+  }
+}
+render();
+const maxFog=Math.max(...samples.map(s=>s.actualFog));
+const rangeError=Math.max(...samples.map(s=>s.rangeError));
+const passed=maxFog<0.08&&rangeError<1e-8&&(!params.has('reduced')||scene.idleGain<0.001);
+document.querySelector('#result').textContent=JSON.stringify({passed,phase:params.has('idle')?'idle':params.has('exit')?'exit':'entry',seconds,maxFog,previousMaxFog:Math.max(...samples.map(s=>s.previousFog)),rangeError,idleRange:Math.max(...samples.map(s=>s.modelY))-Math.min(...samples.map(s=>s.modelY)),materialOffsets:[scene.model,...scene.outgoing.map(o=>o.group)].map(g=>{const m=g.children.find(m=>m.userData.surface==='Amber_Lightguide').material;return [m.polygonOffset,m.polygonOffsetFactor,m.polygonOffsetUnits]}),stats:scene.getStats()},null,2);
+if(!passed)throw new Error('Camera-relative fog regression');
+</script>
+</html>

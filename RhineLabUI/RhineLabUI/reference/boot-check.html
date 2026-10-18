@@ -1,0 +1,39 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>前段动效检查</title>
+<style>body{font:15px system-ui;background:#e8e5e1;padding:20px}iframe{width:640px;height:360px;border:0}pre{white-space:pre-wrap}</style>
+<h1>前段动效检查</h1><pre id="result">正在检查…</pre><iframe id="app" src="/?time=1.76&freeze=1&review=1"></iframe>
+<script type="module">
+import {bootMotion} from '/src/boot-motion.ts';
+const result=document.querySelector('#result'), app=document.querySelector('#app'), checks=[];
+const check=(name,condition)=>{checks.push({name,passed:!!condition});if(!condition)throw Error(name)};
+const state=frame=>bootMotion(frame/25-5);
+const wait=async predicate=>{const start=performance.now();while(!predicate()){if(performance.now()-start>30000)throw Error('等待页面超时');await new Promise(r=>setTimeout(r,40))}};
+try {
+ check('白场后第一帧为空，下一帧开始输入 A',state(169).access===''&&state(170).access==='A');
+ check('ACCESS 在第 175 帧完成，整句在第 187 帧完成',state(175).access==='ACCESS'&&state(187).access==='ACCESS PERMISSION REQUIRED');
+ check('身份确认先停顿，再输入姓名',state(300).auth==='ID CONFIRMED'&&state(339).auth==='ID CONFIRMED : JOYCE MOORE');
+ check('请求接收与开始处理之间确实清空',state(389).auth==='REQUEST RECEIVED'&&state(421).auth===''&&state(440).auth==='START PROCESSING');
+ check('圆环收拢中保留第 525、526、528、529 帧跳变',state(525).ringScale>1&&state(526).ringScale>1&&state(527).ringScale===1&&state(528).ringScale>1&&state(530).ringScale===1);
+ check('圆环中心切换与欢迎页切换各自落在指定帧',!state(545).ornament&&state(546).ornament&&state(568).scanVisible&&!state(569).scanVisible&&state(569).welcomeVisible);
+ check('欢迎闪切、黑底扫过、第三行分三次出现',state(569).welcomePanel===1&&state(570).welcomePanel===0&&!state(587).companyVisible&&state(588).companyVisible&&state(601).highlight===1&&state(625).databaseOpacity===0&&state(626).databaseOpacity===1);
+ check('欢迎页在第 673 帧退出并清除背景',state(672).welcomeVisible&&!state(673).welcomeVisible&&state(673).backgroundOpacity===0);
+ const snapshots=[];for(let f=169;f<=675;f++){const s=state(f);checkFinite(s);snapshots.push(JSON.stringify(s))}
+ function checkFinite(s){for(const value of Object.values(s))if(typeof value==='number'&&!Number.isFinite(value))throw Error('时间轴出现无效数值')}
+ check('507 帧正序与倒序计算完全一致',snapshots.every((v,i)=>v===JSON.stringify(state(169+i)))&&Array.from({length:507},(_,i)=>675-i).every(f=>JSON.stringify(state(f))===snapshots[f-169]));
+ check('外环半径持续收拢，文字字距收紧',state(500).scanRadius>state(510).scanRadius&&state(510).scanRadius>state(540).scanRadius&&state(540).scanRadius>state(568).scanRadius&&state(500).scanTracking>state(511).scanTracking);
+ await wait(()=>app.contentWindow?.rhine&&app.contentDocument.querySelector('#stage')?.dataset.mode==='boot'&&!app.contentDocument.querySelector('#loading'));
+ const doc=app.contentDocument,win=app.contentWindow,stage=doc.querySelector('#stage');
+ async function seek(f){win.postMessage({type:'rhine-review-frame',time:f/25-5},location.origin);await wait(()=>stage.dataset.bootFrame===String(f)&&stage.dataset.mode==='boot')}
+ function visibleSnapshot(){return ['.access-text','.boot-logo','.auth-status','.scan','.welcome','.brand','.powered'].map(sel=>{const el=doc.querySelector(sel);return [sel,el.style.cssText,Number(win.getComputedStyle(el).opacity)>0?el.outerHTML:'hidden']})}
+ await seek(500);const first=JSON.stringify(visibleSnapshot());await seek(635);await seek(240);await seek(500);
+ check('实际页面跨阶段倒退后回到相同画面',first===JSON.stringify(visibleSnapshot()));
+ check('实际页面的前段不依赖 CSS 循环动画',doc.querySelector('#boot').getAnimations({subtree:true}).length===0);
+ await seek(240);win.rhine.archive();
+ check('绘制标志时跳过恢复完整角标',stage.dataset.mode==='archive'&&[...doc.querySelector('.brand').children].every(el=>el.style.opacity==='')&&doc.querySelector('.powered').style.clipPath==='');
+ await seek(635);
+ check('重入欢迎页仍能显示三行和标志',doc.querySelector('.welcome-database').style.opacity==='1'&&doc.querySelector('.welcome-logo').style.opacity==='1');
+ await seek(675);
+ check('前段结束后衔接原有档案阵列阶段',stage.dataset.boot==='array'&&doc.querySelector('.welcome').style.opacity==='0'&&doc.querySelector('#boot-background').style.opacity==='0');
+ win.rhine.archive();
+ result.textContent=JSON.stringify({passed:true,checks},null,2);
+}catch(error){result.textContent=JSON.stringify({passed:false,error:String(error),checks},null,2)}
+</script></html>

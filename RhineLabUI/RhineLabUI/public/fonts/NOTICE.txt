@@ -1,0 +1,6 @@
+MiSans by Xiaomi / 小米科技有限责任公司
+Copyright © 2020-2025 Beijing Xiaomi Mobile Software Co.,Ltd. All Rights Reserved.
+
+Official source: https://hyperos.mi.com/font/download
+Archive: https://hyperos.mi.com/font-download/MiSans.zip
+Files are embedded in this application unmodified. License: MiSans-license.pdf

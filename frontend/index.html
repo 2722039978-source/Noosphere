@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Noosphere Desktop</title>
+    <link rel="icon" type="image/svg+xml" href="/noosphere-icon.svg" />
+    <script>
+      // 首屏前应用浅色主题, 避免闪烁
+      (function () {
+        try {
+          const dark = localStorage.getItem("noosphere-theme") === "dark";
+          document.documentElement.classList.toggle("light", !dark);
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

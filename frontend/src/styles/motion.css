@@ -1,0 +1,98 @@
+/* Motion belongs to navigation, live status and opened records. No full-window
+   filter animations or permanent GPU promotion on the application canvas. */
+.ns-workspace-signal { width: 44px; height: 44px; position: relative; flex: 0 0 44px; color: var(--module-accent,var(--brand)); pointer-events: none; }
+.ns-workspace-signal i { position: absolute; inset: 5px; border: 1px solid currentColor; border-radius: 50%; opacity: .45; }
+.ns-workspace-signal i:nth-child(2) { inset: 0 11px; transform: rotate(40deg); }
+.ns-workspace-signal span { position: absolute; inset: 3px; animation: ns-orbit-turn 18s linear infinite; }
+.ns-workspace-signal span::after { content: ''; display: block; position: absolute; left: 50%; top: -1px; width: 5px; height: 5px; background: currentColor; border-radius: 50%; }
+.ns-workspace-signal b { position: absolute; inset: 18px; border-radius: 50%; background: currentColor; animation: ns-core-glow 5s ease-in-out infinite; }
+.ns-workspace-signal[data-paused=true] * { animation-play-state: paused; }
+.ns-masthead > .ns-workspace-signal { margin-left: auto; }
+.ns-archive-signal { position: absolute; left: 4.4vw; top: 195px; opacity: .8; }
+.ns-page { animation: ns-workspace-enter 320ms cubic-bezier(.2,.7,.3,1) both; }
+.ns-page-header { position: relative; }
+.ns-page-header::after { content: ''; position: absolute; bottom: -1px; left: 0; width: 72px; height: 2px; background: var(--module-accent,var(--brand)); transform-origin: left; animation: ns-rule-enter 650ms ease-out both; }
+.ns-page-symbol { width: 64px; height: 64px; display: grid; place-items: center; border: 1px solid var(--border-soft); color: var(--module-accent,var(--brand)); }
+.ns-page-symbol svg { width: 30px; height: 30px; stroke-width: 1; }
+.ns-page-wrap > .ns-surface, .ns-model-form, .ns-enter, [data-slot=tabs-content][data-state=active], .ns-record-detail[open] > .ns-detail-body { animation: ns-panel-enter 320ms cubic-bezier(.2,.7,.3,1) both; }
+.ns-page-wrap > .ns-surface:nth-child(3) { animation-delay: 40ms; }
+.ns-page-wrap > .ns-surface:nth-child(4) { animation-delay: 80ms; }
+.ns-index-item { transition: background 160ms, color 160ms; }
+.ns-index-item::before { transform-origin: top; animation: ns-rule-enter 250ms ease-out; }
+.ns-index-arrow { transition: opacity 160ms, transform 180ms; }
+.ns-index-item:hover .ns-index-arrow { transform: translate(2px,-2px); }
+.ns-button, .ns-lift { transition: background-color 160ms, border-color 160ms, color 160ms; }
+.ns-button:focus-visible { outline: 2px solid var(--module-accent,var(--ring)); outline-offset: 3px; }
+.ns-surface:focus-within { border-color: var(--module-accent,var(--border-strong)); }
+.ns-form-error { animation: ns-panel-enter 180ms ease-out; }
+.ns-record-detail { border: 1px solid var(--border-soft); background: var(--bg-elevated); }
+.ns-record-detail summary { cursor: pointer; padding: 14px 16px; font-size: 14px; overflow-wrap: anywhere; }
+.ns-record-detail summary::marker { color: var(--module-accent,var(--brand)); }
+.ns-detail-body { border-top: 1px solid var(--border-soft); padding: 16px; font-size: 14px; line-height: 1.8; overflow-wrap: anywhere; }
+.ns-section-heading { display: flex; gap: 15px; align-items: flex-start; }
+.ns-section-number { font-size: 24px; font-weight: 300; line-height: 1.1; color: var(--module-accent,var(--text-3)); font-variant-numeric: tabular-nums; }
+.ns-section-heading h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.ns-section-heading p { color: var(--text-2); font-size: 13px; margin-top: 6px; line-height: 1.6; }
+.ns-task-path { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--border-soft); padding: 0 0 16px; font-size: 13px; color: var(--text-2); flex-wrap: wrap; }
+.ns-task-path strong { color: var(--text-1); font-weight: 500; }
+.ns-result-status { border-left: 2px solid var(--module-accent,var(--brand)); padding: 12px 16px; margin-top: 16px; background: var(--secondary); font-size: 14px; animation: ns-panel-enter 220ms ease-out; }
+@keyframes ns-orbit-turn { to { transform: rotate(360deg); } }
+@keyframes ns-core-glow { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+@keyframes ns-rule-enter { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ns-workspace-enter { from { opacity: .4; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes ns-panel-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (max-width: 899px) { .ns-archive-signal { display: none; } }
+@media (max-width: 639px) { .ns-page-symbol { display: none; }.ns-masthead > .ns-workspace-signal { width: 32px; height: 32px; flex-basis: 32px; }.ns-workspace-signal b { inset: 13px; } }
+@media (prefers-reduced-motion: reduce) { .ns-workspace-signal *, .ns-page, .ns-page-header::after, .ns-page-wrap > .ns-surface, .ns-model-form, .ns-enter, .ns-record-detail[open] > .ns-detail-body, .ns-result-status { animation: none !important; } }
+/* The selected dossier carries into the workspace; only transform/opacity animate. */
+.ns-full-scene canvas { opacity: 0; transition: opacity 320ms ease-out; }
+.ns-full-scene[data-loaded=true] canvas { opacity: 1; }
+.ns-archive-app.is-departing .ns-archive-visual { animation: ns-archive-depart 760ms cubic-bezier(.3,0,.2,1) both; }
+.ns-archive-app.is-departing .ns-file-callout { animation: ns-callout-depart 480ms ease-in both; }
+.ns-archive-app.is-departing .ns-archive-bottom { animation: ns-callout-depart 400ms ease-in both; }
+.ns-dossier-handoff { position: fixed; z-index: 60; inset: 0; background: var(--bg-app,#eae5e1); color: var(--text-1,#252721); display: flex; flex-direction: column; justify-content: center; padding: 12vw; gap: 12px; pointer-events: none; border-left: 3px solid var(--module-accent,#9b754c); }
+.ns-dossier-handoff span, .ns-dossier-handoff small { font-size: 11px; letter-spacing: .18em; }
+.ns-dossier-handoff strong { font-size: clamp(32px,5vw,64px); font-weight: 400; }
+.ns-dossier-handoff.is-departing { animation: ns-dossier-cover 760ms cubic-bezier(.55,0,.2,1) both; }
+.ns-dossier-handoff.is-arriving { animation: ns-dossier-uncover 620ms cubic-bezier(.3,0,.15,1) both; }
+.ns-app-shell:has(.ns-dossier-handoff) .ns-page { animation: ns-workspace-carry 750ms cubic-bezier(.2,.7,.3,1) both; }
+@keyframes ns-archive-depart { to { transform: translate3d(-6%,0,0) scale(1.04); opacity: .65; } }
+@keyframes ns-callout-depart { to { transform: translate3d(-36px,0,0); opacity: 0; } }
+@keyframes ns-dossier-cover { 0%,35% { transform: translate3d(100%,0,0); } 100% { transform: translate3d(0,0,0); } }
+@keyframes ns-dossier-uncover { 0%,15% { transform: translate3d(0,0,0); } 100% { transform: translate3d(-100%,0,0); } }
+@keyframes ns-workspace-carry { from { transform: translate3d(48px,0,0); opacity: .3; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+ .ns-dossier-handoff { display: none; }
+ .ns-archive-app.is-departing *, .ns-app-shell:has(.ns-dossier-handoff) .ns-page { animation: none !important; }
+ .ns-full-scene canvas { transition: none; }
+}
+.ns-provider-presets { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; padding-bottom: 16px; font-size: 13px; }
+.ns-provider-presets p { flex-basis: 100%; color: var(--text-2); line-height: 1.7; }
+.ns-provider-presets select { border: 1px solid var(--border-soft); padding: 8px 12px; background: var(--bg-app); color: var(--text-1); }
+.ns-provider-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 18px; }
+/* Reverse the dossier handoff without retaining a hidden WebGL renderer. */
+.ns-return-stage, .ns-return-content { display: flex; flex: 1; min-height: 0; min-width: 0; flex-direction: column; }
+.ns-return-stage { position: relative; overflow: hidden; }
+.ns-return-handoff { z-index: 80; pointer-events: auto; border-left: 0; border-right: 3px solid var(--module-accent); }
+.ns-return-handoff.is-departing { animation: ns-return-cover 420ms cubic-bezier(.3,0,.2,1) both; }
+.ns-return-handoff.is-loading { transform: none; }
+.ns-return-handoff.is-arriving { animation: ns-return-uncover 660ms cubic-bezier(.3,0,.15,1) both; }
+.ns-return-rule { width: min(320px,60vw); height: 1px; background: var(--module-accent); margin-top: 20px; transform-origin: left; animation: ns-rule-enter 420ms ease-out both; }
+.ns-return-handoff.is-loading .ns-return-rule { animation: ns-return-pulse 1400ms ease-in-out infinite; }
+.ns-return-stage[data-phase=departing] .ns-page { animation: ns-workspace-return 420ms ease-in both; }
+.ns-return-stage[data-phase=departing] .ns-masthead-current { animation: ns-workspace-return 320ms ease-in both; }
+.ns-return-stage[data-phase=arriving] .ns-archive-visual { animation: ns-archive-return 660ms cubic-bezier(.2,.7,.3,1) both; }
+.ns-return-stage[data-phase=arriving] .ns-file-callout { animation: ns-callout-return 620ms 40ms cubic-bezier(.2,.7,.3,1) both; }
+.ns-return-stage[data-phase=arriving] .ns-archive-bottom { animation: ns-callout-return 560ms 80ms cubic-bezier(.2,.7,.3,1) both; }
+@keyframes ns-return-cover { from { transform: translate3d(-100%,0,0); } to { transform: none; } }
+@keyframes ns-return-uncover { 0%,10% { transform: none; } 100% { transform: translate3d(100%,0,0); } }
+@keyframes ns-workspace-return { to { transform: translate3d(42px,0,0); opacity: .2; } }
+@keyframes ns-archive-return { from { transform: translate3d(-4%,0,0) scale(1.035); opacity: .65; } to { transform: none; opacity: 1; } }
+@keyframes ns-callout-return { from { transform: translate3d(-28px,0,0); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ns-return-pulse { 0%,100% { opacity: .35; transform: scaleX(.65); } 50% { opacity: 1; transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+ .ns-return-stage .ns-return-handoff { display: none; }
+ .ns-return-stage[data-phase] .ns-page, .ns-return-stage[data-phase] .ns-masthead-current,
+ .ns-return-stage[data-phase] .ns-archive-visual, .ns-return-stage[data-phase] .ns-file-callout,
+ .ns-return-stage[data-phase] .ns-archive-bottom { animation: none !important; }
+}

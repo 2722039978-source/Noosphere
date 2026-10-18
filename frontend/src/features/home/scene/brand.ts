@@ -1,0 +1,2 @@
+// Noosphere orbital mark, shared with its own archive labels rather than Rhine branding.
+export const labelMarkSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 310 145"><g fill="none" stroke="#171713" stroke-width="5"><ellipse cx="155" cy="72" rx="92" ry="42"/><ellipse cx="155" cy="72" rx="92" ry="42" transform="rotate(60 155 72)"/><ellipse cx="155" cy="72" rx="92" ry="42" transform="rotate(-60 155 72)"/></g><circle cx="155" cy="72" r="12" fill="#171713"/></svg>`;

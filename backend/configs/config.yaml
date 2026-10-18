@@ -1,0 +1,41 @@
+app:
+  name: Noosphere
+  version: 0.5.0  # canonical source: root VERSION file
+  data_dir: ./data
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  allowed_origins:
+    - http://localhost:1420
+    - http://127.0.0.1:1420
+    - http://tauri.localhost
+    - tauri://localhost
+
+modules:
+  nebula:
+    enabled: true
+    data_dir: ./data/nebula
+    # ---- Embedding ----
+    # provider: openai (API) | ollama (local) | mock (random)
+    # api_key auto-resolved from Gateway secure storage if empty
+    # base_url defaults to https://api.openai.com/v1
+    # model defaults to text-embedding-3-small
+    embedding:
+      provider: openai
+      model: text-embedding-3-small
+      dim: 128
+  devops:
+    enabled: true
+  codelens:
+    enabled: true
+    python_path: python
+    port: 18765
+
+gateway:
+  config_path: ./models.yaml
+
+logging:
+  dir: ./logs
+  level: info
+  max_mb: 10

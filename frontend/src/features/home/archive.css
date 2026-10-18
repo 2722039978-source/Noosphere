@@ -1,0 +1,117 @@
+.ns-archive-app { position: relative; isolation: isolate; display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; color: #10120f; background: #eae5e1; }
+.ns-archive-visual { position: absolute; inset: 0; z-index: -1; }
+.ns-full-scene { position: absolute; inset: 0; }
+.ns-full-scene canvas { display: block; width: 100%; height: 100%; }
+.ns-archive-visual::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg,#eae5e1b3 0%,transparent 23%,transparent 70%,#eae5e1ed 95%); }
+.ns-scene-loading { position: absolute; top: 28%; left: 5%; font-size: 11px; color: #67655e; letter-spacing: .1em; }
+.ns-archive-masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: clamp(26px,6vh,72px) 4.4vw 0; position: relative; z-index: 1; }
+.ns-archive-brand { display: flex; flex-direction: column; line-height: 1.03; color: inherit; text-decoration: none; }
+.ns-archive-brand strong { font-size: clamp(27px,2.8vw,49px); font-weight: 700; letter-spacing: -.06em; }
+.ns-archive-brand small { font-size: clamp(8px,.8vw,13px); letter-spacing: -.025em; margin-top: 3px; }
+.ns-archive-brand > span { font-size: clamp(24px,2.3vw,39px); font-weight: 300; letter-spacing: -.045em; }
+.ns-archive-brand b { font-weight: 700; padding-left: 8px; }
+.ns-archive-masthead nav { display: flex; align-items: center; gap: 22px; padding-top: 10px; }
+.ns-archive-masthead .ns-button { color: #10120f; font-size: 12px; }
+.ns-archive-masthead .ns-button:hover { background: #10120f0a; }
+.ns-archive-masthead kbd { margin-left: 12px; padding: 0 4px; font-size: 10px; border: 1px solid #10120f33; }
+.ns-direct-chat { display: flex; gap: 12px; align-items: center; font-size: 12px; text-decoration: none; }
+.ns-archive-content { display: flex; flex: 1; min-height: 0; flex-direction: column; justify-content: flex-end; outline: none; padding: 0 4.4vw; }
+.ns-file-callout { width: min(540px,44%); margin: auto 1.5vw auto auto; padding: 26px 0 20px; position: relative; }
+.ns-file-callout::before { content: ''; position: absolute; inset: -20px -35px; z-index: -1; background: radial-gradient(ellipse,#eae5e1ef 20%,#eae5e1b0 55%,#eae5e100 73%); pointer-events: none; }
+.ns-file-eyebrow { display: flex; align-items: center; gap: 20px; font-size: 10px; letter-spacing: .1em; color: #5b5e56; }
+.ns-file-eyebrow > span { color: #8e8c81; }
+.ns-file-number { display: flex; align-items: center; gap: 10px; font-size: clamp(17px,1.8vw,29px); font-weight: 700; letter-spacing: -.04em; margin-top: 18px; }
+.ns-file-number svg { margin-left: auto; }
+.ns-file-number > span, .ns-archive-ordinal b { animation: ns-number-in 280ms ease-out; }
+@keyframes ns-number-in { from { opacity: .1; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.ns-file-rule { height: 1px; background: #10120f66; margin: 26px 0 19px; position: relative; }
+.ns-file-rule i { position: absolute; left: 0; top: -2px; width: 5px; height: 5px; background: #10120f; }
+.ns-file-title { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.ns-file-title h1 { margin: 0; font-weight: 600; font-size: clamp(22px,2.35vw,38px); letter-spacing: -.035em; animation: ns-number-in 200ms ease-out; }
+.ns-file-title > span { font-size: 9px; letter-spacing: .1em; text-align: right; }
+.ns-file-description { max-width: 410px; color: #454840; font-size: 13px; line-height: 1.9; margin: 17px 0 16px; }
+.ns-file-capabilities { display: flex; flex-wrap: wrap; gap: 16px; color: #66665e; font-size: 10px; }
+.ns-file-capabilities span::before { content: ''; display: inline-block; width: 3px; height: 3px; margin: 0 7px 2px 0; background: var(--module-accent); }
+.ns-file-actions { display: flex; gap: 22px; align-items: center; margin-top: 25px; }
+.ns-access-file { display: flex; align-items: center; justify-content: space-between; gap: 40px; min-width: 240px; padding: 13px 0; color: #10120f; text-decoration: none; border-bottom: 1px solid #10120f88; transition: gap 180ms; }
+.ns-access-file:hover { gap: 55px; }
+.ns-access-file > span { font-size: 15px; font-weight: 600; }
+.ns-access-file small { display: block; font-size: 8px; font-weight: 400; letter-spacing: .13em; margin-top: 5px; }
+.ns-module-health { display: flex; align-items: center; gap: 7px; margin-top: 15px; color: #62655c; font-size: 10px; }
+.ns-module-health > i { width: 4px; height: 4px; background: #99846b; }
+.ns-module-health > i[data-online=true] { background: #467762; }
+.ns-module-health > span { margin-left: auto; font-size: 8px; letter-spacing: .12em; }
+.ns-archive-bottom { display: flex; align-items: flex-end; gap: 4vw; padding: 16px 0 20px; }
+.ns-archive-ordinal { min-width: 150px; }
+.ns-archive-ordinal > span { font-size: 9px; letter-spacing: .15em; }
+.ns-archive-ordinal > div { display: flex; align-items: baseline; gap: 18px; margin-top: 8px; }
+.ns-archive-ordinal b { display: block; font-size: 58px; line-height: 1; font-weight: 300; letter-spacing: -.06em; }
+.ns-archive-ordinal i { font-size: 25px; color: #8d887e; font-weight: 300; font-style: normal; }
+.ns-archive-ordinal div > span { font-size: 19px; color: #78766c; }
+.ns-archive-module-nav { display: grid; grid-template-columns: repeat(5,1fr); flex: 1; border-top: 1px solid #10120f33; }
+.ns-archive-module-nav > button { display: flex; flex-direction: column; gap: 5px; position: relative; text-align: left; padding: 14px 18px 4px; background: none; border: 0; color: #5c6058; }
+.ns-archive-module-nav > button::before { content: ''; width: 4px; height: 4px; background: #6d6e63; position: absolute; top: -2px; left: 18px; }
+.ns-archive-module-nav > button[aria-pressed=true] { color: #10120f; background: linear-gradient(#c7b49855,transparent); }
+.ns-archive-module-nav > button[aria-pressed=true]::before { height: 3px; width: calc(100% - 36px); top: -2px; background: #10120f; }
+.ns-archive-module-nav > button:hover { background-color: #10120f05; }
+.ns-archive-module-nav > button > span { font-size: 9px; }
+.ns-archive-module-nav strong { font-size: 14px; font-weight: 600; }
+.ns-archive-module-nav small { font-size: 9px; }
+.ns-archive-step { display: flex; gap: 4px; padding-bottom: 6px; }
+.ns-archive-meta { display: flex; align-items: center; justify-content: space-between; padding: 8px 4.4vw 16px; gap: 20px; font-size: 9px; color: #62655d; letter-spacing: .03em; }
+.ns-archive-meta kbd { font-family: inherit; font-size: 9px; }
+.ns-archive-meta i { margin: 0 12px; font-style: normal; }
+.ns-archive-app .ns-statusbar { position: relative; background: #eae5e1c9; color: #55584f; border-top: 1px solid #10120f1a; padding: 0 4.4vw; }
+.ns-archive-app .ns-statusbar a { color: #945146; }
+.ns-module-results { display: flex; flex-direction: column; }
+.ns-module-results > a { display: flex; align-items: center; gap: 24px; padding: 20px 2px; border-bottom: 1px solid var(--border-soft); }
+.ns-module-results > a:hover { background: var(--secondary); }
+.ns-module-results > a > span { font-size: 10px; color: var(--text-3); }
+.ns-module-results strong { font-weight: 600; }
+.ns-module-results small { display: block; font-size: 10px; margin-top: 4px; color: var(--text-3); }
+.ns-module-results svg { margin-left: auto; }
+.ns-module-results > p { padding: 20px 0; color: var(--text-3); }
+.ns-static-orbits { position: absolute; inset: 20% 48% 20% 0; display: grid; place-items: center; opacity: .3; }
+.ns-static-orbits > i { position: absolute; width: 80%; height: 40%; border: 1px solid #6f6b61; border-radius: 50%; transform: rotate(-30deg); }
+.ns-static-orbits > i:nth-child(2) { transform: rotate(30deg); }
+.ns-static-orbits > i:nth-child(3) { transform: rotate(90deg); }
+.ns-static-orbits > span { font-size: 90px; font-weight: 300; letter-spacing: -.13em; }
+.ns-static-orbits > span span { font-size: 40px; padding: 0 10px; }
+.ns-boot { position: absolute; z-index: 10; inset: 0; display: grid; place-items: center; background: #eae5e1; animation: ns-boot-appear 300ms ease-out; }
+.ns-boot-corner { position: absolute; top: 40px; left: 4.4vw; font-size: 9px; letter-spacing: .18em; }
+.ns-boot-core { display: flex; align-items: center; flex-direction: column; gap: 8px; }
+.ns-boot-core > span { font-size: 12px; letter-spacing: .4em; margin-top: 25px; }
+.ns-boot-core strong { font-size: clamp(35px,6vw,84px); letter-spacing: -.06em; font-weight: 600; }
+.ns-boot-core p { font-size: 12px; letter-spacing: .2em; }
+.ns-boot-progress { width: 210px; height: 2px; background: #11130f; margin-top: 30px; transform-origin: left; animation: ns-boot-progress 1800ms ease-out both; }
+.ns-boot > button { position: absolute; right: 4.4vw; bottom: 40px; display: flex; align-items: center; gap: 16px; font-size: 12px; padding: 12px; }
+.ns-boot kbd { font-size: 9px; color: #777a70; }
+.ns-orbital-mark { width: 100px; height: 100px; display: grid; place-items: center; position: relative; }
+.ns-orbital-mark i { position: absolute; width: 100%; height: 43%; border: 2px solid #141712; border-radius: 50%; }
+.ns-orbital-mark i:nth-child(2) { transform: rotate(60deg); }.ns-orbital-mark i:nth-child(3) { transform: rotate(-60deg); }.ns-orbital-mark b { width: 12px; height: 12px; background: #a68964; border-radius: 50%; }
+@keyframes ns-boot-progress { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ns-boot-appear { from { opacity: 0; } to { opacity: 1; } }
+@media (max-height: 740px) and (min-width: 900px) { .ns-archive-masthead { padding-top: 25px; }.ns-file-callout { padding: 4px 0; }.ns-file-description { margin: 10px 0; }.ns-file-rule { margin: 16px 0 10px; }.ns-file-actions { margin-top: 13px; }.ns-archive-bottom { padding-bottom: 10px; }.ns-archive-ordinal b { font-size: 45px; }.ns-module-health { margin-top: 9px; } }
+@media (max-width: 1100px) { .ns-archive-bottom { gap: 20px; }.ns-archive-ordinal { min-width: 115px; }.ns-archive-module-nav > button { padding-left: 10px; padding-right: 10px; }.ns-archive-module-nav > button::before { left: 10px; }.ns-file-callout { width: 47%; margin-right: 0; } }
+@media (max-width: 899px) { .ns-archive-app { overflow-y: auto; height: 100%; min-height: 0; flex: 1; }.ns-archive-masthead { padding: 28px 24px 0; }.ns-archive-masthead nav { gap: 6px; padding: 0; }.ns-archive-masthead kbd,.ns-direct-chat { display: none; }.ns-archive-masthead .ns-button { padding: 8px; }.ns-archive-content { min-height: auto; padding: 0 24px; }.ns-file-callout { width: 100%; padding: 0; margin: 65px 0 42px; }.ns-file-number { font-size: 25px; }.ns-file-title h1 { font-size: 31px; }.ns-file-description { font-size: 13px; max-width: 90%; }.ns-file-title > span { font-size: 8px; }.ns-static-orbits { inset: 30px -110px auto auto; width: 360px; height: 350px; opacity: .08; }.ns-archive-bottom { display: grid; grid-template-columns: 1fr auto; gap: 25px; padding: 0 0 24px; }.ns-archive-module-nav { grid-column: 1/-1; grid-row: 2; grid-template-columns: 1fr; border: 0; }.ns-archive-module-nav > button { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; padding: 15px 10px; border-bottom: 1px solid #10120f33; }.ns-archive-module-nav > button::before { display: none; }.ns-archive-module-nav > button[aria-pressed=true] { background: #c7b49844; }.ns-archive-meta { padding: 8px 24px 18px; }.ns-archive-meta > span:last-child { display: none; }.ns-archive-app .ns-statusbar { padding: 8px 24px; min-height: 42px; margin-top: auto; flex-wrap: wrap; }.ns-archive-ordinal b { font-size: 43px; }.ns-archive-ordinal > span { font-size: 8px; }.ns-archive-masthead nav .ns-button > span { display: none; } }
+@media (prefers-reduced-motion: reduce) { .ns-archive-app *, .ns-archive-app *::before, .ns-archive-app *::after { animation: none !important; transition: none !important; } }
+
+/* Let the archive scene receive pointer input between the controls. */
+.ns-archive-content { pointer-events: none; }
+.ns-file-callout, .ns-archive-bottom { pointer-events: auto; }
+
+/* A readable foreground dossier against the moving archive. */
+.ns-file-callout::before { background: linear-gradient(105deg,#f4f1ecf5,#f4f1ece8); border: 1px solid #45484025; inset: -18px -24px; }
+.ns-file-description { color: #343830; font-size: 15px; }
+.ns-file-capabilities { color: #4d5046; font-size: 12px; }
+.ns-file-title > span, .ns-file-eyebrow, .ns-access-file small, .ns-module-health, .ns-archive-module-nav small, .ns-archive-ordinal > span { font-size: 11px; }
+.ns-module-health > span { font-size: 10px; }
+.ns-file-title h1 { font-size: clamp(28px,2.5vw,40px); }
+.ns-archive-module-nav > button > span { font-size: 11px; }
+.ns-archive-module-nav strong { font-size: 15px; }
+.ns-access-file { transition: background-color 180ms; }
+.ns-access-file:hover { gap: 40px; background: #c7b49835; }
+.ns-access-file svg { transition: transform 180ms; }
+.ns-access-file:hover svg { transform: translateX(5px); }
+@media (max-height: 740px) and (min-width: 900px) { .ns-file-callout::before { inset: -10px -20px; }.ns-file-eyebrow,.ns-file-title > span { font-size: 10px; }.ns-file-description { font-size: 14px; }.ns-file-actions { margin-top: 9px; } }
+@media (max-width: 899px) { .ns-file-callout::before { inset: -20px -12px; }.ns-file-callout { margin-top: 42px; } }

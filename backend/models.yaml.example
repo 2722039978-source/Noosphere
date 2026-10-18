@@ -1,0 +1,40 @@
+# models.yaml — Gateway model configuration template
+#
+# Copy this file to models.yaml and configure your providers, OR (recommended)
+# add models via the desktop Settings UI, which encrypts API keys at rest
+# (AES-256-GCM + Windows Credential Manager) before writing to models.yaml.
+#
+# models.yaml is gitignored and MUST NOT be committed.
+# Never paste a plaintext API key into models.yaml by hand.
+
+default_model: ""
+
+providers:
+    - id: deepseek
+      name: DeepSeek
+      type: openai_compatible
+      base_url: https://api.deepseek.com/v1
+      api_key: ""  # set via Settings UI (encrypted) — leave empty here
+      model: deepseek-chat
+      enabled: true
+      is_default: true
+
+    # Example: OpenAI
+    # - id: openai
+    #   name: OpenAI
+    #   type: openai
+    #   base_url: https://api.openai.com/v1
+    #   api_key: ""
+    #   model: gpt-4o
+    #   enabled: true
+    #   is_default: false
+
+    # Example: Ollama (local, no key needed)
+    # - id: ollama
+    #   name: Ollama
+    #   type: ollama
+    #   base_url: http://localhost:11434/v1
+    #   api_key: ""
+    #   model: llama3
+    #   enabled: true
+    #   is_default: false

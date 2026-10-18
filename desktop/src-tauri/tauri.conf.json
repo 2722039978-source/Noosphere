@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Noosphere Desktop",
+  "version": "0.5.0",
+  "identifier": "com.noosphere.desktop",
+  "build": {
+    "frontendDist": "../../frontend/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [{
+      "title": "Noosphere",
+      "width": 1280,
+      "height": 800,
+      "minWidth": 900,
+      "minHeight": 600,
+      "resizable": true,
+      "center": true
+    }],
+    "security": {
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "'self' ipc: http://ipc.localhost http://127.0.0.1:8080 http://localhost:1420 ws://localhost:1420 ws://127.0.0.1:1420",
+        "font-src": "'self' data:",
+        "img-src": "'self' asset: http://asset.localhost data: blob:",
+        "style-src": "'self' 'unsafe-inline'",
+        "script-src": "'self'"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "nsis",
+    "resources": {
+      "bin/noosphere-backend.exe": "bin/noosphere-backend.exe",
+      "codelens-python/": "codelens-python/",
+      "config.defaults.yaml": "config.defaults.yaml",
+      "setup.bat": "setup.bat"
+    },
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
+  }
+}

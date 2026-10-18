@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>档案切换起伏检查</title>
+<style>body{margin:0;background:#e8e5e1;color:#252620;font:13px monospace}#scene{width:1100px;height:620px}pre{white-space:pre-wrap;padding:18px}</style>
+<div id="scene"></div><pre id="result">正在记录实际场景…</pre>
+<script type="module">
+import * as THREE from 'three';
+import { ArchiveScene } from '/src/scene.ts';
+import { columnFiles } from '/src/data.ts';
+import { wrap, selectionCell, sameCell } from '/src/archive-loop.ts';
+import { archiveWave, idleWave, settlingWave, columnStrength, selectionWave } from '/src/motion.ts';
+const scene=new ArchiveScene(document.querySelector('#scene'),selectionWave,false);
+await scene.load();
+const draw=scene.composer.render.bind(scene.composer);scene.composer.render=()=>{};
+let time=0,index=0;
+const step=(n=1)=>{for(let f=0;f<n;f++)scene.update(time+=1/60);};
+scene.setMode('archive');scene.select(index);step(300);
+const files=columnFiles(2),results=[];
+let minPulseContribution=Infinity;
+function move(direction,frames=120){
+  index=files[wrap(files.indexOf(index)+direction,files.length)];
+  const cell=selectionCell(index,scene.selectedCell,{axis:'row',direction});
+  const returning=scene.outgoing.find(o=>sameCell(o.cell,cell));
+  const matrix=new THREE.Matrix4();
+  const slot=scene.cells.findIndex(c=>sameCell(c,cell));
+  scene.instances[0].getMatrixAt(slot,matrix);
+  const start=returning?returning.group.position.y:matrix.elements[13];
+  scene.select(index,{axis:'row',direction});
+  const heights=[start];
+  for(let f=0;f<frames;f++){
+    step();heights.push(scene.model.position.y);
+    const {row,lane}=scene.selectedCell;
+    const base=-4.6+archiveWave(row,lane,scene.scanTime)*scene.scanBlend+
+      idleWave(row,lane,time)*scene.idleGain+
+      settlingWave(row-scene.shoulder.value,26.56)*columnStrength(lane,scene.laneFocus.value)+scene.lift.value;
+    minPulseContribution=Math.min(minPulseContribution,scene.model.position.y-base);
+  }
+  let peak=start,maxDrop=0;
+  for(const y of heights.slice(0,91)){peak=Math.max(peak,y);maxDrop=Math.max(maxDrop,peak-y);}
+  results.push({direction,frames,start,first:heights[1],min:Math.min(...heights),maxDrop,final:heights.at(-1),samples:heights.filter((_,i)=>i%6===0)});
+}
+move(1);step(300);move(-1);step(300);
+for(let i=0;i<10;i++)move(1,12);
+for(let i=0;i<10;i++)move(-1,12);
+step(300);
+const summary=results.map(({samples,...result})=>result);
+const errors=[];
+if(minPulseContribution < -1e-8)errors.push('Selection pulse pushes the file below the base field');
+if(scene.getStats().returningFiles!==0)errors.push('Returning copies fail to settle');
+document.querySelector('#result').textContent=JSON.stringify({passed:!errors.length,errors,minPulseContribution,results:summary,returningFiles:scene.getStats().returningFiles},null,2);
+draw();
+</script></html>

@@ -1,51 +1,48 @@
-# ═══════════ 密钥与本地配置（绝不入库）═══════════
-.env
-**/.env
-*.local
-workspace/llm_config.yaml
-workspace/.workspace_state.json
+# Frontend
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
 
-# ═══════════ 二进制与构建产物 ═══════════
-*.exe
-*.dll
-*.so
-*.dylib
-dist/
-build/
-/out/
-
-# ═══════════ 运行时数据 ═══════════
-codelens/data/*
-!codelens/data/lsm_store/
-codelens/data/lsm_store/*
-!codelens/data/lsm_store/.gitkeep
-!codelens/data/vector_store/
-codelens/data/vector_store/*
-!codelens/data/vector_store/.gitkeep
-nebula-data/
-devops-memory/
-*.wal
-*.db
-*.sqlite3
-
-# ═══════════ Python ═══════════
-__pycache__/
+# Go and Python
+backend/bin/
+backend/logs/
+backend/data/
+**/__pycache__/
 *.py[cod]
-venv/
 .venv/
-*.egg-info/
-.pytest_cache/
 
-# ═══════════ Go ═══════════
-vendor/
+# Rust and Tauri
+desktop/node_modules/
+desktop/src-tauri/target/
 
-# ═══════════ Node / Next.js ═══════════
-node_modules/
-.next/
+# Generated distribution and local runtime state
+release/
+.local/
+*.log
+models.yaml
+!backend/models.yaml.example
 
-# ═══════════ IDE / 系统 ═══════════
-.vscode/
+# Local editor and OS files
 .idea/
+.vscode/
 .DS_Store
 Thumbs.db
-.claude/
+
+# Local browser profiles, verification output, and generated shortcuts
+.tmp-edge-profile/
+qa-output/
+*.lnk
+
+# Local environment credentials (keep distributable examples)
+.env
+.env.*
+!.env.example
+
+# Tauri resources staged by scripts/common.ps1 and local runtime data
+desktop/src-tauri/bin/
+desktop/src-tauri/codelens-python/
+desktop/src-tauri/config.yaml
+desktop/src-tauri/config.defaults.yaml
+desktop/src-tauri/setup.bat
+desktop/src-tauri/data/
+desktop/src-tauri/logs/

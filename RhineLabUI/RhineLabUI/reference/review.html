@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rhine Lab · 运动与材质对照</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eae5e1;color:#262824;font:14px Arial,"Microsoft YaHei",sans-serif}main{max-width:1800px;margin:auto;padding:28px}h1{font-size:22px;margin:0 0 10px;font-weight:600}p{line-height:1.7;color:#64645c;margin:0 0 22px}.views{display:grid;grid-template-columns:1fr 1fr;gap:12px}figure{margin:0}figcaption{margin:10px 0;font-size:12px}video,iframe{display:block;width:100%;aspect-ratio:16/9;border:0;background:#eae5e1}nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:22px 0 16px}button,a{font:inherit;color:inherit;border:1px solid #bcb9af;background:transparent;padding:9px 14px;cursor:pointer;text-decoration:none}button:hover,a:hover{background:#dcd6cc}button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid #94714b;outline-offset:3px}input{width:100%;accent-color:#786047}output{font:14px monospace;margin-left:auto}.marks{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}small{display:block;margin-top:20px;color:#64645c;line-height:1.8}@media(max-width:850px){.views{grid-template-columns:1fr}main{padding:16px}}
+.reference-frame{position:relative}.reference-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:1;pointer-events:none}.reference-frame.playing img{display:none}</style>
+<main>
+<h1>运动与材质对照</h1>
+<p>左侧为原片，右侧为实时三维场景。拖动时间轴或逐帧前后移动，两侧会同步；原片每秒 25 帧。</p>
+<div class="views">
+<figure><figcaption>原视频 · 26.00–39.96 秒</figcaption><div class="reference-frame"><img id="reference-still" alt="原视频当前帧" src="motion/0787.jpg"><video id="reference" muted playsinline preload="auto" src="../《明日方舟》特别映像%20[莱茵生命：访问]%20[BV1rr4y1b7sz].mp4"></video></div></figure>
+<figure><figcaption>实时场景 · Blender 模型 / Three.js</figcaption><iframe id="replica" title="实时场景对照" src="/?time=21&freeze=1&review=1"></iframe></figure>
+</div>
+<nav><button id="play">播放对照</button><button id="prev">← 前一帧</button><button id="next">后一帧 →</button><a href="/?time=21.8" target="_blank">播放完整尺寸动画 ↗</a><a href="/?scene=archive" target="_blank">进入交互 ↗</a><output id="stamp">26.00 s · FRAME 650</output></nav>
+<input id="timeline" aria-label="原视频帧位置" type="range" min="650" max="999" step="1" value="650">
+<div class="marks"><button data-frame="760">760 · 等高波峰</button><button data-frame="772">772 · 镜头移列</button><button data-frame="785">785 · 选中列</button><button data-frame="690">标注① · 27.60</button><button data-frame="729">标注② · 29.16</button><button data-frame="789">标注③ · 31.56</button><button data-frame="670">26.80 · 白场过渡</button><button data-frame="787">31.48 · 镜头对照</button><button data-frame="687">27.48 · 第一轮波峰</button><button data-frame="737">29.48 · 回传波峰</button><button data-frame="780">31.20 · 第一段抽取</button><button data-frame="825">33.00 · 第二段抽取</button><button data-frame="975">39.00 · 材质特写</button></div>
+<small>此页仅用于本地复核，产品入口没有播放或嵌入参考视频。两侧仍存在几何、光照与景深差异；时间轴为逐帧观察后的运动重建，没有从原片恢复相机或三维场景数据。</small>
+</main>
+<script type="module">
+const video=document.querySelector('#reference'),frame=document.querySelector('#replica'),slider=document.querySelector('#timeline'),stamp=document.querySelector('#stamp'),play=document.querySelector('#play');
+const still=document.querySelector('#reference-still');let desired=31.48;
+function sync(t){desired=t;still.src=`motion/${String(Math.round(t*25)).padStart(4,'0')}.jpg`;slider.value=String(Math.round(t*25));stamp.textContent=`${t.toFixed(2)} s · FRAME ${Math.round(t*25)}`;frame.contentWindow.postMessage({type:'rhine-review-frame',time:t-5},location.origin)}
+function pause(){video.pause();video.parentElement.classList.remove('playing');play.textContent='播放对照'}
+function seek(n){pause();const t=Math.max(650,Math.min(999,n))/25;desired=t;video.currentTime=t}
+video.addEventListener('loadedmetadata',()=>seek(Math.round(desired*25)));
+frame.addEventListener('load',()=>sync(desired));
+slider.addEventListener('input',()=>seek(Number(slider.value)));
+document.querySelector('#prev').onclick=()=>seek(Number(slider.value)-1);
+document.querySelector('#next').onclick=()=>seek(Number(slider.value)+1);
+document.querySelectorAll('[data-frame]').forEach(b=>b.onclick=()=>seek(Number(b.dataset.frame)));
+play.onclick=async()=>{if(!video.paused){pause();return}if(video.currentTime>=39.92)seek(650);await video.play();video.parentElement.classList.add('playing');play.textContent='暂停'};
+video.addEventListener('seeked',()=>sync(video.currentTime));
+function tick(_,metadata){if(!video.paused){if(metadata.mediaTime>=39.96){seek(650)}else sync(metadata.mediaTime)}video.requestVideoFrameCallback(tick)}
+video.requestVideoFrameCallback(tick);
+document.addEventListener('keydown',e=>{if(e.target===slider)return;if(e.code==='ArrowLeft'){e.preventDefault();seek(Number(slider.value)-1)}if(e.code==='ArrowRight'){e.preventDefault();seek(Number(slider.value)+1)}});
+</script>
+</html>
