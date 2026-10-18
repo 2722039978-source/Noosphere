@@ -12,7 +12,7 @@ Set-Location Noosphere
 git switch -c fix/describe-the-change
 ```
 
-完整桌面开发需要 Node.js 20+、Go 1.26.5、Rust 1.88+、Python 3.10+ 和 Windows 10/11 SDK。前端自动测试使用 Node.js 24，建议使用相同版本。版本依据、工具链查找规则与独立后端的临时凭证用法见[开发指南](docs/DEVELOPMENT.md)。
+完整桌面开发需要 Node.js 20+、Go 1.26.5、Rust 1.88+（MSVC 工具链）、Python 3.10+、Microsoft C++ Build Tools（“使用 C++ 的桌面开发”及 Windows 10/11 SDK）和 WebView2 Runtime。前端自动测试使用 Node.js 24，建议使用相同版本。安装步骤、版本依据、工具链查找规则与独立后端的临时凭证用法见[开发指南](docs/DEVELOPMENT.md)。
 
 在仓库根目录安装锁定的依赖并执行预检：
 

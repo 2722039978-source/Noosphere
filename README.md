@@ -27,7 +27,7 @@
 
 ## 首次从源码构建（Windows）
 
-本仓库提供源码。首次克隆不会包含生成的 `release/` 或 `Noosphere.lnk`，需要先完成构建。准备 Node.js 20+（自动测试使用 24）、Go 1.26.5、Rust 1.88+、Python 3.10+ 和 Windows 10/11 SDK；详细安装与预检见[开发指南](docs/DEVELOPMENT.md)。在仓库根目录运行：
+本仓库提供源码。首次克隆不会包含生成的 `release/` 或 `Noosphere.lnk`，需要先完成构建。准备 Node.js 20+（自动测试使用 24）、Go 1.26.5、Rust 1.88+（MSVC 工具链）、Python 3.10+、Microsoft C++ Build Tools（“使用 C++ 的桌面开发”及 Windows 10/11 SDK）和 WebView2 Runtime；详细安装与预检见[开发指南](docs/DEVELOPMENT.md)。在仓库根目录运行：
 
 ```powershell
 npm --prefix frontend ci
@@ -106,7 +106,7 @@ Noosphere/
 
 **最新加固记录（2026-09-28）**：本轮补齐项目级代码检索、结构化只读诊断、双层本地凭证、聊天 IndexedDB 迁移与备份，并修复索引和写入恢复问题。实际测试与发布状态见 [本轮交付记录](docs/HARDENING_2026-09-27.md)；[启动修复记录](docs/STARTUP_RELIABILITY.md) 保留为历史记录，不代表当前构建状态。
 
-前置要求：Node.js 20+、Go 1.26.5（go.mod）、Rust 1.88+（当前 Tauri / HTTP 依赖锁文件要求）、Windows 10/11 SDK。前端自动测试使用 Node.js 24。安装和预检见 [开发指南](docs/DEVELOPMENT.md)。
+前置要求：Node.js 20+、Go 1.26.5（go.mod）、Rust 1.88+（MSVC 工具链）、Microsoft C++ Build Tools（包含 Windows 10/11 SDK）和 WebView2 Runtime。前端自动测试使用 Node.js 24。安装和预检见 [开发指南](docs/DEVELOPMENT.md)。
 
 2026-09-09：已接入 RhineLabUI 档案式界面，并完成请求取消、流式协议和持久化优化。实现范围、验证命令与限制见 [界面与流式稳定性记录](docs/RHINE_UI_STREAMING.md)。
 
