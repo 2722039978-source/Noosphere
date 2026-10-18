@@ -1,0 +1,60 @@
+name: 问题反馈
+description: 报告可以复现的故障、界面问题或异常行为。
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先搜索现有 Issue，并阅读 [开发指南](https://github.com/2722039978-source/Noosphere/blob/main/docs/DEVELOPMENT.md)。
+        日志和截图请先脱敏，不要上传 API Key、models.yaml、聊天记录或完整运行数据库。
+  - type: dropdown
+    id: module
+    attributes:
+      label: 受影响的模块
+      options:
+        - 启动与桌面壳
+        - 档案主页与导航
+        - AI 对话与工作区
+        - Gateway 模型网关
+        - CodeLens 代码分析
+        - Nebula 记忆与检索
+        - DevOps 与 Agent 操作
+        - 构建、脚本与文档
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境
+      description: 填写 Windows 版本、项目版本或提交编号、启动方式；源码构建问题请补充相关工具版本。
+      placeholder: "Windows 11；提交编号；源码构建 / 便携程序 / 安装版；Node、Go、Python、Rust 版本（如适用）"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开……
+        2. 执行……
+        3. 观察到……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 说明出现的错误、发生频率，以及是否影响已有数据。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏日志或截图
+      description: 仅附与问题有关的片段；请移除凭证、个人路径和私人会话内容。

@@ -4,9 +4,12 @@
 
 - Node.js 20 或更高版本（前端单元测试使用 Node.js 24）
 - Go 1.26.5（遵循 backend/go.mod）
-- Rust 1.88 或更高版本
+- Rust 1.88 或更高版本，使用 MSVC 工具链
 - Python 3.10 或更高版本
-- Windows 10 或 11 SDK
+- Microsoft C++ Build Tools，包含“使用 C++ 的桌面开发”（Desktop development with C++）工作负载和 Windows 10 或 11 SDK
+- Microsoft Edge WebView2 Runtime（Windows 10/11 通常已经具备，精简或受管理的系统需确认）
+
+Windows 依赖安装见 [Tauri 官方前置要求](https://v2.tauri.app/start/prerequisites/#windows)。仅安装 SDK 不会提供完整的 MSVC 编译和链接工具；请在 Build Tools 安装器中选择上述 C++ 工作负载。安装 Rust 时选用 `*-pc-windows-msvc` 默认主机工具链，当前 x64 桌面程序对应 `x86_64-pc-windows-msvc`。安装后重开终端，可用 `rustc -vV` 的 `host` 字段和 `rustup show active-toolchain` 核对；`scripts/preflight.ps1` 检查工具和依赖是否可发现，完整编译及链接仍由构建验证。
 
 ## 常用命令
 
