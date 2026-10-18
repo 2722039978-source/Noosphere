@@ -1,0 +1,32 @@
+name: 功能建议
+description: 说明使用场景、遇到的问题和希望获得的结果。
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 使用场景与问题
+      description: 描述你正在完成的任务，以及现有功能在哪一步无法满足需要。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议的行为
+      description: 说明希望怎样操作，以及操作后应得到什么结果。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已尝试的替代办法
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收方式
+      description: 列出可以实际检查的结果；涉及 Agent 操作时，请说明需要的权限与确认步骤。
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: 提交建议表示进入讨论，不代表项目已经承诺实现范围或交付日期。

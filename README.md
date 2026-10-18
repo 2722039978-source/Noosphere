@@ -1,20 +1,52 @@
 # Noosphere Desktop
 
-本地 AI 桌面工作台（Windows 优先）。以 Tauri v2 为桌面壳，统一承载四个子系统：AI Gateway（多模型 LLM 网关）、Nebula（记忆引擎）、DevOps（运维 Agent）、CodeLens（代码智能分析）。
+[![CI](https://github.com/2722039978-source/Noosphere/actions/workflows/ci.yml/badge.svg)](https://github.com/2722039978-source/Noosphere/actions/workflows/ci.yml)
 
-## Windows 桌面启动
+本地 AI 桌面工作台，Windows 优先。前端使用 React、TypeScript 和 Vite，桌面壳使用 Tauri 2，Go 后端统一管理 AI Gateway、Nebula、DevOps 和 Python CodeLens 服务。可以在同一工作区中进行 AI 对话、代码检索、记忆检索和系统诊断；模型请求按所选 Provider 配置发送。
 
-双击 `Noosphere.lnk` 或 `Start-Noosphere.cmd` 启动已经构建的 `release/Noosphere.exe`。应用直接加载内置界面并管理本地后端，无需启动 Vite 或打开浏览器。首次默认进入三维档案工作台，可从五个真实模块入口进入业务；设置中的“工作台体验”可以调整默认入口、画质和启动过渡。
+[开发指南](docs/DEVELOPMENT.md) · [贡献指南](CONTRIBUTING.md) · [GitHub 协作与 CI](docs/github-workflow.md) · [问题反馈](https://github.com/2722039978-source/Noosphere/issues) · [Pull Requests](https://github.com/2722039978-source/Noosphere/pulls) · [Actions](https://github.com/2722039978-source/Noosphere/actions)
 
-双击 `Create-Shortcuts.cmd` 可在项目目录和 Windows 桌面生成快捷方式。移动整个项目目录后，再运行一次来更新快捷方式目标。便携版需要保留 `release` 内的 `bin`、`codelens-python` 等资源。CodeLens 仍需要 Python 依赖：优先使用配置中的明确 Python 路径；默认模式会查找应用或项目的 `.venv`、`.local/venv`，然后尝试系统 Python。现有项目依赖已位于 `.local/venv`，它不包含在单独的 `release` 文件夹中。
+- **项目上下文**：CodeLens 建立代码索引，Nebula 提供记忆检索；[工作区与任务](docs/workspace-runtime.md)管理项目绑定、会话归属和后台任务记录。
+- **只读 Agent**：在项目范围内搜索、读取文件、检索已确认记忆和检查系统状态，执行步骤与证据保存在任务中心。用法与预算见[可执行 Agent](docs/executable-agent.md)。
+- **逐项审批操作**：开启“操作提案”后，可预览文件修改、固定测试和服务启停，由用户逐项确认执行并查看恢复记录，详见[操作审批与恢复](docs/agent-reviewed-actions.md)。
 
-完整构建：`powershell -NoProfile -File scripts/build.ps1`。增加 `-BundleNsis` 可生成安装包；不带该选项时仅更新便携版，旧安装包会被归档。构建记录和校验值位于 `release/build-info.json`。
+## 界面示例
 
-本次视觉适配与验证记录见 [RhineLabUI 适配说明](docs/rhinelab-adaptation.md)。
+以下为本地保留的界面回归截图，展示三维档案工作台和 AI 对话窄屏布局，使用测试数据与模拟后端。当前功能与启动方式以源码及下方文档为准；窄屏示例展示响应式布局。
 
-聊天输入栏可开启“只读 Agent”，执行项目搜索、文件读取、已确认记忆检索和系统状态检查；DevOps 也提供任务入口。执行步骤与证据保存在工作区任务中心，支持取消和重开查看。用法与预算见 [可执行 Agent](docs/executable-agent.md)，发布验证见 [方案三验证记录](docs/EXECUTABLE_AGENT_VERIFICATION.md)。
+![Noosphere Desktop 三维档案工作台](docs/screenshots/archive-workspace.png)
 
-第二阶段可在 Agent 下开启“操作提案”，预览文件修改、固定测试和服务启停，逐项确认执行并查看恢复记录。详见 [操作审批与恢复](docs/agent-reviewed-actions.md) 和 [第二阶段交付验证](docs/AGENT_ACTIONS_VERIFICATION.md)。
+<details>
+<summary>查看窄屏界面示例</summary>
+
+<img src="docs/screenshots/chat-narrow.png" alt="Noosphere AI 对话窄屏界面示例" width="320">
+
+</details>
+
+视觉适配与验证记录见 [RhineLabUI 适配说明](docs/rhinelab-adaptation.md)。
+
+## 首次从源码构建（Windows）
+
+本仓库提供源码。首次克隆不会包含生成的 `release/` 或 `Noosphere.lnk`，需要先完成构建。准备 Node.js 20+（自动测试使用 24）、Go 1.26.5、Rust 1.88+、Python 3.10+ 和 Windows 10/11 SDK；详细安装与预检见[开发指南](docs/DEVELOPMENT.md)。在仓库根目录运行：
+
+```powershell
+npm --prefix frontend ci
+npm --prefix desktop ci
+python -m venv .local/venv
+.local/venv/Scripts/python.exe -m pip install -r backend/python/codelens/requirements-dev.txt
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -RequireDesktop
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
+```
+
+完整构建成功后生成 `release/Noosphere.exe`。开发时需要热更新，可使用下方[开发](#开发)章节中的 `scripts/dev.ps1`。增加 `-BundleNsis` 可在本机生成安装包；不带该选项时仅更新便携版，旧安装包会被归档。构建记录和校验值位于 `release/build-info.json`；本机构建产物与 GitHub Release 的公开发布分别管理。
+
+## 已构建后的 Windows 桌面启动
+
+本机已完成完整构建后，双击 `Start-Noosphere.cmd` 或 `release/Noosphere.exe`。应用直接加载内置界面并管理本地后端，无需启动 Vite 或打开浏览器。首次默认进入三维档案工作台，可从五个真实模块入口进入业务；设置中的“工作台体验”可以调整默认入口、画质和启动过渡。
+
+双击 `Create-Shortcuts.cmd` 可在项目目录和 Windows 桌面生成 `Noosphere.lnk`，之后可通过快捷方式启动。移动整个项目目录后，再运行一次来更新快捷方式目标。便携版需要保留 `release` 内的 `bin`、`codelens-python` 等资源。CodeLens 仍需要 Python 依赖：优先使用配置中的明确 Python 路径；默认模式会查找应用或项目的 `.venv`、`.local/venv`，然后尝试系统 Python。上述首次构建步骤创建的 `.local/venv` 不包含在单独的 `release` 文件夹中。
+
+聊天输入栏可开启“只读 Agent”；DevOps 也提供任务入口，任务支持取消和重开查看。已有验证记录见[方案三验证记录](docs/EXECUTABLE_AGENT_VERIFICATION.md)和[第二阶段交付验证](docs/AGENT_ACTIONS_VERIFICATION.md)，记录中的本机结果不代表当前 GitHub CI 或安装包发布状态。
 
 ## 子系统
 
@@ -105,7 +137,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -BundleNsis
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -SkipTauri
 ```
 
-完整构建成功后，`release/` 包含程序、运行资源及本地数据。默认不生成安装包；只有 `-BundleNsis` 成功后才发布本次新安装包。旧程序及旧安装包会保存在 `release/legacy/`。已有 `config.yaml`、`models.yaml`、`data/`、`logs/` 不会被构建覆盖。
+完整构建成功后，`release/` 包含程序、运行资源及本地数据。默认不生成安装包；只有 `-BundleNsis` 成功后才将本次新安装包写入本地分发目录。旧程序及旧安装包会保存在 `release/legacy/`。已有 `config.yaml`、`models.yaml`、`data/`、`logs/` 不会被构建覆盖。
 
 ```
 release/
@@ -137,9 +169,18 @@ setup.bat
 - [全栈架构](docs/ARCHITECTURE.md)
 - [API 参考](docs/API.md)
 - [开发指南](docs/DEVELOPMENT.md)
+- [贡献指南](CONTRIBUTING.md)
+- [GitHub 协作与 CI 范围](docs/github-workflow.md)
+- [工作区与任务](docs/workspace-runtime.md)
+- [可执行的只读 Agent](docs/executable-agent.md)
+- [操作审批与恢复](docs/agent-reviewed-actions.md)
 - [会话全文搜索与优化方案](docs/CHAT_SEARCH_PLAN.md)
 - [历史演进](docs/HISTORY.md)
-- `docs/Noosphere-Architecture.docx`：便于评审和归档的 Word 版架构说明
+- [Word 版架构说明](docs/Noosphere-Architecture.docx)：便于评审和归档
+
+## 参与协作
+
+在 [Issues](https://github.com/2722039978-source/Noosphere/issues) 提交可复现的问题或具体需求，在 [Pull Requests](https://github.com/2722039978-source/Noosphere/pulls) 讨论代码修改，在 [Actions](https://github.com/2722039978-source/Noosphere/actions) 查看对应提交的自动检查结果。提交前的环境准备、验证命令和本机数据保护要求见[贡献指南](CONTRIBUTING.md)；各入口的用途和 CI 边界见[GitHub 协作与 CI](docs/github-workflow.md)。
 
 ## License
 
