@@ -46,3 +46,7 @@ desktop/src-tauri/config.defaults.yaml
 desktop/src-tauri/setup.bat
 desktop/src-tauri/data/
 desktop/src-tauri/logs/
+
+# Keep only the root project introduction on GitHub
+*.md
+!/README.md
