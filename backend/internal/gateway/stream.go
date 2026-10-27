@@ -80,7 +80,7 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "invalid request body"))
 		return
 	}
-	model, modelErr := g.WorkspaceModel(body.WorkspaceID, body.ModelID)
+	model, modelErr := g.SessionModel(body.WorkspaceID, body.SessionID, body.ModelID)
 	if modelErr != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, modelErr.Error()))
 		return
@@ -124,6 +124,15 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		g.appendLog(entry)
 	}()
 
+	foregroundDone, err := g.beginInteractive(ctx)
+	if err != nil {
+		callErr = err
+		if r.Context().Err() == nil {
+			errors.WriteHTTP(w, r, errors.Wrap(err, errors.ErrUnavailable, errors.CatGateway, "stream admission failed"))
+		}
+		return
+	}
+	defer foregroundDone()
 	if callErr = g.acquireCall(ctx); callErr != nil {
 		if r.Context().Err() == nil {
 			errors.WriteHTTP(w, r, errors.Wrap(callErr, errors.ErrUnavailable, errors.CatGateway, "stream queue failed"))
@@ -154,10 +163,12 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 	if model.MaxTokens > 0 {
 		maxT = model.MaxTokens
 	}
+	finishInference := g.countInference(false)
 	ch, err := provider.ChatStream(ctx, model.ModelName, pMsgs, providers.ChatOptions{
 		SystemPrompt: body.SystemPrompt, Temperature: temp, MaxTokens: maxT,
 	})
 	if err != nil {
+		finishInference()
 		callErr = err
 		if ctx.Err() != nil {
 			callErr = ctx.Err()
@@ -167,6 +178,14 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// Channel close is the provider API's observable producer termination. Cancel
+	// and drain on every consumer exit before freeing the inference reservation.
+	defer func() {
+		cancel()
+		for range ch {
+		}
+		finishInference()
+	}()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")

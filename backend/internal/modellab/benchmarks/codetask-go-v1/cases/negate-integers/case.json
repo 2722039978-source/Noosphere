@@ -1,0 +1,45 @@
+{
+  "id": "negate-integers",
+  "version": "1.0.0",
+  "category": "deterministic-transformation",
+  "task": "Return the arithmetic negation of each int64 value. The minimum int64 value is outside the input domain. Preserve order; empty returns non-null empty slice.",
+  "function": "Negate",
+  "input_type": "[]int64",
+  "output_type": "[]int64",
+  "fixture_sha256": "af96575ab979b72469d78905b01c89fef6773d37ba8eff806c0d50e6940cab7f",
+  "reference_sha256": "76ec951a4c569fe4516ac2ab4bb23b321ddf567d8c10f32df27b636d4864ed14",
+  "assertions": [
+    {
+      "input": [],
+      "expected": []
+    },
+    {
+      "input": [
+        0
+      ],
+      "expected": [
+        0
+      ]
+    },
+    {
+      "input": [
+        -7,
+        3,
+        0
+      ],
+      "expected": [
+        7,
+        -3,
+        0
+      ]
+    },
+    {
+      "input": [
+        9007199254740993
+      ],
+      "expected": [
+        -9007199254740993
+      ]
+    }
+  ]
+}

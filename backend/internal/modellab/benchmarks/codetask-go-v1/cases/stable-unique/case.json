@@ -1,0 +1,52 @@
+{
+  "id": "stable-unique",
+  "version": "1.0.0",
+  "category": "collection-sorting",
+  "task": "Remove repeated integers, keeping only the first occurrence of each value in original order. Return non-null empty slice for empty input.",
+  "function": "StableUnique",
+  "input_type": "[]int",
+  "output_type": "[]int",
+  "fixture_sha256": "3e8a7022d1be53e9f6dd2ae9012f68c7a58a85788c7623a0c63cbd1071c67e4a",
+  "reference_sha256": "328f8640a8d759211a0e0a8fd15a414cec09337805666d23f937cb43b8a36a1f",
+  "assertions": [
+    {
+      "input": [],
+      "expected": []
+    },
+    {
+      "input": [
+        9
+      ],
+      "expected": [
+        9
+      ]
+    },
+    {
+      "input": [
+        3,
+        1,
+        3,
+        2,
+        1
+      ],
+      "expected": [
+        3,
+        1,
+        2
+      ]
+    },
+    {
+      "input": [
+        0,
+        0,
+        -1,
+        0,
+        -1
+      ],
+      "expected": [
+        0,
+        -1
+      ]
+    }
+  ]
+}

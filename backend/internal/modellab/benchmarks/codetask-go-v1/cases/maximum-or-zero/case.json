@@ -1,0 +1,39 @@
+{
+  "id": "maximum-or-zero",
+  "version": "1.0.0",
+  "category": "collection-sorting",
+  "task": "Return the maximum integer in the slice; return zero only when the slice is empty. Negative-only inputs must retain their negative maximum.",
+  "function": "Maximum",
+  "input_type": "[]int",
+  "output_type": "int",
+  "fixture_sha256": "52923606bafb5f3357b21fc2e09989d29ccd2290e57b1fb3a7a7312d2aa24811",
+  "reference_sha256": "b6b7f46bac91da7a47cf3c0333cc684b986842dbc5a38a9b85d643802d76578b",
+  "assertions": [
+    {
+      "input": [],
+      "expected": 0
+    },
+    {
+      "input": [
+        -9
+      ],
+      "expected": -9
+    },
+    {
+      "input": [
+        -8,
+        -2,
+        -5
+      ],
+      "expected": -2
+    },
+    {
+      "input": [
+        3,
+        12,
+        4
+      ],
+      "expected": 12
+    }
+  ]
+}

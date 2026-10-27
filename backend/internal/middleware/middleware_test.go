@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +22,9 @@ func TestCORSAllowsConfiguredOrigin(t *testing.T) {
 	}
 	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:1420" {
 		t.Fatalf("allow origin = %q", got)
+	}
+	if !strings.Contains(rr.Header().Get("Access-Control-Allow-Headers"), "Idempotency-Key") {
+		t.Fatal("idempotent controls blocked by CORS")
 	}
 }
 

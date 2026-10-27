@@ -29,7 +29,7 @@ func respondError(w http.ResponseWriter, e error) {
 	case errors.Is(e, ErrBusy):
 		status = http.StatusTooManyRequests
 		message = e.Error()
-	case errors.Is(e, ErrClosed):
+	case errors.Is(e, ErrClosed), errors.Is(e, ErrCancellationUnavailable):
 		status = http.StatusServiceUnavailable
 		message = e.Error()
 	}
@@ -121,7 +121,7 @@ func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
 		respond(w, 200, map[string]any{"events": items})
 	})
 	mux.HandleFunc("POST /api/runs/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
-		item, e := m.Cancel(r.PathValue("id"))
+		item, e := m.CancelContext(r.Context(), r.PathValue("id"))
 		if e != nil {
 			respondError(w, e)
 			return

@@ -1,0 +1,8 @@
+package main
+
+func TrimSpaces(input string) string {
+ start, end := 0, len(input)
+ for start < end && input[start] == 32 { start++ }
+ for end > start && input[end-1] == 32 { end-- }
+ return input[start:end]
+}

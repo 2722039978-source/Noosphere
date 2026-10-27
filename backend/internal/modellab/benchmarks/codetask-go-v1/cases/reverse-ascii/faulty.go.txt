@@ -1,0 +1,5 @@
+package main
+
+func ReverseASCII(input string) string {
+ return input
+}

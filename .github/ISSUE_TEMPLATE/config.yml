@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: 开发与启动指南
-    url: https://github.com/2722039978-source/Noosphere/blob/main/docs/DEVELOPMENT.md
+    url: https://github.com/2722039978-source/Noosphere#从源码运行windows
     about: 查看环境要求、源码构建、配置与本地测试命令。
   - name: GitHub 协作与自动检查
-    url: https://github.com/2722039978-source/Noosphere/blob/main/docs/github-workflow.md
+    url: https://github.com/2722039978-source/Noosphere#反馈与协作
     about: 查看 Issue、拉取请求和 Actions 的使用方式与检查范围。

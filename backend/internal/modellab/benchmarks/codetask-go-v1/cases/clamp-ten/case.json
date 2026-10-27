@@ -1,0 +1,51 @@
+{
+  "id": "clamp-ten",
+  "version": "1.0.0",
+  "category": "deterministic-transformation",
+  "task": "Clamp each integer to the inclusive range [-10,10], preserving order. Empty input returns a non-null empty slice.",
+  "function": "ClampTen",
+  "input_type": "[]int",
+  "output_type": "[]int",
+  "fixture_sha256": "22c4614ba667d53841caa862dbc9976bfe38439868c75081ba32aaadf386b4c9",
+  "reference_sha256": "70137882fdc54ec3c823b772a19e9d321494974210ec9417a51324d8a445f1c9",
+  "assertions": [
+    {
+      "input": [],
+      "expected": []
+    },
+    {
+      "input": [
+        -10,
+        0,
+        10
+      ],
+      "expected": [
+        -10,
+        0,
+        10
+      ]
+    },
+    {
+      "input": [
+        -11,
+        11,
+        -99,
+        99
+      ],
+      "expected": [
+        -10,
+        10,
+        -10,
+        10
+      ]
+    },
+    {
+      "input": [
+        3
+      ],
+      "expected": [
+        3
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArchiveScene } from './scene/scene';
 import { FrameBudget } from './render-budget';
 
-type Props = { selected: number; onSelect: (index: number) => void; highQuality: boolean; inspecting: boolean; onFailure: () => void; onAutoQuality: () => void; adaptive: boolean; onReady?: () => void };
+type Props = { selected: number; onSelect: (index: number) => void; highQuality: boolean; inspecting: boolean; onFailure: () => void; onAutoQuality: () => void; adaptive: boolean; onReady?: () => void; decorative?: boolean };
 
 /** Reference scene with a bounded React lifetime and demand-driven rendering. */
 export default function ArchiveCanvas(props: Props) {
@@ -28,11 +28,17 @@ export default function ArchiveCanvas(props: Props) {
     let scene: ArchiveScene;
     try { scene = new ArchiveScene(container); } catch { current.current.onFailure(); return; }
     sceneRef.current = scene;
-    let disposed = false, ready = false, frame = 0, until = 0;
-    const budget = new FrameBudget();
+    scene.setPresentation(props.decorative ? 'overview' : 'archive');
+    let disposed = false, ready = false, frame = 0, until = 0, previousDraw = 0;
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotion = () => { scene.setReduced(reduced.matches); requestDraw(); };
+    const budget = new FrameBudget(props.decorative ? 48 : 28);
     const draw = (now: number) => {
       frame = 0;
       if (disposed || document.hidden || !ready) return;
+      // Decorative scenes render at most 30 fps; foreground input stays independent.
+      if (current.current.decorative && now - previousDraw < 32) { frame = requestAnimationFrame(draw); return; }
+      previousDraw = now;
       // Follow display frames while moving; millisecond gates skip irregularly
       // on 75/144 Hz displays. Quality controls resolution, not motion cadence.
       try { scene.update(now / 1000); } catch { current.current.onFailure(); return; }
@@ -45,6 +51,9 @@ export default function ArchiveCanvas(props: Props) {
       if (ready && !disposed && !document.hidden && !frame) frame = requestAnimationFrame(draw);
     };
     wake.current = requestDraw;
+    reduced.addEventListener('change', updateMotion);
+    scene.setReduced(reduced.matches);
+    const breath = props.decorative ? setInterval(() => { if (!reduced.matches) requestDraw(2400); }, 16000) : undefined;
     const resize = () => { if (!disposed) { scene.resize(); requestDraw(); } };
     const observer = new ResizeObserver(resize);
     observer.observe(container);
@@ -54,9 +63,11 @@ export default function ArchiveCanvas(props: Props) {
     const pointerMove = (event: PointerEvent) => requestDraw(event.buttons ? 2200 : 500);
     const pointerUp = () => requestDraw();
     const pointerLeave = () => requestDraw(500);
-    container.addEventListener('pointermove', pointerMove, { passive: true });
-    container.addEventListener('pointerup', pointerUp, { passive: true });
-    container.addEventListener('pointerleave', pointerLeave, { passive: true });
+    if (!props.decorative) {
+      container.addEventListener('pointermove', pointerMove, { passive: true });
+      container.addEventListener('pointerup', pointerUp, { passive: true });
+      container.addEventListener('pointerleave', pointerLeave, { passive: true });
+    }
     document.addEventListener('visibilitychange', visibility);
     scene.onSelect = (index) => { current.current.onSelect(index); requestDraw(); };
     scene.setQuality(current.current.highQuality);
@@ -73,6 +84,7 @@ export default function ArchiveCanvas(props: Props) {
     }).catch(() => { if (!disposed) current.current.onFailure(); });
     return () => {
       disposed = true; cancelAnimationFrame(frame); observer.disconnect();
+      clearInterval(breath); reduced.removeEventListener('change', updateMotion);
       document.removeEventListener('visibilitychange', visibility);
       container.removeEventListener('pointermove', pointerMove);
       container.removeEventListener('pointerup', pointerUp);
@@ -81,5 +93,5 @@ export default function ArchiveCanvas(props: Props) {
       wake.current = () => {}; sceneRef.current = null; scene.dispose();
     };
   }, []);
-  return <div ref={host} className="ns-full-scene" data-loaded={loaded}>{!loaded && <span className="ns-scene-loading" role="status">正在载入三维档案…</span>}</div>;
+  return <div ref={host} className={`ns-full-scene${props.decorative ? ' is-decorative' : ''}`} data-loaded={loaded}>{!loaded && !props.decorative && <span className="ns-scene-loading" role="status">正在载入三维档案…</span>}</div>;
 }

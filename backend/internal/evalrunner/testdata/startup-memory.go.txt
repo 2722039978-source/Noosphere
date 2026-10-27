@@ -1,0 +1,7 @@
+package main
+import("encoding/json";"os";"runtime";"strconv")
+func main(){
+ var stats runtime.MemStats
+ runtime.ReadMemStats(&stats)
+ json.NewEncoder(os.Stdout).Encode("heap_alloc="+strconv.FormatUint(stats.HeapAlloc,10)+",sys="+strconv.FormatUint(stats.Sys,10))
+}

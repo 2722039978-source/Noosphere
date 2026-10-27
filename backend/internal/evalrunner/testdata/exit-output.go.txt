@@ -1,0 +1,3 @@
+package main
+import ("fmt";"os")
+func main(){fmt.Print(`"ok"`);os.Exit(3)}

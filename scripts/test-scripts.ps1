@@ -48,6 +48,10 @@ function New-BuildFixture {
   Write-FixtureFile $Root 'release/data/session.txt' 'USER-DATA'
   Write-FixtureFile $Root 'release/logs/app.log' 'USER-LOGS'
   Write-FixtureFile $Root 'release/Noosphere-old-setup.exe' 'OLD-INSTALLER'
+  & git -C $Root init --quiet
+  & git -C $Root add -- VERSION
+  & git -C $Root -c user.name=Fixture -c user.email=fixture@example.invalid commit --quiet -m fixture
+  if ($LASTEXITCODE -ne 0) { throw 'Could not initialize isolated source identity fixture.' }
   $env:NOOSPHERE_TEST_ROOT = $Root
   $env:NOOSPHERE_TEST_MODE = 'normal'
   $env:CARGO_TARGET_DIR = 'custom target'
@@ -117,6 +121,10 @@ $global:LASTEXITCODE = 0
   Assert-Fixture ((Get-FixtureContents $Root 'release/bin/noosphere-backend.exe') -eq 'NEW-BACKEND') 'must publish new backend'
   $BuildInfo = Get-FixtureContents $Root 'release/build-info.json' | ConvertFrom-Json
   Assert-Fixture ($BuildInfo.runtime_revision -eq 1 -and $BuildInfo.desktop_sha256 -eq (Get-FileHash -LiteralPath (Join-Path $Root 'release/Noosphere.exe')).Hash) 'manifest must identify the actual published executable'
+  $Revision = (& git -C $Root rev-parse HEAD).Trim()
+  Assert-Fixture ($BuildInfo.source_revision -eq $Revision -and $BuildInfo.source_dirty -eq $true -and $BuildInfo.build_profile -eq 'release') 'manifest must record source identity and actual build profile'
+  Assert-Fixture ($BuildInfo.source_fingerprint -match '^[0-9A-F]{64}$') 'manifest must fingerprint the current production source even when HEAD is unchanged'
+  Assert-Fixture ($BuildInfo.frontend_sha256 -match '^[0-9A-F]{64}$') 'manifest must identify the complete embedded frontend tree'
   foreach ($Pair in @(@('config.yaml', 'USER-CONFIG'), @('models.yaml', 'USER-MODELS'), @('data/session.txt', 'USER-DATA'), @('logs/app.log', 'USER-LOGS'))) {
     Assert-Fixture ((Get-FixtureContents $Root ("release/" + $Pair[0])) -eq $Pair[1]) "must preserve $($Pair[0])"
   }
@@ -128,6 +136,56 @@ $global:LASTEXITCODE = 0
   Assert-Fixture ((Get-FixtureContents $Root 'release/config.defaults.yaml') -eq 'safe-default-configuration') 'must ship defaults template'
   Assert-Fixture (-not (Test-Path -LiteralPath (Join-Path $Root 'release/codelens-python/__pycache__'))) 'must exclude CodeLens caches'
   Assert-Fixture ((Get-Location).Path -eq $FixtureBase) 'build must restore the caller cwd'
+
+  # Publish one build into a separate, stable portable directory without copying source user data.
+  $ExternalRelease = Join-Path $FixtureBase 'canonical portable release'
+  Write-FixtureFile $ExternalRelease 'config.yaml' 'CANONICAL-CONFIG'
+  Write-FixtureFile $ExternalRelease 'models.yaml' 'CANONICAL-MODELS'
+  Write-FixtureFile $ExternalRelease 'data/history.txt' 'CANONICAL-HISTORY'
+  Publish-NoosphereRelease $Root (Join-Path $Root 'release/Noosphere.exe') (Join-Path $Root 'release/bin/noosphere-backend.exe') -ReleaseRoot $ExternalRelease -BuildProfile dev
+  $Published = Get-Content -LiteralPath (Join-Path $ExternalRelease 'build-info.json') -Raw | ConvertFrom-Json
+  Assert-Fixture ($Published.source_revision -eq $Revision -and $Published.build_profile -eq 'dev') 'external publication must use build source identity and explicit dev profile'
+  foreach ($Pair in @(@('config.yaml', 'CANONICAL-CONFIG'), @('models.yaml', 'CANONICAL-MODELS'), @('data/history.txt', 'CANONICAL-HISTORY'))) {
+    Assert-Fixture ((Get-FixtureContents $ExternalRelease $Pair[0]) -eq $Pair[1]) "external publication must preserve canonical $($Pair[0])"
+  }
+  $LinkPath = Join-Path $FixtureBase 'Noosphere.lnk'
+  $Shell = New-Object -ComObject WScript.Shell
+  $OldLink = $Shell.CreateShortcut($LinkPath)
+  $OldLink.TargetPath = Join-Path $ExternalRelease 'Noosphere.exe'
+  $OldLink.Arguments = '--old-fixture-argument'
+  $OldLink.Save()
+  New-NoosphereShortcut $LinkPath $ExternalRelease $Revision | Out-Null
+  $Refreshed = $Shell.CreateShortcut($LinkPath)
+  Assert-Fixture ($Refreshed.TargetPath -eq (Join-Path $ExternalRelease 'Noosphere.exe') -and $Refreshed.WorkingDirectory -eq $ExternalRelease -and $Refreshed.Arguments -eq '') 'shortcut refresh must target the verified complete portable release and clear old arguments'
+  Assert-Fixture (@(Get-ChildItem -LiteralPath $FixtureBase -Filter 'Noosphere.lnk.*.bak' -File).Count -eq 1) 'same-target shortcut refresh must still back up the previous shortcut'
+  $LinkHash = (Get-FileHash -LiteralPath $LinkPath).Hash
+  $OriginalSource = Get-FixtureContents $Root 'backend/python/codelens/main.py'
+  Write-FixtureFile $Root 'backend/python/codelens/main.py' '# changed source at the same HEAD'
+  $DirtyRejected = $false
+  try { New-NoosphereShortcut $LinkPath $ExternalRelease $Revision (Get-NoosphereSourceIdentity $Root).fingerprint | Out-Null } catch { $DirtyRejected = $_.Exception.Message -match 'source fingerprint' }
+  Assert-Fixture $DirtyRejected 'same-HEAD dirty source changes must reject a shortcut to the earlier build'
+  Assert-Fixture ((Get-FileHash -LiteralPath $LinkPath).Hash -eq $LinkHash) 'same-HEAD rejection must leave the prior shortcut intact'
+  Write-FixtureFile $Root 'backend/python/codelens/main.py' $OriginalSource
+  foreach ($Failure in @('source', 'hash')) {
+    $Rejected = $false
+    if ($Failure -eq 'hash') { Write-FixtureFile $ExternalRelease 'bin/noosphere-backend.exe' 'TAMPERED-BACKEND' }
+    try { New-NoosphereShortcut $LinkPath $ExternalRelease $(if ($Failure -eq 'source') { 'not-this-source' } else { $Revision }) | Out-Null } catch { $Rejected = $true }
+    Assert-Fixture $Rejected "shortcut refresh must reject a $Failure mismatch"
+    Assert-Fixture ((Get-FileHash -LiteralPath $LinkPath).Hash -eq $LinkHash) 'failed verification must leave the existing shortcut intact'
+  }
+  Write-FixtureFile $ExternalRelease 'bin/noosphere-backend.exe' 'NEW-BACKEND'
+  $BeforeDesktop = (Get-FileHash -LiteralPath (Join-Path $ExternalRelease 'Noosphere.exe')).Hash
+  $LockedBackend = [IO.File]::Open((Join-Path $ExternalRelease 'bin/noosphere-backend.exe'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  $LockedRejected = $false
+  try {
+    try { Publish-NoosphereRelease $Root (Join-Path $Root 'release/Noosphere.exe') (Join-Path $Root 'release/bin/noosphere-backend.exe') -ReleaseRoot $ExternalRelease -BuildProfile dev }
+    catch { $LockedRejected = $_.Exception.Message -match 'Close the running Noosphere application gracefully' }
+  } finally { $LockedBackend.Dispose() }
+  Assert-Fixture $LockedRejected 'locked backend must reject publication with a graceful-close instruction'
+  Assert-Fixture ((Get-FileHash -LiteralPath (Join-Path $ExternalRelease 'Noosphere.exe')).Hash -eq $BeforeDesktop -and -not (Test-Path -LiteralPath (Join-Path $ExternalRelease 'legacy'))) 'locked backend must be detected before desktop replacement or archival begins'
+  $FrontendBefore = Get-NoosphereFrontendHash $Root
+  Write-FixtureFile $Root 'frontend/dist/assets/bundle.js' 'new frontend behavior'
+  Assert-Fixture ((Get-NoosphereFrontendHash $Root) -ne $FrontendBefore) 'frontend fingerprint must change when an asset changes even if index.html is unchanged'
 
   $Root = New-BuildFixture
   $Before = @{}

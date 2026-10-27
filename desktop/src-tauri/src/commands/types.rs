@@ -5,11 +5,17 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiError {
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 impl ApiError {
     pub fn new(msg: impl Into<String>) -> Self {
-        Self { message: msg.into() }
+        Self { message: msg.into(), status: None, code: None, details: None }
     }
 }
 
@@ -71,6 +77,16 @@ pub struct ModelConfig {
     pub provider: String,
     pub base_url: String,
     pub model_name: String,
+    #[serde(default)]
+    pub vendor: Option<String>,
+    #[serde(default)]
+    pub model_family: Option<String>,
+    #[serde(default)]
+    pub deployment: Option<String>,
+    #[serde(default)]
+    pub context_length: Option<u64>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
     pub enabled: Option<bool>,
     pub is_default: Option<bool>,
     #[serde(default)]

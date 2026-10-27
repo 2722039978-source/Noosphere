@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        请先搜索现有 Issue，并阅读 [开发指南](https://github.com/2722039978-source/Noosphere/blob/main/docs/DEVELOPMENT.md)。
+        请先搜索现有 Issue，并阅读 [源码运行说明](https://github.com/2722039978-source/Noosphere#从源码运行windows)。
         日志和截图请先脱敏，不要上传 API Key、models.yaml、聊天记录或完整运行数据库。
   - type: dropdown
     id: module
@@ -16,6 +16,7 @@ body:
         - 档案主页与导航
         - AI 对话与工作区
         - Gateway 模型网关
+        - Model Hub / Model Lab / Reports / Release Center
         - CodeLens 代码分析
         - Nebula 记忆与检索
         - DevOps 与 Agent 操作

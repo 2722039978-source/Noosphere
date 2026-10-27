@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { createIndexedChatStorage } from "./indexed-chat-storage";
 import { parseChatBackup, mergeChatBackup, validateChatSnapshot, sessionWorkspaceId, activeWorkspaceSession } from "./chat-backup";
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import type { ContextCitation } from "@/lib/api";
+import { api, errMessage, type ContextCitation } from "@/lib/api";
 
 export type MessageStatus = "preparing" | "streaming" | "completed" | "cancelled" | "failed" | "interrupted";
 
@@ -45,7 +45,10 @@ interface ChatState {
   newSession: () => string;
   removeSession: (id: string) => void;
   setActive: (id: string) => void;
-  setModel: (modelId: string) => void;
+  modelSelection: { sessionId: string; workspaceId: string } | null;
+  modelSelectionError: string | null;
+  setModel: (modelId: string) => Promise<boolean>;
+  syncModel: (sessionId: string) => Promise<boolean>;
 
   appendMessage: (sessionId: string, msg: ChatMessage) => void;
   appendToken: (sessionId: string, msgId: string, token: string) => void;
@@ -56,6 +59,7 @@ interface ChatState {
 }
 
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+let selectionEpoch = 0;
 
 export const useChatPersistence = create<{ error: string | null; ready: boolean }>(() => ({ error: null, ready: false }));
 const chatStorage = createIndexedChatStorage<Pick<ChatState, "sessions" | "activeId">>({
@@ -107,6 +111,8 @@ export const useChatStore = create<ChatState>()(
     (set, get) => ({
       sessions: [],
       activeId: null,
+      modelSelection: null,
+      modelSelectionError: null,
 
       newSession: () => {
         if (!useChatPersistence.getState().ready) return '';
@@ -140,16 +146,48 @@ export const useChatStore = create<ChatState>()(
         if (session && sessionWorkspaceId(session) === useWorkspaceStore.getState().activeId) set({ activeId });
       },
 
-      setModel: (modelId) => {
+      setModel: async (modelId) => {
         const { activeId } = get();
-        if (!activeId) return;
+        if (!activeId || !useChatPersistence.getState().ready || get().modelSelection) return false;
         const session = get().sessions.find(item => item.id === activeId);
-        if (!session || sessionWorkspaceId(session) !== useWorkspaceStore.getState().activeId) return;
-        set((st) => ({
-          sessions: st.sessions.map((s) =>
-            s.id === activeId ? { ...s, modelId, updatedAt: Date.now() } : s
-          ),
-        }));
+        if (!session || sessionWorkspaceId(session) !== useWorkspaceStore.getState().activeId) return false;
+        if (session.messages.some(message => message.streaming)) {
+          set({ modelSelectionError: '会话正在执行任务，请等待完成或停止后再切换模型。' });
+          return false;
+        }
+        const workspaceId = sessionWorkspaceId(session);
+        selectionEpoch++;
+        set({ modelSelection: { sessionId: activeId, workspaceId }, modelSelectionError: null });
+        try {
+          const result = await api.selectModel({ scope: 'session', workspace_id: workspaceId, session_id: activeId, model_id: modelId });
+          if (!result.bound || !result.model_id || result.workspace_id !== workspaceId || result.session_id !== activeId) throw new Error('模型绑定响应不完整，请重新读取会话状态。');
+          set(st => ({ sessions: st.sessions.map(s => s.id === activeId && sessionWorkspaceId(s) === workspaceId ? { ...s, modelId: result.model_id, updatedAt: Date.now() } : s) }));
+          if (!await flushChatPersistence()) set({ modelSelectionError: '模型已在后端切换，会话本地缓存未保存；请重试保存，重启后将从后端恢复绑定。' });
+          return true;
+        } catch (error) {
+          set({ modelSelectionError: errMessage(error) });
+          return false;
+        } finally { set({ modelSelection: null }); }
+      },
+
+      syncModel: async (sessionId) => {
+        const session = get().sessions.find(s => s.id === sessionId);
+        if (!session || !useChatPersistence.getState().ready || get().modelSelection) return false;
+        const workspaceId = sessionWorkspaceId(session), epoch = selectionEpoch;
+        try {
+          const result = await api.getModelSelection(workspaceId, sessionId);
+          if (epoch !== selectionEpoch) return false;
+          if (result.workspace_id !== workspaceId || result.session_id !== sessionId || (result.bound && !result.model_id)) throw new Error('模型绑定响应不完整，请重试。');
+          if (result.bound) {
+            set(st => ({ sessions: st.sessions.map(s => s.id === sessionId && sessionWorkspaceId(s) === workspaceId ? { ...s, modelId: result.model_id } : s) }));
+            await flushChatPersistence();
+          }
+          if (get().modelSelectionError?.startsWith('无法恢复会话模型：')) set({ modelSelectionError: null });
+          return true;
+        } catch (error) {
+          if (epoch === selectionEpoch) set({ modelSelectionError: `无法恢复会话模型：${errMessage(error)}` });
+          return false;
+        }
       },
 
       appendMessage: (sessionId, msg) => {

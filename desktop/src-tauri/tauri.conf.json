@@ -12,6 +12,7 @@
   "app": {
     "windows": [{
       "title": "Noosphere",
+      "decorations": false,
       "width": 1280,
       "height": 800,
       "minWidth": 900,

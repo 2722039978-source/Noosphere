@@ -1,0 +1,7 @@
+package main
+
+func ClampTen(input []int) []int {
+ output:=make([]int,len(input))
+ copy(output,input)
+ return output
+}

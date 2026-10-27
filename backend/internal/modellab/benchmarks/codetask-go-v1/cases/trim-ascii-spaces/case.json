@@ -1,0 +1,33 @@
+{
+  "id": "trim-ascii-spaces",
+  "version": "1.0.0",
+  "category": "boundary-string",
+  "task": "Remove only leading and trailing ASCII spaces (byte 32); preserve internal spaces and tabs. Empty/all-space input becomes empty.",
+  "function": "TrimSpaces",
+  "input_type": "string",
+  "output_type": "string",
+  "fixture_sha256": "98f4c62fa08e0e8910f3a67458a21b1a4d5aa37e6ecae5f80dcd0842830d10c0",
+  "reference_sha256": "7a6f6a47e0a03f92437c7742276aebcd343216a755e88567606914aa71781baa",
+  "assertions": [
+    {
+      "input": "",
+      "expected": ""
+    },
+    {
+      "input": "   ",
+      "expected": ""
+    },
+    {
+      "input": "  luminous harbor  ",
+      "expected": "luminous harbor"
+    },
+    {
+      "input": "\t x \t",
+      "expected": "\t x \t"
+    },
+    {
+      "input": "x",
+      "expected": "x"
+    }
+  ]
+}

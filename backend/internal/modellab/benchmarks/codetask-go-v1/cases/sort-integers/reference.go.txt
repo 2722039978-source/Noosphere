@@ -1,0 +1,8 @@
+package main
+
+func SortInts(input []int) []int {
+ output:=make([]int,len(input))
+ copy(output,input)
+ for i:=1;i<len(output);i++ { for j:=i;j>0 && output[j]<output[j-1];j-- {output[j],output[j-1]=output[j-1],output[j]} }
+ return output
+}

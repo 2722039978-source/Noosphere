@@ -37,35 +37,29 @@ func serve(app *App) {
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	// Graceful shutdown: wait for signal, stop CodeLens, then drain in-flight requests
+	// Stop HTTP admission before dependencies; App.Close drains owned workers.
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
-		if app.Actions != nil {
-			app.Actions.Close()
+		if app.ModelLab != nil {
+			app.ModelLab.StopAdmission()
 		}
-		if app.Workspaces != nil {
-			app.Workspaces.Close()
-		}
-
-		if cl := app.CodeLens.Load(); cl != nil {
-			cl.Stop()
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		srv.Shutdown(ctx)
+		if err := srv.Shutdown(ctx); err != nil {
+			srv.Close()
+		}
+		if err := app.Close(); err != nil {
+			log.Printf("shutdown: %v", err)
+		}
 	}()
 
 	log.Println("Noosphere Backend ready:", addr)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-		log.Fatalf("server error: %v", err)
+		log.Printf("server error: %v", err)
 	}
-	if app.Actions != nil {
-		app.Actions.Close()
-	}
-	if app.Workspaces != nil {
-		app.Workspaces.Close()
+	if err := app.Close(); err != nil {
+		log.Printf("shutdown: %v", err)
 	}
 }

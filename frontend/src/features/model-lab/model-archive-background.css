@@ -1,0 +1,257 @@
+/* One retained raster behind the complete model workspace, including its masthead. */
+.ns-reference-shell .ns-workspace-column {
+  position: relative;
+  isolation: isolate;
+}
+
+.ns-model-archive-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  background: #f7f6f3;
+  contain: strict;
+}
+
+.ns-model-archive-backdrop[hidden] { display: none; }
+
+.ns-model-archive-backdrop-image {
+  position: absolute;
+  top: 90px;
+  display: block;
+  width: 112%;
+  height: auto;
+  object-fit: contain;
+  object-position: center top;
+  transform: translateX(-10%);
+  opacity: .72;
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 85%, transparent), linear-gradient(to bottom, transparent, #000 8%, #000 72%, transparent);
+  mask-composite: intersect;
+  pointer-events: none;
+}
+
+.ns-reference-shell .ns-workspace-column > .ns-masthead,
+.ns-reference-shell .ns-workspace-column > .ns-workspace-content,
+.ns-reference-shell .ns-workspace-column > .ns-statusbar {
+  position: relative;
+  z-index: 1;
+}
+
+/* The archive keeps its selected white/champagne treatment in every theme. */
+.ns-reference-shell[data-model-archive-active="true"] {
+  --bg-app: #f7f6f3;
+  --bg-raised: #f7f6f3;
+  --bg-elevated: #fcfbf8;
+  --bg-glass: #fcfbf8ed;
+  --bg-input: #ffffffb8;
+  --border-subtle: #8277671c;
+  --border-soft: #82776730;
+  --border-strong: #82776755;
+  --text-1: #171815;
+  --text-2: #55574f;
+  --text-3: #72756a;
+  --brand: #9b754c;
+  --background: #f7f6f3;
+  --foreground: #171815;
+  --card: #fcfbf8;
+  --card-foreground: #171815;
+  --popover: #fcfbf8;
+  --popover-foreground: #171815;
+  --primary: #20211f;
+  --primary-foreground: #faf8f4;
+  --secondary: #ede9e1;
+  --secondary-foreground: #171815;
+  --muted: #efede7;
+  --muted-foreground: #55574f;
+  --accent: #e8d5b7;
+  --accent-foreground: #31281d;
+  --border: #82776730;
+  --input: #82776730;
+  --ring: #9b754c;
+  color: var(--text-1);
+  color-scheme: light;
+}
+
+html.dark .ns-reference-shell[data-model-archive-active="true"] {
+  --bg-app: #f7f6f3;
+  --bg-raised: #f7f6f3;
+  --bg-elevated: #fcfbf8;
+  --bg-input: #ffffffb8;
+  --border-soft: #82776730;
+  --border-strong: #82776755;
+  --text-1: #171815;
+  --text-2: #55574f;
+  --text-3: #72756a;
+}
+
+.ns-reference-shell[data-model-archive-active="true"] > .ns-sidebar,
+html.dark .ns-reference-shell[data-model-archive-active="true"] > .ns-sidebar {
+  background: #f6f5f1;
+}
+
+/* The native 32px titlebar is outside this content viewport. Keep the
+   reference's tools in place while removing the old extra header gap. */
+.ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] > .ns-masthead {
+  height: 76px;
+}
+.ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] > .ns-masthead .ns-masthead-tools {
+  transform: translateY(15px);
+}
+
+.ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] > .ns-masthead,
+.ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] > .ns-workspace-content,
+.ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] main,
+.ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] .ns-page {
+  background: transparent;
+}
+
+html.dark .ns-reference-shell[data-model-archive-active="true"] .ns-workspace-trigger {
+  background: #ffffffb8;
+}
+
+.ns-reference-shell .ns-model-archive-scroll {
+  overflow-x: hidden;
+  scrollbar-color: #b7ab98 transparent;
+}
+
+.ns-reference-shell .ns-model-lab.ns-model-archive-page {
+  position: relative;
+  max-width: none;
+  min-height: 100%;
+  padding: 8px 28px 30px 26px;
+  gap: 0;
+}
+
+.ns-model-archive-page .ns-model-archive-heading {
+  position: relative;
+  padding: 0 18px;
+}
+
+.ns-model-archive-page .ns-model-archive-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 11px;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.ns-model-archive-page .ns-model-archive-breadcrumb img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  opacity: .7;
+}
+
+.ns-model-archive-page .ns-model-archive-breadcrumb > span { color: #99948d; }
+
+.ns-model-archive-page .ns-model-archive-heading h1 {
+  margin: 14px 0 7px;
+  font-size: 50px;
+  font-weight: 600;
+  line-height: 1.18;
+  letter-spacing: -.045em;
+}
+
+.ns-model-archive-page .ns-model-archive-heading > p:last-child {
+  max-width: 780px;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* Direct Lab/Reports/Release entry does not depend on the Hub's lazy stylesheet. */
+.ns-reference-shell .ns-model-archive-page .ns-hub-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: fit-content;
+  max-width: 100%;
+  margin: 43px 0 18px 4px;
+  border-bottom: 1px solid var(--border-soft);
+  border-radius: 12px 12px 0 0;
+  background: #faf9f5cc;
+  overflow-x: auto;
+}
+
+.ns-model-archive-page .ns-hub-tabs a {
+  position: relative;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 20px 21px 18px;
+  color: var(--text-2);
+  font-size: 14px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.ns-model-archive-page .ns-hub-tabs a + a::before {
+  position: absolute;
+  left: 0;
+  height: 15px;
+  content: '';
+  border-left: 1px solid var(--border-soft);
+}
+
+.ns-model-archive-page .ns-hub-tabs a[aria-current] {
+  margin-bottom: -1px;
+  color: var(--text-1);
+  border-bottom: 2px solid #b3823d;
+}
+
+.ns-model-archive-page .ns-hub-tabs a[aria-current] svg { fill: #f2ce8f; }
+.ns-model-archive-page .ns-hub-tabs a:hover { background: #a78a5a10; text-decoration: none; }
+.ns-model-archive-page .ns-hub-tabs a:focus-visible { outline: 2px solid var(--brand); outline-offset: -3px; }
+
+.ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-surface {
+  position: relative;
+  border: 1px solid #8c81752e;
+  border-radius: 10px;
+  background: #fcfbf8e3;
+  box-shadow: 0 5px 24px #5a483106;
+  animation: none;
+}
+
+.ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-surface::before { display: none; }
+.ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-lab-panel { margin-bottom: 18px; }
+.ns-model-archive-page .ns-lab-panel > :last-child { margin-bottom: 0; }
+.ns-model-archive-page .ns-lab-notice { background: #f0e7d9d9; }
+.ns-model-archive-page .ns-lab-error { background: #f9eeebe8; }
+.ns-model-archive-page .ns-lab-details { background: #ffffff61; border-radius: 5px; }
+.ns-model-archive-page .ns-lab-case { background: #f8f5efe6; border-radius: 7px; }
+.ns-model-archive-page .ns-lab-field select { border-radius: 5px; background: #ffffffc7; }
+.ns-model-archive-page .ns-release-banner { background: #f4eee2f2; border-radius: 7px; }
+
+@media (max-width: 1370px) {
+  .ns-reference-shell .ns-model-lab.ns-model-archive-page { padding-left: 20px; padding-right: 20px; }
+}
+
+@media (max-width: 1190px) {
+  .ns-reference-shell .ns-model-archive-page .ns-hub-tabs { margin-top: 34px; }
+  .ns-model-archive-page .ns-hub-tabs a { padding-inline: 17px; }
+}
+
+@media (max-width: 1023px) {
+  .ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] > .ns-masthead { height:85px; }
+  .ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] > .ns-masthead .ns-masthead-tools { transform:none; }
+}
+
+@media (max-width: 767px) {
+  .ns-model-archive-backdrop-image { top:75px; width:170%; object-position:66% top; transform:translateX(-30%); opacity:.5; }
+  .ns-reference-shell .ns-model-lab.ns-model-archive-page { padding: 15px 16px 30px; }
+  .ns-model-archive-page .ns-model-archive-heading { padding: 0 4px; }
+  .ns-model-archive-page .ns-model-archive-heading h1 { font-size: 40px; }
+  .ns-model-archive-page .ns-model-archive-heading > p:last-child { font-size: 12px; }
+  .ns-model-archive-page .ns-model-archive-breadcrumb { font-size: 10px; gap: 7px; }
+  .ns-reference-shell .ns-model-archive-page .ns-hub-tabs { margin: 25px 0 15px; width: 100%; }
+  .ns-model-archive-page .ns-hub-tabs a { padding: 15px 11px; font-size: 11px; gap: 6px; }
+  .ns-model-archive-page .ns-hub-tabs svg { width: 15px; flex-shrink: 0; }
+}
+
+@media (max-width:639px) {
+  .ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] > .ns-masthead { height:75px; }
+}

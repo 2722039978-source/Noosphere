@@ -1,0 +1,18 @@
+package main
+
+import("encoding/json"; "os"; "net"; "time"; "strings")
+
+func main() {
+ var input string
+ if json.NewDecoder(os.Stdin).Decode(&input)!=nil {os.Exit(2)}
+ parts:=strings.SplitN(input,"\n",2)
+ path:=parts[0]
+ _,readErr:=os.ReadFile(path)
+ writeErr:=os.WriteFile(path,[]byte("tampered"),0600)
+ dir,dirErr:=os.ReadDir("/")
+ conn,networkErr:=net.DialTimeout("tcp",parts[1],50*time.Millisecond)
+ if conn!=nil {conn.Close()}
+ result:="capability-leak"
+ if readErr!=nil && writeErr!=nil && (dirErr!=nil || len(dir)==0) && networkErr!=nil && os.Getenv("EVALRUNNER_SECRET")=="" && len(os.Environ())==0 {result="no-fs,no-network,no-env"}
+ json.NewEncoder(os.Stdout).Encode(result)
+}

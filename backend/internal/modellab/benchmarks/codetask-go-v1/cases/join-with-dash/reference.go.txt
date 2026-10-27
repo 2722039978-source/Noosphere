@@ -1,0 +1,7 @@
+package main
+
+func JoinDash(input []string) string {
+ output:=""
+ for i,v:=range input {if i>0 {output+="-"};output+=v}
+ return output
+}

@@ -1,0 +1,7 @@
+package main
+
+func Maximum(input []int) int {
+ best:=0
+ for _,v:=range input {if v>best {best=v}}
+ return best
+}

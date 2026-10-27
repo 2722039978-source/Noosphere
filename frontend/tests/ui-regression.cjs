@@ -49,6 +49,8 @@ async function createContext(browser, viewport, mock = true, reducedMotion) {
           case 'get_run_events': return {events:payload.after?[]:[{seq:1,run_id:payload.id,phase:'planning',message:'正在分析诊断问题',data:null,created_at:new Date().toISOString()}]};
           case 'cancel_workspace_run': {const run=qa.tasks.find(r=>r.id===payload.id);run.status='cancelled';run.phase='cancelled';run.result=null;return run;}
           case 'get_models': return { models: [{ id: 'qa', name: '测试模型', model_name: 'fixture', provider: 'openai_compatible', base_url: 'http://fixture.invalid', enabled: true, is_default: true }] };
+          case 'get_model_selection': return {workspace_id:payload.workspaceId,session_id:payload.sessionId,model_id:'',bound:false};
+          case 'select_model': return {...payload.selection,bound:true,model_id:payload.selection.model_id||'qa'};
           case 'list_agent_actions': return {actions:[]};
           case 'list_knowledge': return {memories:[]};
           case 'prepare_context': {

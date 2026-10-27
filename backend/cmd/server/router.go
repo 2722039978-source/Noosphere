@@ -8,7 +8,15 @@ import (
 
 	"github.com/noosphere/backend/internal/core"
 	"github.com/noosphere/backend/internal/gateway"
+	"github.com/noosphere/backend/internal/modellab"
+	"github.com/noosphere/backend/internal/modelops"
+	"github.com/noosphere/backend/internal/workspaces"
 )
+
+func registerModelEngineeringRoutes(mux *http.ServeMux, lab *modellab.Service, ops *modelops.Service, manager *workspaces.Manager) {
+	lab.RegisterRoutes(mux, manager)
+	ops.RegisterRoutes(mux, manager)
+}
 
 // registerRoutes wires every API endpoint onto the mux.
 // Go 1.22+ method+path patterns give per-endpoint 404/405 semantics for free.
@@ -43,6 +51,8 @@ func registerRoutes(mux *http.ServeMux, lc *core.Lifecycle, gw *gateway.Gateway)
 	mux.HandleFunc("POST /api/gateway/models", gw.HandleAddModel)
 	mux.HandleFunc("DELETE /api/gateway/models/{id}", gw.HandleDeleteModel)
 	mux.HandleFunc("POST /api/gateway/models/{id}/test", gw.HandleTestModel)
+	mux.HandleFunc("GET /api/gateway/selection", gw.HandleModelSelection)
+	mux.HandleFunc("POST /api/gateway/selection", gw.HandleSelectModel)
 	mux.HandleFunc("POST /api/gateway/chat", gw.HandleChat)
 	mux.HandleFunc("POST /api/gateway/chat/stream", gw.HandleChatStream) // SSE: 自管响应写出
 	mux.HandleFunc("GET /api/gateway/stats", gw.HandleStats)

@@ -2,6 +2,7 @@
 export class FrameBudget {
   private last = 0;
   private intervals: number[] = [];
+  constructor(private readonly slowFrameMS = 28) {}
   reset() { this.last = 0; this.intervals = []; }
   sample(now: number) {
     const previous = this.last;
@@ -9,7 +10,7 @@ export class FrameBudget {
     if (!previous || now - previous > 250) { this.intervals = []; return false; }
     this.intervals.push(now - previous);
     if (this.intervals.length < 45) return false;
-    const slow = this.intervals.filter(value => value > 28).length >= 30;
+    const slow = this.intervals.filter(value => value > this.slowFrameMS).length >= 30;
     this.intervals = [];
     return slow;
   }

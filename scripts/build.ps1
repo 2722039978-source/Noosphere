@@ -3,7 +3,9 @@
 param(
   [switch]$SkipTauri,
   [switch]$SkipFrontend,
-  [switch]$BundleNsis
+  [switch]$BundleNsis,
+  [string]$ReleaseRoot,
+  [switch]$DesktopShortcut
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,6 +16,9 @@ $FrontendRoot = Join-Path $ProjectRoot 'frontend'
 $Version = Get-NoosphereVersion $ProjectRoot
 
 if ($SkipTauri -and $BundleNsis) { throw '-SkipTauri and -BundleNsis cannot be combined.' }
+if ($SkipTauri -and $DesktopShortcut) { throw '-DesktopShortcut requires a complete desktop build; remove -SkipTauri.' }
+if (-not $ReleaseRoot) { $ReleaseRoot = Join-Path $ProjectRoot 'release' }
+$ReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot)
 $GoCommand = Resolve-NoosphereCommand 'go'
 if (-not $SkipFrontend) { $NpmCommand = Resolve-NoosphereCommand 'npm' }
 if (-not $SkipTauri) {
@@ -60,8 +65,9 @@ if ($BundleNsis) {
 }
 
 # Publication starts only after every requested build has succeeded.
-Publish-NoosphereRelease $ProjectRoot $DesktopArtifact $BackendArtifact $InstallerArtifacts
-Write-Host "Portable release ready: $(Join-Path $ProjectRoot 'release/Noosphere.exe')" -ForegroundColor Green
+Publish-NoosphereRelease $ProjectRoot $DesktopArtifact $BackendArtifact $InstallerArtifacts -ReleaseRoot $ReleaseRoot
+if ($DesktopShortcut) { & (Join-Path $PSScriptRoot 'create-shortcuts.ps1') -Desktop -ReleaseRoot $ReleaseRoot }
+Write-Host "Portable release ready: $(Join-Path $ReleaseRoot 'Noosphere.exe')" -ForegroundColor Green
 if ($InstallerArtifacts.Count -eq 0) {
   Write-Host 'NSIS was not requested. Older installers, if any, are retained under release/legacy/installers.'
 }

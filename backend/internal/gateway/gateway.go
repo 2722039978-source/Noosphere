@@ -20,17 +20,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ModelMetadata struct {
+	Vendor        string `json:"vendor,omitempty" yaml:"vendor,omitempty"`
+	Family        string `json:"family,omitempty" yaml:"family,omitempty"`
+	Architecture  string `json:"architecture,omitempty" yaml:"architecture,omitempty"`
+	ParameterSize string `json:"parameter_size,omitempty" yaml:"parameter_size,omitempty"`
+	Quantization  string `json:"quantization,omitempty" yaml:"quantization,omitempty"`
+	ContextLength int    `json:"context_length,omitempty" yaml:"context_length,omitempty"`
+	Source        string `json:"source,omitempty" yaml:"source,omitempty"`
+}
 type ModelConfig struct {
-	ID          string  `json:"id" yaml:"id"`
-	Name        string  `json:"name" yaml:"name"`
-	Provider    string  `json:"provider" yaml:"type"`
-	BaseURL     string  `json:"base_url" yaml:"base_url"`
-	APIKey      string  `json:"-" yaml:"api_key"`
-	ModelName   string  `json:"model_name" yaml:"model"`
-	Enabled     bool    `json:"enabled" yaml:"enabled"`
-	IsDefault   bool    `json:"is_default" yaml:"is_default"`
-	Temperature float64 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	MaxTokens   int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	ID            string         `json:"id" yaml:"id"`
+	Name          string         `json:"name" yaml:"name"`
+	Provider      string         `json:"provider" yaml:"type"`
+	BaseURL       string         `json:"base_url" yaml:"base_url"`
+	APIKey        string         `json:"-" yaml:"api_key"`
+	ModelName     string         `json:"model_name" yaml:"model"`
+	Vendor        string         `json:"vendor,omitempty" yaml:"vendor,omitempty"`
+	ModelFamily   string         `json:"model_family,omitempty" yaml:"model_family,omitempty"`
+	Deployment    string         `json:"deployment,omitempty" yaml:"deployment,omitempty"`
+	ContextLength int            `json:"context_length,omitempty" yaml:"context_length,omitempty"`
+	Metadata      *ModelMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Enabled       bool           `json:"enabled" yaml:"enabled"`
+	IsDefault     bool           `json:"is_default" yaml:"is_default"`
+	Temperature   float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	MaxTokens     int            `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 }
 
 type GatewayConfig struct {
@@ -54,16 +68,17 @@ type CallLog struct {
 }
 
 type Gateway struct {
+	admission        inferenceAdmission
 	workspaceManager *workspaces.Manager
-	mu         sync.RWMutex
-	providerMu sync.Mutex
-	sem        chan struct{}
-	configPath string
-	config     *GatewayConfig
-	encKey     []byte
-	logs       []CallLog
-	stats      map[string]*ModelStats
-	providers  map[string]providers.LLMProvider
+	mu               sync.RWMutex
+	providerMu       sync.Mutex
+	sem              chan struct{}
+	configPath       string
+	config           *GatewayConfig
+	encKey           []byte
+	logs             []CallLog
+	stats            map[string]*ModelStats
+	providers        map[string]providers.LLMProvider
 }
 
 type ModelStats struct {
@@ -100,16 +115,21 @@ func (g *Gateway) loadConfig() {
 	var raw struct {
 		DefaultModel string `yaml:"default_model"`
 		Providers    []struct {
-			ID          string  `yaml:"id"`
-			Name        string  `yaml:"name"`
-			Type        string  `yaml:"type"`
-			APIKey      string  `yaml:"api_key"`
-			BaseURL     string  `yaml:"base_url"`
-			Model       string  `yaml:"model"`
-			Enabled     bool    `yaml:"enabled"`
-			IsDefault   bool    `yaml:"is_default"`
-			Temperature float64 `yaml:"temperature"`
-			MaxTokens   int     `yaml:"max_tokens"`
+			ID            string         `yaml:"id"`
+			Name          string         `yaml:"name"`
+			Type          string         `yaml:"type"`
+			APIKey        string         `yaml:"api_key"`
+			BaseURL       string         `yaml:"base_url"`
+			Model         string         `yaml:"model"`
+			Vendor        string         `yaml:"vendor"`
+			ModelFamily   string         `yaml:"model_family"`
+			Deployment    string         `yaml:"deployment"`
+			ContextLength int            `yaml:"context_length"`
+			Metadata      *ModelMetadata `yaml:"metadata"`
+			Enabled       bool           `yaml:"enabled"`
+			IsDefault     bool           `yaml:"is_default"`
+			Temperature   float64        `yaml:"temperature"`
+			MaxTokens     int            `yaml:"max_tokens"`
 		} `yaml:"providers"`
 	}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -128,7 +148,9 @@ func (g *Gateway) loadConfig() {
 		g.config.Models = append(g.config.Models, ModelConfig{
 			ID: p.ID, Name: p.Name, Provider: p.Type,
 			BaseURL: p.BaseURL, APIKey: apiKey, ModelName: p.Model,
-			Enabled: p.Enabled, IsDefault: p.IsDefault,
+			Vendor: p.Vendor, ModelFamily: p.ModelFamily, Deployment: p.Deployment,
+			ContextLength: p.ContextLength, Metadata: p.Metadata,
+			Enabled: p.Enabled, IsDefault: p.ID == raw.DefaultModel,
 			Temperature: p.Temperature, MaxTokens: p.MaxTokens,
 		})
 	}
@@ -261,13 +283,18 @@ func (g *Gateway) HandleDeleteModel(w http.ResponseWriter, r *http.Request) {
 // (matched by ID).
 func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		Provider  string `json:"provider"`
-		BaseURL   string `json:"base_url"`
-		APIKey    string `json:"api_key"`
-		ModelName string `json:"model_name"`
-		IsDefault bool   `json:"is_default"`
+		ID            string         `json:"id"`
+		Name          string         `json:"name"`
+		Provider      string         `json:"provider"`
+		BaseURL       string         `json:"base_url"`
+		APIKey        string         `json:"api_key"`
+		ModelName     string         `json:"model_name"`
+		Vendor        string         `json:"vendor"`
+		ModelFamily   string         `json:"model_family"`
+		Deployment    string         `json:"deployment"`
+		ContextLength int            `json:"context_length"`
+		Metadata      *ModelMetadata `json:"metadata"`
+		IsDefault     bool           `json:"is_default"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "invalid request body"))
@@ -288,10 +315,25 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 			if body.APIKey == "" {
 				body.APIKey = m.APIKey
 			}
+			identityChanged := body.Provider != m.Provider || strings.TrimRight(body.BaseURL, "/") != strings.TrimRight(m.BaseURL, "/") || body.ModelName != m.ModelName
+			if identityChanged && (body.Metadata == nil || (m.Metadata != nil && *body.Metadata == *m.Metadata)) {
+				// Metadata belongs to its deployment. An ordinary edit must not
+				// carry the previous model's discovered identity to a new target.
+				body.Metadata = nil
+			} else if body.Metadata == nil {
+				body.Metadata = m.Metadata
+			}
+			if identityChanged && body.ContextLength == m.ContextLength {
+				body.ContextLength = 0
+			} else if !identityChanged && body.ContextLength == 0 {
+				body.ContextLength = m.ContextLength
+			}
 			g.config.Models[i] = ModelConfig{
 				ID: body.ID, Name: body.Name, Provider: body.Provider,
 				BaseURL: body.BaseURL, APIKey: body.APIKey, ModelName: body.ModelName,
-				Enabled: true, IsDefault: body.IsDefault,
+				Vendor: body.Vendor, ModelFamily: body.ModelFamily, Deployment: body.Deployment,
+				ContextLength: body.ContextLength, Metadata: body.Metadata,
+				Enabled: m.Enabled, IsDefault: body.IsDefault,
 				Temperature: m.Temperature, MaxTokens: m.MaxTokens,
 			}
 			found = true
@@ -302,6 +344,8 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 		g.config.Models = append(g.config.Models, ModelConfig{
 			ID: body.ID, Name: body.Name, Provider: body.Provider,
 			BaseURL: body.BaseURL, APIKey: body.APIKey, ModelName: body.ModelName,
+			Vendor: body.Vendor, ModelFamily: body.ModelFamily, Deployment: body.Deployment,
+			ContextLength: body.ContextLength, Metadata: body.Metadata,
 			Enabled: true, IsDefault: body.IsDefault,
 		})
 	}
@@ -318,7 +362,12 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{"added": ModelConfig{ID: body.ID, Name: body.Name, Provider: body.Provider, BaseURL: body.BaseURL, ModelName: body.ModelName, Enabled: true, IsDefault: g.config.DefaultModel == body.ID}, "status": "ok"})
+	for _, saved := range g.config.Models {
+		if saved.ID == body.ID {
+			json.NewEncoder(w).Encode(map[string]interface{}{"added": saved, "status": "ok"})
+			return
+		}
+	}
 }
 
 func (g *Gateway) HandleStats(w http.ResponseWriter, r *http.Request) {
@@ -367,6 +416,11 @@ func (g *Gateway) callLLM(model *ModelConfig, messages []map[string]string, sysP
 func (g *Gateway) callLLMContext(parent context.Context, model *ModelConfig, messages []map[string]string, sysPrompt string, temp float64, maxTokens int) (string, int, int, error) {
 	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
+	foregroundDone, err := g.beginInteractive(ctx)
+	if err != nil {
+		return "", 0, 0, err
+	}
+	defer foregroundDone()
 	if err := g.acquireCall(ctx); err != nil {
 		return "", 0, 0, err
 	}
@@ -417,6 +471,8 @@ func (g *Gateway) callLLMOnce(ctx context.Context, model *ModelConfig, messages 
 	if model.MaxTokens > 0 {
 		maxTokens = model.MaxTokens
 	}
+	finishInference := g.countInference(false)
+	defer finishInference()
 	resp, err := provider.Chat(ctx, model.ModelName, msgs, providers.ChatOptions{
 		SystemPrompt: sysPrompt,
 		Temperature:  temp,

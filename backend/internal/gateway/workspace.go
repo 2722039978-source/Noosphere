@@ -6,7 +6,18 @@ import (
 )
 
 // SetWorkspaceManager is called once during bootstrap, before serving requests.
-func (g *Gateway) SetWorkspaceManager(manager *workspaces.Manager) { g.workspaceManager = manager }
+func (g *Gateway) SetWorkspaceManager(manager *workspaces.Manager) {
+	g.workspaceManager = manager
+	if manager != nil {
+		manager.SetModelResolver(func(workspaceID, sessionID, modelID string) (string, error) {
+			model, err := g.SessionModel(workspaceID, sessionID, modelID)
+			if err != nil {
+				return "", err
+			}
+			return model.ID, nil
+		})
+	}
+}
 
 func (g *Gateway) WorkspaceModel(workspaceID, modelID string) (*ModelConfig, error) {
 	if workspaceID == "" {

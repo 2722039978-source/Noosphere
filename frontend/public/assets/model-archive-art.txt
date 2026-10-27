@@ -1,0 +1,14 @@
+# Noosphere model archive art
+
+These local WebP assets were generated with the built-in image generation tool using the user-supplied Noosphere concept screenshot as the art direction. They contain scenery/material only; model names, buttons, measurements and navigation remain real HTML. No third-party image URL is loaded.
+
+- `model-archive-background.webp`: 1672 x 941, quality-90 WebP, 51,686 bytes. The full architectural archive still.
+- `model-card-texture.webp`: 1983 x 793, quality-90 WebP, 76,380 bytes. Quiet white wall-panel close-up for the existing main model card.
+
+The source PNGs remain in the task's generated-image directory. Conversion changes only the file format for delivery. The two deployed images total 128,066 bytes.
+
+## Prompt set
+
+Background: create only the supplied reference's white architectural archive world, without any application UI. Wide orthographic architectural still life, warm porcelain/mineral white, precise thin slabs and cassette-like panels in orderly diagonal rows, tiny metal fasteners, one champagne-gold spine. Hero structure in the upper-right, broad quiet negative space at left and bottom for editable UI. Soft studio daylight, restrained white-on-white shadows, crisp bevels and fine mineral grain. A tiny physical NOOSPHERE mark on the hero slab. No sidebar, cards, controls, model text, statistics, orbit symbol, dark bars, particles or blue/purple palette.
+
+Main card: create only the reference's physical architectural material detail, wide 2.5:1 composition. Large luminous porcelain-white mineral wall panels and beveled slab edges running diagonally bottom-left to upper-right, tiny brushed-metal fixings, a single hairline champagne-gold vertical inlay near the right quarter. Left/top thirds quiet for dark editable text, pale gray soft shadow lines and crisp microtexture. No UI frame, text, icons, full skyline, labels, grid or thick stripe pattern.

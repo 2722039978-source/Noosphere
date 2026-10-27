@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/noosphere/backend/internal/agent"
 	"github.com/noosphere/backend/internal/gateway"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +70,58 @@ func TestAgentWorkerPersistsStructuredEvidence(t *testing.T) {
 	}
 	if !started || !completed {
 		t.Fatal("missing persisted tool events")
+	}
+}
+
+func TestQueuedAgentPinsDefaultBeforeConfigurationChanges(t *testing.T) {
+	m := workerManager(t)
+	entered, release := make(chan struct{}, 2), make(chan struct{})
+	m.Register("diagnosis", "interactive", func(ctx context.Context, ws workspaces.Workspace, input json.RawMessage, emit func(string, string, any)) (any, error) {
+		entered <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return nil, nil
+	})
+	for i := 0; i < 2; i++ {
+		if _, err := m.Submit("local", "diagnosis", "occupy", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	<-entered
+	<-entered
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.Model != "old" {
+			t.Errorf("queued Agent silently changed model: %s", body.Model)
+		}
+		w.Write([]byte(`{"choices":[{"finish_reason":"stop","message":{"content":"OK"}}]}`))
+	}))
+	defer upstream.Close()
+	config := filepath.Join(t.TempDir(), "models.yaml")
+	raw, _ := json.Marshal(map[string]any{"default_model": "old", "providers": []map[string]any{{"id": "old", "type": "deepseek", "base_url": upstream.URL, "model": "old", "enabled": true}}})
+	os.WriteFile(config, raw, 0600)
+	gw := gateway.New(config)
+	gw.SetWorkspaceManager(m)
+	registerAgentWorker(m, gw, nil, false)
+	run, err := m.Submit("local", "agent", "queued", json.RawMessage(`{"goal":"hello","session_id":"queued"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	gw.HandleAddModel(w, httptest.NewRequest("POST", "/api/gateway/models", strings.NewReader(`{"id":"new","name":"new","provider":"deepseek","base_url":"`+upstream.URL+`","model_name":"new","is_default":true}`)))
+	if w.Code != 201 {
+		t.Fatal(w.Body)
+	}
+	close(release)
+	done := terminalRun(t, m, run.ID)
+	var result agent.Result
+	json.Unmarshal(done.Result, &result)
+	if done.Status != "completed" || done.ModelID != "old" || result.ModelID != "old" {
+		t.Fatalf("queued model not pinned: %+v %+v", done, result)
 	}
 }

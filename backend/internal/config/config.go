@@ -8,11 +8,22 @@ import (
 )
 
 type AppConfig struct {
-	App     AppSettings     `yaml:"app"`
-	Server  ServerSettings  `yaml:"server"`
-	Modules ModuleSettings  `yaml:"modules"`
-	Gateway GatewaySettings `yaml:"gateway"`
-	Logging LogSettings     `yaml:"logging"`
+	App      AppSettings      `yaml:"app"`
+	Server   ServerSettings   `yaml:"server"`
+	Modules  ModuleSettings   `yaml:"modules"`
+	Gateway  GatewaySettings  `yaml:"gateway"`
+	Logging  LogSettings      `yaml:"logging"`
+	ModelLab ModelLabSettings `yaml:"model_lab"`
+}
+
+// ModelLab is local offline execution only; it never enables live routing.
+type ModelLabSettings struct {
+	Enabled                 bool   `yaml:"enabled"`
+	GoBinary                string `yaml:"go_binary"`
+	MaxContext              int64  `yaml:"max_context"`
+	MaxOutput               int64  `yaml:"max_output"`
+	InferenceTimeoutSeconds int64  `yaml:"inference_timeout_seconds"`
+	CleanupTimeoutSeconds   int64  `yaml:"cleanup_timeout_seconds"`
 }
 
 type AppSettings struct {
@@ -34,8 +45,8 @@ type ModuleSettings struct {
 }
 
 type NebulaConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	DataDir string `yaml:"data_dir"`
+	Enabled   bool            `yaml:"enabled"`
+	DataDir   string          `yaml:"data_dir"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
 }
 
@@ -91,6 +102,7 @@ func Load(path string) (*AppConfig, error) {
 
 func defaults() *AppConfig {
 	return &AppConfig{
+		ModelLab: ModelLabSettings{Enabled: true, MaxContext: 8192, MaxOutput: 2048, InferenceTimeoutSeconds: 120, CleanupTimeoutSeconds: 10},
 		App: AppSettings{
 			Name:    "Noosphere",
 			Version: "0.5.0",
@@ -109,7 +121,7 @@ func defaults() *AppConfig {
 		Modules: ModuleSettings{
 			Nebula: NebulaConfig{
 				Enabled: true,
-				DataDir:  "./data/nebula",
+				DataDir: "./data/nebula",
 				Embedding: EmbeddingConfig{
 					Provider: "openai",
 					Model:    "text-embedding-3-small",

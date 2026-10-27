@@ -1,0 +1,7 @@
+package main
+
+func Negate(input []int64) []int64 {
+ output:=make([]int64,len(input))
+ for i,v:=range input {output[i]=-v}
+ return output
+}

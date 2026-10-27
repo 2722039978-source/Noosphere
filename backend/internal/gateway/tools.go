@@ -31,6 +31,11 @@ func (g *Gateway) ChatTools(ctx context.Context, model *ModelConfig, workspaceID
 	if err := g.ToolCapability(model); err != nil {
 		return nil, err
 	}
+	foregroundDone, err := g.beginInteractive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer foregroundDone()
 	if err := g.acquireCall(ctx); err != nil {
 		return nil, err
 	}
@@ -40,7 +45,9 @@ func (g *Gateway) ChatTools(ctx context.Context, model *ModelConfig, workspaceID
 		return nil, err
 	}
 	start := time.Now()
+	finishInference := g.countInference(false)
 	result, err := provider.(providers.ToolProvider).ChatTools(ctx, model.ModelName, messages, tools, providers.ChatOptions{MaxTokens: 2048})
+	finishInference()
 	entry := CallLog{ID: fmt.Sprintf("tool-%d", time.Now().UnixNano()), ModelID: model.ID, Provider: model.Provider, Project: workspaceID, RequestPreview: "Agent structured tool turn", Status: streamLogStatus(err), LatencyMs: float64(time.Since(start).Milliseconds()), Timestamp: time.Now().UTC().Format(time.RFC3339)}
 	if result != nil {
 		entry.TokensIn = result.TokensIn

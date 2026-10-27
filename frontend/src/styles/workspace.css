@@ -51,3 +51,91 @@ html.dark .ns-app-shell main { background: var(--bg-raised); }html.dark .ns-inde
 .ns-chat-session-header { border-bottom: 1px solid var(--border-soft); }
 .ns-message-body { font-size: 15px; }
 @media (max-width: 639px) { .ns-page-wrap .ns-surface { padding-left: 18px; padding-right: 18px; }.ns-model-form { padding: 18px; }.ns-statusbar { font-size: 10px; }.ns-footer-signature { font-size: 10px; }.ns-masthead { gap: 8px; } }
+
+/* Model engineering uses the existing workspace surfaces and typography. */
+.ns-model-lab { max-width: 1400px; }
+.ns-sidebar { min-height: 0; }
+.ns-sidebar .ns-index-nav { min-height: 0; overflow-y: auto; flex: 1; }
+.ns-lab-tabs { display: flex; flex-wrap: wrap; gap: 22px; border-bottom: 1px solid var(--border-soft); padding: 0 0 16px; margin-bottom: 22px; font-size: 13px; }
+.ns-model-lab a { text-underline-offset: 4px; }
+.ns-model-lab a:hover { text-decoration: underline; }
+.ns-lab-panel { padding: 24px; margin-bottom: 22px; min-width: 0; }
+.ns-lab-panel h2 { font-size: 18px; font-weight: 600; margin-bottom: 14px; }
+.ns-lab-panel h3 { font-size: 14px; font-weight: 600; margin: 16px 0 9px; }
+.ns-lab-panel h4 { font-weight: 600; margin: 12px 0; }
+.ns-lab-panel p { font-size: 13px; line-height: 1.8; margin-bottom: 10px; overflow-wrap: anywhere; }
+.ns-lab-section { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.ns-lab-section h2, .ns-lab-section h3 { margin: 0; }
+.ns-lab-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+.ns-lab-options { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.ns-lab-field { display: flex; flex-direction: column; min-width: 0; gap: 8px; font-size: 13px; }
+.ns-lab-field select { width: 100%; min-width: 0; height: 40px; border: 1px solid var(--border-soft); padding: 0 10px; background: var(--bg-input); color: inherit; border-radius: 0; }
+.ns-lab-field select:focus-visible, .ns-lab-details summary:focus-visible, .ns-lab-tabs a:focus-visible { outline: 2px solid var(--brand, #9b754c); outline-offset: 3px; }
+.ns-lab-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; }
+.ns-lab-muted { color: var(--text-3); font-size: 12px; }
+.ns-lab-notice, .ns-lab-error { padding: 14px 16px; border-left: 3px solid #ad8955; background: rgba(173, 137, 85, .08); font-size: 13px; line-height: 1.8; margin-bottom: 18px; overflow-wrap: anywhere; }
+.ns-lab-error { border-color: #ad5555; background: rgba(173, 85, 85, .06); }
+.ns-lab-hash { font-family: monospace; overflow-wrap: anywhere; color: var(--text-3); }
+.ns-lab-record { border-top: 1px solid var(--border-soft); padding: 16px 0; }
+.ns-lab-discovery { margin-top: 20px; }
+.ns-lab-details { margin: 12px 0; border: 1px solid var(--border-soft); padding: 12px; font-size: 12px; min-width: 0; }
+.ns-lab-details summary { cursor: pointer; overflow-wrap: anywhere; }
+.ns-lab-details pre { margin-top: 12px; max-height: 380px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.7; }
+.ns-lab-table-wrap { width: 100%; overflow-x: auto; margin: 16px 0; }
+.ns-lab-table { border-collapse: collapse; width: 100%; min-width: 600px; text-align: left; font-size: 12px; }
+.ns-lab-table th, .ns-lab-table td { padding: 12px 10px; border-bottom: 1px solid var(--border-soft); vertical-align: top; overflow-wrap: anywhere; max-width: 280px; }
+.ns-lab-table th { font-weight: 600; }
+.ns-lab-case { margin: 20px 0; padding: 20px; background: var(--bg-input); border: 1px solid var(--border-soft); }
+.ns-lab-list { padding-left: 20px; margin: 14px 0; list-style: disc; font-size: 12px; line-height: 1.8; color: var(--text-3); }
+.ns-model-lab progress { width: 100%; height: 8px; accent-color: #9b754c; margin: 12px 0; }
+@media (max-width: 640px) { .ns-lab-grid { grid-template-columns: minmax(0, 1fr); } .ns-lab-panel, .ns-lab-case { padding: 16px; } .ns-lab-section { align-items: flex-start; } }
+
+/* T10 workflow release views reuse the existing model laboratory surfaces. */
+.ns-reference-shell { --bg-app: #f7f6f3; --bg-raised: #f7f6f3; --bg-elevated: #fcfbf8; --bg-input: #fff8; --border-soft: #82776730; --border-strong: #82776755; --text-1: #111210; --text-2: #575953; --text-3: #777970; flex-direction: row; }
+.ns-reference-shell .ns-workspace-column { display: flex; flex-direction: column; min-width: 0; flex: 1; min-height: 0; overflow: hidden; }
+.ns-reference-shell .ns-sidebar { width: clamp(220px,18.25vw,264px); padding: 39px 20px 0 33px; border-right: 1px solid #9a8c7426; background: #efede75c; height: 100%; }
+.ns-reference-shell .ns-sidebar-brand { display: flex; flex-direction: column; line-height: 1; margin: 0 8px 48px; color: var(--text-1); text-decoration: none; flex-shrink: 0; }
+.ns-reference-shell .ns-sidebar-brand > strong { font-size: 30px; font-weight: 700; letter-spacing: -.07em; }
+.ns-reference-shell .ns-sidebar-brand small { font-size: 10px; font-weight: 600; letter-spacing: -.035em; margin-top: 7px; }
+.ns-reference-shell .ns-sidebar-brand > span { font-size: 27px; font-weight: 300; letter-spacing: -.04em; margin-top: 2px; white-space: nowrap; }
+.ns-reference-shell .ns-sidebar-brand b { margin-left: 8px; font-weight: 700; }
+.ns-reference-shell .ns-sidebar-heading { margin: 0 8px 17px; font-size: 12px; letter-spacing: 0; }
+.ns-reference-shell .ns-index-nav { gap: 6px; margin-right: -1px; padding-right: 6px; scrollbar-width: thin; scrollbar-color: #7777 transparent; }
+.ns-reference-shell .ns-index-item { display: flex; align-items: center; gap: 15px; min-height: 67px; padding: 14px 10px 14px 15px; border-radius: 0; }
+.ns-reference-shell .ns-index-item.is-active { background: #c3a47712; }
+.ns-reference-shell .ns-index-item.is-active::before { width: 2px; left: 0; top: 8px; bottom: 8px; background: #c08b3e; }
+.ns-reference-shell .ns-index-number { font-size: 12px; width: 17px; margin: 0; flex-shrink: 0; }
+.ns-reference-shell .ns-index-icon { flex-shrink: 0; }
+.ns-reference-shell .ns-index-label { display: block; font-size: 14px; font-weight: 600; line-height: 1.2; }
+.ns-reference-shell .ns-index-english { display: block; font-size: 10px; letter-spacing: -.01em; line-height: 1.3; margin-top: 6px; white-space: nowrap; }
+.ns-reference-shell .ns-index-arrow { display: none; }
+.ns-reference-shell .ns-sidebar-foot { position: relative; padding: 18px 0 0; margin: 55px 8px 90px; font-size: 12px; letter-spacing: -.01em; line-height: 1.5; border: 0; flex-shrink: 0; }
+.ns-reference-shell .ns-sidebar-foot::before { content: ''; position: absolute; top: 0; left: 0; width: 73px; border-top: 1px solid #9a8c7438; }
+.ns-reference-shell .ns-masthead { position: relative; height: 106px; padding: 30px 30px 0 44px; gap: 25px; align-items: center; border: 0; }
+.ns-reference-shell .ns-masthead > .ns-workspace-signal { align-self: flex-start; margin-top: 2px; margin-left: 0; width: 34px; height: 34px; flex-basis: 34px; }
+.ns-reference-shell .ns-masthead > .ns-workspace-signal b { inset: 14px; }
+.ns-reference-shell .ns-masthead-tools { display: flex; align-items: center; gap: 23px; margin-left: auto; margin-right: 65px; }
+.ns-reference-shell .ns-workspace-trigger { font-size: 12px; min-height: 40px; max-width: 250px; border: 1px solid #9a8c7438; border-radius: 6px; padding-inline: 14px; background: #fffa; }
+.ns-reference-shell .ns-workspace-trigger > span { max-width: 170px; }
+.ns-reference-shell .ns-header-search { display: flex; gap: 12px; align-items: center; font-size: 12px; white-space: nowrap; }
+.ns-reference-shell .ns-header-search kbd { margin-left: 18px; border: 1px solid #8884; border-radius: 2px; padding: 0 5px; font-size: 10px; font-family: inherit; }
+.ns-reference-shell .ns-header-chat { font-size: 12px; white-space: nowrap; }
+.ns-reference-shell .ns-header-settings { display: flex; align-items: center; padding: 5px; }
+.ns-reference-shell .ns-masthead-current { position: absolute; top: 20px; right: 30px; font-size: 10px; gap: 6px; letter-spacing: .01em; pointer-events: none; }
+.ns-reference-shell .ns-masthead-current > span:last-child { gap: 7px; }
+.ns-reference-shell .ns-masthead-current > span:last-child::before { display: none; }
+.ns-reference-shell main { margin: 0; border: 0; background: transparent; }
+.ns-reference-shell .ns-page { animation: none; }
+.ns-reference-shell .ns-statusbar { padding: 0 28px 7px; min-height: 30px; font-size: 10px; }
+.ns-reference-shell .ns-statusbar .ns-footer-signature { font-size: 9px; }
+html.dark .ns-reference-shell { --bg-app: #191b19; --bg-raised: #20231f; --bg-elevated: #2a2c27; --bg-input: #ffffff05; --text-1: #ebe9e3; --text-2: #bfc0b8; --text-3: #979b91; --border-soft: #ebe9e32b; --border-strong: #ebe9e35e; }
+html.dark .ns-reference-shell .ns-sidebar, html.dark .ns-reference-shell .ns-workspace-trigger { background: #ffffff03; }
+@media (min-width: 1024px) { .ns-reference-shell .ns-statusbar { position: relative; }.ns-reference-shell .ns-statusbar > span:first-child { position: fixed; left: 46px; bottom: 38px; font-size: 11px; }.ns-reference-shell .ns-statusbar .ns-footer-signature { margin-left: auto; } }
+@media (max-width: 1370px) and (min-width: 1024px) { .ns-reference-shell .ns-sidebar { padding-left: 25px; padding-right: 14px; }.ns-reference-shell .ns-index-item { gap: 12px; padding-left: 10px; }.ns-reference-shell .ns-sidebar-brand > strong { font-size: 27px; }.ns-reference-shell .ns-sidebar-brand > span { font-size: 24px; }.ns-reference-shell .ns-masthead { padding-left: 34px; }.ns-reference-shell .ns-masthead-tools { gap: 18px; margin-right: 65px; }.ns-reference-shell .ns-workspace-trigger { max-width: 215px; }.ns-reference-shell .ns-header-search kbd { margin-left: 6px; } }
+@media (max-width: 1100px) { .ns-reference-shell .ns-masthead-tools { gap: 13px; }.ns-reference-shell .ns-header-search span,.ns-reference-shell .ns-header-search kbd { display: none; }.ns-reference-shell .ns-masthead-current { font-size: 9px; } }
+@media (max-width: 1023px) { .ns-reference-shell .ns-masthead { height: 85px; padding: 10px 22px 0; }.ns-reference-shell .ns-masthead > .ns-workspace-signal { align-self: center; margin-top: 0; }.ns-reference-shell .ns-masthead-tools { margin-right: 0; }.ns-reference-shell .ns-masthead-current { display: none; }.ns-reference-shell .ns-sidebar { width: 100%; padding-top: 35px; }.ns-reference-shell .ns-sidebar-foot { margin-bottom: 35px; }.ns-reference-shell .ns-sidebar-brand { margin-bottom: 35px; }.ns-reference-shell .ns-mobile-menu { margin-left: 0; } }
+@media (max-width: 639px) { .ns-reference-shell .ns-masthead { padding: 0 16px; height: 75px; gap: 15px; }.ns-reference-shell .ns-masthead-tools { gap: 10px; }.ns-reference-shell .ns-workspace-trigger { max-width: 145px; min-height: 35px; padding-inline: 8px; font-size: 11px; }.ns-reference-shell .ns-header-chat { display: none; }.ns-reference-shell .ns-masthead > .ns-workspace-signal { width: 28px; height: 28px; flex-shrink: 0; }.ns-reference-shell .ns-header-settings { padding: 0; }.ns-reference-shell .ns-statusbar { padding: 7px 16px; flex-wrap: wrap; } }
+.ns-release-banner{position:sticky;top:0;z-index:2;padding:14px 18px;margin:18px 0;background:var(--bg-panel,#f0e9df);border:1px solid var(--line-strong,#b39770);font-size:12px;line-height:1.8}.ns-release-banner strong{display:block;letter-spacing:.08em;color:var(--text-1,#322b24)}
+.ns-release-stages{display:flex;overflow-x:auto;gap:8px;list-style:none;padding:12px 0;margin:16px 0}.ns-release-stages li{flex:1;min-width:115px;border-top:2px solid var(--line,#d2cac0);padding:12px 8px;font-size:11px}.ns-release-stages li[data-done="true"]{border-color:var(--module-accent,#9b754c)}.ns-release-stages li[aria-current]{background:var(--bg-panel,#eee7dc)}.ns-release-stages span,.ns-release-stages strong,.ns-release-stages small{display:block}.ns-release-stages small{margin-top:6px;color:var(--text-2,#675e55)}
+.ns-release-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:18px 0}.ns-release-facts div{border-left:2px solid var(--line-strong,#b39770);padding-left:12px;overflow-wrap:anywhere}.ns-release-facts span,.ns-release-facts strong,.ns-release-facts small{display:block}.ns-release-facts span,.ns-release-facts small{font-size:11px;color:var(--text-2,#675e55)}.ns-release-facts strong{margin:7px 0;font-size:13px}
+@media(max-width:960px){.ns-release-facts{grid-template-columns:1fr}}

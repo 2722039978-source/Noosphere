@@ -1,0 +1,8 @@
+package main
+
+func PrefixSums(input []int64) []int64 {
+ output:=make([]int64,len(input))
+ var total int64
+ for i,v:=range input {total+=v;output[i]=total}
+ return output
+}

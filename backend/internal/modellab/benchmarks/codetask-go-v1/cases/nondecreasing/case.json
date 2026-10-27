@@ -1,0 +1,38 @@
+{
+  "id": "nondecreasing",
+  "version": "1.0.0",
+  "category": "collection-sorting",
+  "task": "Return true if each adjacent integer is greater than or equal to its predecessor. Equal values are allowed; empty/singleton inputs are true.",
+  "function": "Nondecreasing",
+  "input_type": "[]int",
+  "output_type": "bool",
+  "fixture_sha256": "eab57b0079a611e5eed1989258a7613884f537ab3e29f1a67e23731c68386add",
+  "reference_sha256": "9650110511916c3d03642f9828387f137f80c69fd18782a81ca7a4b02307075c",
+  "assertions": [
+    {
+      "input": [],
+      "expected": true
+    },
+    {
+      "input": [
+        2
+      ],
+      "expected": true
+    },
+    {
+      "input": [
+        1,
+        1,
+        2
+      ],
+      "expected": true
+    },
+    {
+      "input": [
+        2,
+        1
+      ],
+      "expected": false
+    }
+  ]
+}

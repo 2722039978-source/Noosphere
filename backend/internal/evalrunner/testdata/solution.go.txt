@@ -1,0 +1,7 @@
+package main
+
+func Solve(values []int) []int {
+ result := make([]int, len(values))
+ for i, value := range values { result[i] = value * 2 }
+ return result
+}

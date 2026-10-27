@@ -1,0 +1,29 @@
+{
+  "id": "count-vowels",
+  "version": "1.0.0",
+  "category": "boundary-string",
+  "task": "Count ASCII vowels a/e/i/o/u in both letter cases. Other bytes do not count.",
+  "function": "CountVowels",
+  "input_type": "string",
+  "output_type": "int",
+  "fixture_sha256": "277514fd80d76f5b26aa3b0040e68a88c7bcbd69351d83f1dff5e8392afa14aa",
+  "reference_sha256": "149818cd11347c3b11e709ff8ada14addd57871618249f91a7060f6da6d9998c",
+  "assertions": [
+    {
+      "input": "",
+      "expected": 0
+    },
+    {
+      "input": "rhythm",
+      "expected": 0
+    },
+    {
+      "input": "AEiou",
+      "expected": 5
+    },
+    {
+      "input": "A quiet ORBIT",
+      "expected": 6
+    }
+  ]
+}

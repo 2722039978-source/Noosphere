@@ -1,8 +1,9 @@
 package errors
 
 import (
-    "fmt"
-    "log"
+	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 )
 
@@ -10,13 +11,13 @@ import (
 type Code string
 
 const (
-	ErrNotFound      Code = "NOT_FOUND"
-	ErrInvalidInput  Code = "INVALID_INPUT"
-	ErrUnauthorized  Code = "UNAUTHORIZED"
-	ErrInternal      Code = "INTERNAL"
-	ErrUnavailable   Code = "UNAVAILABLE"
-	ErrTimeout       Code = "TIMEOUT"
-	ErrConflict      Code = "CONFLICT"
+	ErrNotFound     Code = "NOT_FOUND"
+	ErrInvalidInput Code = "INVALID_INPUT"
+	ErrUnauthorized Code = "UNAUTHORIZED"
+	ErrInternal     Code = "INTERNAL"
+	ErrUnavailable  Code = "UNAVAILABLE"
+	ErrTimeout      Code = "TIMEOUT"
+	ErrConflict     Code = "CONFLICT"
 )
 
 // Category identifies which subsystem produced the error.
@@ -103,16 +104,14 @@ func codeToHTTP(c Code) int {
 func WriteJSON(w http.ResponseWriter, err *AppError) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(err.HTTPStatus)
-	fmt.Fprintf(w, `{"error":{"code":"%s","category":"%s","message":"%s"}}`,
-		err.Code, err.Category, err.Message)
+	_ = json.NewEncoder(w).Encode(struct {
+		Error *AppError `json:"error"`
+	}{Error: err})
 }
 
 // WriteHTTP writes an AppError as a structured JSON HTTP response.
 func WriteHTTP(w http.ResponseWriter, r *http.Request, err *AppError) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(err.HTTPStatus)
-	fmt.Fprintf(w, `{"error":{"code":"%s","category":"%s","message":"%s"}}`,
-		err.Code, err.Category, err.Message)
+	WriteJSON(w, err)
 }
 
 // HandlerFunc is an HTTP handler function that returns an AppError.

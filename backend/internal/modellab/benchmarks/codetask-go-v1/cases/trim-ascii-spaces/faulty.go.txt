@@ -1,0 +1,5 @@
+package main
+
+func TrimSpaces(input string) string {
+ return input
+}

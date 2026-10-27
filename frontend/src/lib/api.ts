@@ -50,6 +50,11 @@ export interface ModelConfig {
   provider: string;
   base_url: string;
   model_name: string;
+  vendor?: string;
+  model_family?: string;
+  deployment?: 'local'|'api'|'';
+  context_length?: number;
+  metadata?: { vendor?:string;family?:string;architecture?:string;parameter_size?:string;quantization?:string;context_length?:number;source?:string };
   enabled?: boolean | null;
   is_default?: boolean | null;
   api_key?: string | null;
@@ -58,6 +63,19 @@ export interface ModelConfig {
 export interface ModelsResponse {
   models: ModelConfig[];
   count?: number | null;
+}
+
+export interface ModelSelection {
+  scope: 'session' | 'workspace' | 'global';
+  workspace_id: string;
+  session_id: string;
+  model_id: string;
+}
+export interface ModelSelectionResult {
+  workspace_id: string;
+  session_id: string;
+  model_id: string;
+  bound: boolean;
 }
 
 export interface ChatMessageParam {
@@ -168,7 +186,9 @@ export interface WorkspaceRun {
   id: string;
   workspace_id: string;
   session_id: string;
-  kind: 'chat' | 'index' | 'diagnosis' | 'agent';
+  kind: 'chat' | 'index' | 'diagnosis' | 'agent' | 'evaluation' | 'release_simulation' | (string & {});
+  reference_id?: string;
+  reference_generation?: number;
   title: string;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   phase: string;
@@ -212,6 +232,8 @@ export const api = {
 
   // gateway
   getModels: () => invoke<ModelsResponse>("get_models"),
+  selectModel: (selection: ModelSelection) => invoke<ModelSelectionResult>('select_model', { selection }),
+  getModelSelection: (workspaceId: string, sessionId: string) => invoke<ModelSelectionResult>('get_model_selection', { workspaceId, sessionId }),
   testModel: (id: string) => invoke<{ status: string; latency_ms?: number; error?: string }>("test_model", { id }),
   addModel: (model: ModelConfig) => invoke("add_model", { model }),
   deleteModel: (id: string) => invoke("delete_model", { id }),

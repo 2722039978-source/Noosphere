@@ -11,6 +11,8 @@ import { pathToFileURL } from 'node:url';
 const requests=[], searches=[];
 let resolveSearch;
 globalThis.__workspaceChatApi={
+  selectModel: async (selection) => ({...selection,model_id:selection.model_id || 'default',bound:true}),
+  getModelSelection: async (workspaceId,sessionId) => ({workspace_id:workspaceId,session_id:sessionId,model_id:'',bound:false}),
   prepareContext: (id) => { searches.push(id); return new Promise(resolve=>{resolveSearch=resolve;}); },
   chatStream: async (...args)=>{requests.push(args);}, cancelChat:async()=>{},
   listWorkspaces:async()=>({workspaces:[]}),
@@ -38,11 +40,11 @@ runtime.useWorkspaceStore.setState({activeId:'alpha',workspaces:[workspace('alph
 test('new sessions and send capture workspace/project/model before a project switch',async()=>{
   const id=runtime.useChatStore.getState().newSession();
   assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===id).workspaceId,'alpha');
-  runtime.useChatStore.getState().setModel('explicit');
+  await runtime.useChatStore.getState().setModel('explicit');
   assert.equal(runtime.sendChat(id,'hello alpha'),true);
   runtime.useWorkspaceStore.getState().select('beta');
   const beta=runtime.useChatStore.getState().newSession();
-  runtime.useChatStore.getState().setModel('other');
+  await runtime.useChatStore.getState().setModel('other');
   assert.equal(runtime.sendChat(beta,'busy'),false);
   assert.deepEqual(searches,['alpha']);
   resolveSearch({workspace_id:'alpha',project_id:'project-alpha',context:'[R1] SQLite decision',mode:'lexical',warnings:[],citations:[{id:'R1',kind:'memory',title:'decision',excerpt:'SQLite',workspace_id:'alpha',memory_id:'m1',revision:1}]}); await tick();
@@ -58,14 +60,63 @@ test('new sessions and send capture workspace/project/model before a project swi
   assert.equal(runtime.sendChat(id,'wrong workspace'),false);
 });
 
-test('selection and model edits cannot mutate a session outside selected workspace',()=>{
+test('selection and model edits cannot mutate a session outside selected workspace',async()=>{
   const alpha=runtime.useChatStore.getState().sessions.find(s=>s.workspaceId==='alpha');
   const beta=runtime.useChatStore.getState().activeId;
   runtime.useChatStore.getState().setActive(alpha.id);
   assert.equal(runtime.useChatStore.getState().activeId,beta);
   runtime.useChatStore.setState({activeId:alpha.id});
-  runtime.useChatStore.getState().setModel('leak');
+  await runtime.useChatStore.getState().setModel('leak');
   assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===alpha.id).modelId,'explicit');
+});
+
+test('session switch waits for backend validation, updates captured session and persists across reload',async()=>{
+  runtime.useWorkspaceStore.getState().select('alpha');
+  const target=runtime.useChatStore.getState().newSession();
+  await runtime.useChatStore.getState().setModel('old');
+  let finish;
+  const original=globalThis.__workspaceChatApi.selectModel;
+  globalThis.__workspaceChatApi.selectModel=(input)=>new Promise(resolve=>{finish=()=>resolve({...input,bound:true});});
+  const switching=runtime.useChatStore.getState().setModel('new');
+  assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===target).modelId,'old');
+  assert.equal(runtime.sendChat(target,'cannot race pending switch'),false);
+  runtime.useWorkspaceStore.getState().select('beta');
+  const other=runtime.useChatStore.getState().newSession();
+  finish();assert.equal(await switching,true);
+  assert.equal(runtime.useChatStore.getState().activeId,other);
+  assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===target).modelId,'new');
+  assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===other).modelId,'');
+  await runtime.flushChatPersistence();
+  await runtime.useChatStore.persist.rehydrate();
+  assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===target).modelId,'new');
+  globalThis.__workspaceChatApi.selectModel=original;
+});
+
+test('backend failure and active generation preserve the old session model',async()=>{
+  runtime.useWorkspaceStore.getState().select('alpha');
+  const id=runtime.useChatStore.getState().newSession();
+  await runtime.useChatStore.getState().setModel('old');
+  const original=globalThis.__workspaceChatApi.selectModel;
+  globalThis.__workspaceChatApi.selectModel=async()=>{throw new Error('Provider unavailable');};
+  assert.equal(await runtime.useChatStore.getState().setModel('bad'),false);
+  assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===id).modelId,'old');
+  assert.match(runtime.useChatStore.getState().modelSelectionError,/Provider unavailable/);
+  globalThis.__workspaceChatApi.selectModel=original;
+  runtime.useChatStore.getState().appendMessage(id,{id:'running',role:'assistant',content:'',streaming:true,status:'preparing',createdAt:Date.now()});
+  assert.equal(await runtime.useChatStore.getState().setModel('new'),false);
+  assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===id).modelId,'old');
+  runtime.useChatStore.getState().finishMessage(id,'running');
+});
+
+test('restoring a session replaces stale frontend binding with the backend binding',async()=>{
+  runtime.useWorkspaceStore.getState().select('alpha');
+  const id=runtime.useChatStore.getState().newSession();
+  await runtime.useChatStore.getState().setModel('old-cache');
+  const original=globalThis.__workspaceChatApi.getModelSelection;
+  globalThis.__workspaceChatApi.getModelSelection=async(workspaceId,sessionId)=>({workspace_id:workspaceId,session_id:sessionId,model_id:'server-model',bound:true});
+  assert.equal(await runtime.useChatStore.getState().syncModel(id),true);
+  assert.equal(runtime.useChatStore.getState().sessions.find(s=>s.id===id).modelId,'server-model');
+  globalThis.__workspaceChatApi.getModelSelection=original;
 });
 
 test('foreign workspace backups create isolated selectable workspaces and repeated imports do not duplicate them',async()=>{

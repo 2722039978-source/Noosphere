@@ -1,0 +1,45 @@
+{
+  "id": "join-with-dash",
+  "version": "1.0.0",
+  "category": "deterministic-transformation",
+  "task": "Join strings with exactly one ASCII dash between every pair, preserving empty elements and existing punctuation. Empty input returns empty string.",
+  "function": "JoinDash",
+  "input_type": "[]string",
+  "output_type": "string",
+  "fixture_sha256": "a5d7d5a5b945dca83e92acf76939d67b5bc621ca200618e991f28d6fa0a98284",
+  "reference_sha256": "cd53df5d85057dc1491c4a1b452cc3153d5565f0392fed68d2b459054140f2c3",
+  "assertions": [
+    {
+      "input": [],
+      "expected": ""
+    },
+    {
+      "input": [
+        "solo"
+      ],
+      "expected": "solo"
+    },
+    {
+      "input": [
+        "amber",
+        "quartz"
+      ],
+      "expected": "amber-quartz"
+    },
+    {
+      "input": [
+        "",
+        "x",
+        ""
+      ],
+      "expected": "-x-"
+    },
+    {
+      "input": [
+        "a-b",
+        "c"
+      ],
+      "expected": "a-b-c"
+    }
+  ]
+}

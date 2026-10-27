@@ -5,6 +5,7 @@ const PAGE_INDEX: Record<string, [string, string]> = {
   "工作台": ["00", "WORKSPACE OVERVIEW"], "AI 对话": ["01", "CONVERSATION"],
   CodeLens: ["02", "CODE INTELLIGENCE"], Nebula: ["03", "MEMORY ARCHIVE"],
   DevOps: ["04", "SYSTEM TELEMETRY"], Gateway: ["05", "MODEL ACCESS"], "设置": ["06", "PREFERENCES"],
+  'Model Hub': ['07', 'MODEL HUB'], 'Model Lab': ['08', 'MODEL LAB'], 'Evaluation Reports': ['09', 'EVALUATION REPORTS'], 'Release Center': ['10', 'RELEASE CENTER'],
 };
 interface PageHeaderProps { title: string; subtitle?: string; icon?: ReactNode; accent?: string; actions?: ReactNode; className?: string; }
 export function PageHeader({ title, subtitle, actions, icon, className }: PageHeaderProps) {

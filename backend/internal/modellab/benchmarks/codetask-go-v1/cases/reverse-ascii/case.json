@@ -1,0 +1,29 @@
+{
+  "id": "reverse-ascii",
+  "version": "1.0.0",
+  "category": "boundary-string",
+  "task": "Reverse the bytes of an ASCII string, including spaces and punctuation. The input domain is ASCII only.",
+  "function": "ReverseASCII",
+  "input_type": "string",
+  "output_type": "string",
+  "fixture_sha256": "ab8ddf52bc1bb3669583d20ff577bd006da0340bf138f1a252b9a5177cc6d832",
+  "reference_sha256": "200dae4a9b7f4f3b360ce08bdeb86d2caee0e80926c22a0410cd630c1f1737ac",
+  "assertions": [
+    {
+      "input": "",
+      "expected": ""
+    },
+    {
+      "input": "a",
+      "expected": "a"
+    },
+    {
+      "input": "orbit!",
+      "expected": "!tibro"
+    },
+    {
+      "input": "a b",
+      "expected": "b a"
+    }
+  ]
+}

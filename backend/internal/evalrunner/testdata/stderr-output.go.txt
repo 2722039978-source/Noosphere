@@ -1,0 +1,3 @@
+package main
+import ("fmt";"strings";"os")
+func main(){fmt.Fprint(os.Stderr,strings.Repeat("x",32769));fmt.Print(`"ok"`)}

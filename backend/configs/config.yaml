@@ -35,6 +35,15 @@ modules:
 gateway:
   config_path: ./models.yaml
 
+# Local offline paired evaluation. No model downloads or live routing.
+model_lab:
+  enabled: true
+  go_binary: "" # optional absolute trusted Go path; empty resolves installed go
+  max_context: 8192
+  max_output: 2048
+  inference_timeout_seconds: 120
+  cleanup_timeout_seconds: 10
+
 logging:
   dir: ./logs
   level: info

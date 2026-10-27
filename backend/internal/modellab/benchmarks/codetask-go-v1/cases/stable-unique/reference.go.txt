@@ -1,0 +1,7 @@
+package main
+
+func StableUnique(input []int) []int {
+ output:=make([]int,0)
+ for _,v:=range input {seen:=false;for _,old:=range output {if old==v {seen=true;break}};if !seen {output=append(output,v)}}
+ return output
+}

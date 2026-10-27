@@ -17,3 +17,11 @@ test('render size preserves native clarity while bounding high-DPI pixel cost',a
  assert.ok(renderPixelRatio(3840,2160,2,true)<=1.01);
  assert.equal(renderPixelRatio(900,600,1,true),1);
 });
+test('decorative budget accepts intentional 30 fps but still detects sustained slower delivery', async()=>{
+ const {FrameBudget}=await loadSource('../src/features/home/render-budget.ts');
+ const decorative=new FrameBudget(48);
+ for(let n=0;n<120;n++)assert.equal(decorative.sample(n*33.34),false);
+ decorative.reset(); let slow=false;
+ for(let n=0;n<55;n++)slow=decorative.sample(n*60)||slow;
+ assert.equal(slow,true);
+});

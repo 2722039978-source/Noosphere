@@ -49,4 +49,35 @@ desktop/src-tauri/logs/
 
 # Keep only the root project introduction on GitHub
 *.md
+*.MD
+*.markdown
 !/README.md
+
+# Local reference checkout and personal planning exports
+/RhineLabUI/
+/docs/*
+!/docs/screenshots/
+/docs/screenshots/*
+!/docs/screenshots/model-hub.png
+!/docs/screenshots/model-lab.png
+
+# Local model weights, databases, credentials and verification output
+*.gguf
+*.safetensors
+*.onnx
+*.pt
+*.pth
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.pem
+*.key
+*.pfx
+*.p12
+*.dmp
+playwright-report/
+test-results/
+coverage/

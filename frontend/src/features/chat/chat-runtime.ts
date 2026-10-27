@@ -88,7 +88,7 @@ function memoryContext(workspaceId: string, projectId: string, question: string,
 export function sendChat(sessionId: string, text: string, options?: Partial<ChatSubmitOptions> & { regenerateFrom?: string }): boolean {
   if (!useChatPersistence.getState().ready) return false;
   const session = useChatStore.getState().sessions.find((item) => item.id === sessionId);
-  if (!session || chatRunner.active) return false;
+  if (!session || chatRunner.active || useChatStore.getState().modelSelection) return false;
   const workspaceId = sessionWorkspaceId(session);
   const workspaceState = useWorkspaceStore.getState();
   if (workspaceId !== workspaceState.activeId) return false;

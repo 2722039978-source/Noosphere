@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/noosphere/backend/internal/agent"
@@ -19,6 +20,9 @@ import (
 	"github.com/noosphere/backend/internal/errors"
 	"github.com/noosphere/backend/internal/gateway"
 	"github.com/noosphere/backend/internal/knowledge"
+	"github.com/noosphere/backend/internal/modellab"
+	"github.com/noosphere/backend/internal/modelops"
+	"github.com/noosphere/backend/internal/modelstore"
 	nebulaAPI "github.com/noosphere/backend/internal/nebula/api"
 	"github.com/noosphere/backend/internal/nebula/engine"
 	"github.com/noosphere/backend/internal/nebula/engine/embed"
@@ -27,14 +31,23 @@ import (
 
 // App holds all runtime dependencies wired during bootstrap.
 type App struct {
-	Config     *config.AppConfig
-	Lifecycle  *core.Lifecycle
-	Gateway    *gateway.Gateway
-	Engine     *engine.Engine
-	CodeLens   atomic.Pointer[codelens.Adapter]
-	Mux        *http.ServeMux
-	Workspaces *workspaces.Manager
-	Actions    *agent.Actions
+	Config        *config.AppConfig
+	Lifecycle     *core.Lifecycle
+	Gateway       *gateway.Gateway
+	Engine        *engine.Engine
+	CodeLens      atomic.Pointer[codelens.Adapter]
+	Mux           *http.ServeMux
+	Workspaces    *workspaces.Manager
+	Actions       *agent.Actions
+	ModelLab      *modellab.Service
+	ModelOps      *modelops.Service
+	ModelStore    *modelstore.Store
+	startupCtx    context.Context
+	startupCancel context.CancelFunc
+	startupMu     sync.Mutex
+	startupWG     sync.WaitGroup
+	closeOnce     sync.Once
+	closeErr      error
 }
 
 // bootstrap initializes all modules and wires routes onto the mux.
@@ -65,7 +78,8 @@ func bootstrap(cfg *config.AppConfig) *App {
 		Engine:    eng,
 		Mux:       mux,
 	}
-	initCodeLens(cfg, lc, mux, &app.CodeLens, eng)
+	app.startupCtx, app.startupCancel = context.WithCancel(context.Background())
+	initCodeLens(cfg, lc, mux, &app.CodeLens, eng, app)
 	dataDir := cfg.App.DataDir
 	if dataDir == "" {
 		dataDir = filepath.Dir(cfg.Modules.Nebula.DataDir)
@@ -95,6 +109,7 @@ func bootstrap(cfg *config.AppConfig) *App {
 		}
 		registerAgentWorker(manager, gw, knowledgeService, cfg.Modules.DevOps.Enabled, actions)
 		registerWorkspaceWorkers(manager, mux, eng, gw, cfg.Modules.CodeLens.Enabled, cfg.Modules.DevOps.Enabled)
+		initModelLab(app, dataDir)
 		lc.SetState("workspaces", core.StateRunning)
 	}
 
@@ -195,7 +210,7 @@ func initDevOps(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux, e
 	lc.SetState("devops", core.StateRunning)
 }
 
-func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux, clPtr *atomic.Pointer[codelens.Adapter], eng *engine.Engine) {
+func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux, clPtr *atomic.Pointer[codelens.Adapter], eng *engine.Engine, app *App) {
 	if !cfg.Modules.CodeLens.Enabled {
 		return
 	}
@@ -224,15 +239,27 @@ func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux,
 	pythonCmds := resolveCodeLensPython(cfg.Modules.CodeLens.PythonPath, scriptCandidates)
 
 	// Detect Python in background — CodeLens comes online when found.
+	app.startupWG.Add(1)
 	go func() {
+		defer app.startupWG.Done()
 		var lastError error
 		for _, pyCmd := range pythonCmds {
 			for _, sp := range scriptCandidates {
+				if app.startupCtx.Err() != nil {
+					return
+				}
 				clAdapter := codelens.NewAdapter(append([]string{}, pyCmd...), sp, cfg.Modules.CodeLens.Port)
 				clAdapter.ModifyResponse = codelens.PersistIndexResponse(eng)
 				lastError = clAdapter.Start()
 				if lastError == nil {
+					app.startupMu.Lock()
+					if app.startupCtx.Err() != nil {
+						app.startupMu.Unlock()
+						clAdapter.Stop()
+						return
+					}
 					clPtr.Store(clAdapter)
+					app.startupMu.Unlock()
 					lc.SetState("codelens", core.StateRunning)
 					log.Printf("[codelens] worker ready: %v %s", pyCmd, sp)
 					return

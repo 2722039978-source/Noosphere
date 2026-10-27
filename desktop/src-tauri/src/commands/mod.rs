@@ -6,3 +6,5 @@ pub mod nebula;
 pub mod devops;
 pub mod codelens;
 pub mod workspaces;
+pub mod model_engineering;
+pub mod model_selection;

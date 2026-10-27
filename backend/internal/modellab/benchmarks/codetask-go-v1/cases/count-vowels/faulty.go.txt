@@ -1,0 +1,7 @@
+package main
+
+func CountVowels(input string) int {
+ count := 0
+ for i:=0;i<len(input);i++ { if input[i]==97 {count++} }
+ return count
+}

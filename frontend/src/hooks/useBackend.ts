@@ -20,6 +20,7 @@ import {
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useUiStore } from '@/stores/ui-store';
 import { waitForWorkspaceRun } from '@/lib/task-client';
+import { MODEL_IDENTITY_UPDATED } from '@/lib/model-identity-events';
 
 // re-export 兼容旧模块的类型导入
 export type { ModuleState } from "@/lib/api";
@@ -37,6 +38,8 @@ function useBackendController() {
   const [health, setHealth] = useState<string>("checking");
   const [modules, setModules] = useState<Record<string, ModuleStateCompat>>({});
   const [models, setModels] = useState<ModelConfig[]>([]);
+  const [modelsReady, setModelsReady] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>({ running: false, restarts: 0 });
@@ -47,6 +50,7 @@ function useBackendController() {
   const startInFlight = useRef(false);
   const healthInFlight = useRef<Promise<void> | null>(null);
   const statusInFlight = useRef<Promise<void> | null>(null);
+  const modelLoadGeneration = useRef(0);
 
   const checkHealth = useCallback(() => {
     if (healthInFlight.current) return healthInFlight.current;
@@ -109,13 +113,23 @@ function useBackendController() {
   }, [checkBackendStatus, checkHealth]);
 
   const loadModels = useCallback(async () => {
+    const generation=++modelLoadGeneration.current;
     try {
       const d = await api.getModels();
+      if(generation!==modelLoadGeneration.current)return;
       setModels(d.models || []);
-    } catch {
-      /* 模型加载失败静默, UI 显示空列表 */
+      setModelsReady(true);
+      setModelsError(null);
+    } catch (error) {
+      if(generation===modelLoadGeneration.current)setModelsError(errMessage(error));
     }
   }, []);
+
+  useEffect(() => {
+    const refreshIdentity = () => {void loadModels();};
+    window.addEventListener(MODEL_IDENTITY_UPDATED,refreshIdentity);
+    return () => window.removeEventListener(MODEL_IDENTITY_UPDATED,refreshIdentity);
+  }, [loadModels]);
 
   const addModel = useCallback(
     async (model: Record<string, unknown>) => {
@@ -281,7 +295,7 @@ function useBackendController() {
     startError || backendStatus.error?.trim() || connectionError;
 
   return {
-    health, modules, models, sessions, metrics, backendStatus, retryCount,
+    health, modules, models, modelsReady, modelsError, sessions, metrics, backendStatus, retryCount,
     backendError, startingBackend, restartBackend,
     checkHealth, loadModels, addModel, deleteModel,
     loadSessions, createSession, storeMemory, searchMemories,

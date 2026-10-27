@@ -1,12 +1,14 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/noosphere/backend/internal/errors"
+	"github.com/noosphere/backend/internal/workspaces"
 )
 
 // Explicit selection never falls back to a different provider. Implicit selection
@@ -59,6 +61,8 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Messages     []map[string]string `json:"messages"`
 		ModelID      string              `json:"model_id"`
+		WorkspaceID  string              `json:"workspace_id"`
+		SessionID    string              `json:"session_id"`
 		Project      string              `json:"project"`
 		SystemPrompt string              `json:"system_prompt"`
 		Temperature  float64             `json:"temperature"`
@@ -69,14 +73,41 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model := g.findModel(body.ModelID)
-	if model == nil {
+	model, modelErr := g.SessionModel(body.WorkspaceID, body.SessionID, body.ModelID)
+	if modelErr != nil {
 		errors.WriteHTTP(w, r, errors.New(errors.ErrInvalidInput, errors.CatGateway, "model not found or disabled"))
 		return
 	}
+	ctx := r.Context()
+	var execution *workspaces.Execution
+	if body.SessionID != "" && g.workspaceManager != nil {
+		var err error
+		ctx, execution, err = g.workspaceManager.Start(ctx, workspaces.Run{WorkspaceID: body.WorkspaceID, SessionID: body.SessionID, Kind: "chat", Title: "AI 对话", ModelID: model.ID})
+		if err != nil {
+			selectionFailure(w, err)
+			return
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
 
 	start := time.Now()
-	content, tokensIn, tokensOut, callErr := g.callLLMContext(r.Context(), model, body.Messages, body.SystemPrompt, body.Temperature, body.MaxTokens)
+	content, tokensIn, tokensOut, callErr := g.callLLMContext(ctx, model, body.Messages, body.SystemPrompt, body.Temperature, body.MaxTokens)
+	var completionErr error
+	if execution != nil {
+		completionErr = execution.Finish(map[string]any{"content": content, "model_id": model.ID}, callErr)
+		if completionErr == nil {
+			committed, err := g.workspaceManager.Run(execution.ID)
+			if err != nil {
+				completionErr = err
+			} else if committed.Status != "completed" {
+				completionErr = fmt.Errorf("%w: 对话任务未完成或已取消", workspaces.ErrConflict)
+			}
+		}
+	}
+	if completionErr != nil {
+		callErr = completionErr
+	}
 	latency := time.Since(start).Seconds() * 1000
 
 	logEntry := CallLog{
@@ -97,6 +128,10 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	g.appendLog(logEntry)
 
+	if completionErr != nil {
+		selectionFailure(w, completionErr)
+		return
+	}
 	if callErr != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": callErr.Error()})
 		return

@@ -1,0 +1,7 @@
+package main
+
+func PrefixSums(input []int64) []int64 {
+ output:=make([]int64,len(input))
+ copy(output,input)
+ return output
+}

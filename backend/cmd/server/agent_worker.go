@@ -33,7 +33,7 @@ func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowl
 		if gw == nil {
 			return nil, fmt.Errorf("model gateway unavailable")
 		}
-		model, err := gw.WorkspaceModel(ws.ID, args.ModelID)
+		model, err := gw.SessionModel(ws.ID, args.SessionID, args.ModelID)
 		if err != nil {
 			return nil, err
 		}

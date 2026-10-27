@@ -80,7 +80,7 @@ export function ChatInput({ models, modelId, defaultModelId, onModelChange, stre
     finally { readingRef.current = false; setReading(false); }
   };
 
-  const canSend = !!text.trim() && models.length > 0 && !streaming && !busy && !reading;
+  const canSend = !!text.trim() && models.some(model => model.enabled !== false) && !streaming && !busy && !reading;
 
   return (
     <div className="ns-chat-composer px-5 pb-4 pt-3 sm:px-8">
@@ -160,15 +160,15 @@ export function ChatInput({ models, modelId, defaultModelId, onModelChange, stre
             </Button>
 
             {agentMode && <Button type="button" variant={reviewedActions?'secondary':'outline'} size="sm" aria-pressed={reviewedActions} onClick={()=>setReviewedActions(v=>!v)} title="允许生成修改、测试和服务操作预览；每个操作须由你确认执行">操作提案</Button>}
-            <Select value={modelId || '__default__'} onValueChange={(value) => onModelChange(value === '__default__' ? '' : value)}>
+            <Select disabled={streaming || busy} value={modelId || '__default__'} onValueChange={(value) => onModelChange(value === '__default__' ? '' : value)}>
               <SelectTrigger size="sm" className="ml-auto h-8 min-w-0 flex-1 rounded-[8px] px-2.5 text-[14px] sm:h-11 sm:w-[176px] sm:flex-none sm:px-3 sm:text-[15px] [&_[data-slot=select-value]]:truncate">
                 <Box aria-hidden="true" />
                 <SelectValue placeholder={models.length ? "选择模型" : "未配置模型"} />
               </SelectTrigger>
-              <SelectContent><SelectGroup><SelectItem value="__default__">默认 · {(defaultModelId ? models.find(model => model.id === defaultModelId)?.name || '工作区模型不可用' : models.find(model => model.is_default)?.name || models.find(model => model.enabled !== false)?.name) || '未配置'}</SelectItem>
+              <SelectContent><SelectGroup><SelectItem value="__default__">{defaultModelId ? '工作区默认' : '全局默认'} · {(defaultModelId ? models.find(model => model.id === defaultModelId)?.name || '工作区模型不可用' : models.find(model => model.is_default && model.enabled !== false)?.name || models.find(model => model.enabled !== false)?.name) || '未配置'}</SelectItem>
                 {models.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.name || m.model_name}
+                  <SelectItem key={m.id} value={m.id} disabled={m.enabled === false}>
+                    {m.name || m.model_name}{m.enabled === false ? ' · 已禁用' : ''}
                   </SelectItem>
                 ))}
               </SelectGroup></SelectContent>

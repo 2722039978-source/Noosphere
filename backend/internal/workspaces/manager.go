@@ -21,11 +21,12 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrInvalid  = errors.New("invalid request")
-	ErrConflict = errors.New("conflict")
-	ErrBusy     = errors.New("task capacity exhausted")
-	ErrClosed   = errors.New("workspace manager closed")
+	ErrNotFound                = errors.New("not found")
+	ErrInvalid                 = errors.New("invalid request")
+	ErrConflict                = errors.New("conflict")
+	ErrBusy                    = errors.New("task capacity exhausted")
+	ErrClosed                  = errors.New("workspace manager closed")
+	ErrCancellationUnavailable = errors.New("task cancellation unavailable")
 )
 
 const maxResultBytes = 2 * 1024 * 1024
@@ -43,18 +44,20 @@ type Workspace struct {
 	UpdatedAt      string `json:"updated_at"`
 }
 type Run struct {
-	ID          string          `json:"id"`
-	WorkspaceID string          `json:"workspace_id"`
-	SessionID   string          `json:"session_id"`
-	Kind        string          `json:"kind"`
-	Title       string          `json:"title"`
-	Status      string          `json:"status"`
-	Phase       string          `json:"phase"`
-	Error       string          `json:"error"`
-	ModelID     string          `json:"model_id"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
-	Result      json.RawMessage `json:"result"`
+	ID                  string          `json:"id"`
+	WorkspaceID         string          `json:"workspace_id"`
+	SessionID           string          `json:"session_id"`
+	Kind                string          `json:"kind"`
+	Title               string          `json:"title"`
+	Status              string          `json:"status"`
+	Phase               string          `json:"phase"`
+	Error               string          `json:"error"`
+	ModelID             string          `json:"model_id"`
+	ReferenceID         string          `json:"reference_id,omitempty"`
+	ReferenceGeneration int64           `json:"reference_generation,omitempty"`
+	CreatedAt           string          `json:"created_at"`
+	UpdatedAt           string          `json:"updated_at"`
+	Result              json.RawMessage `json:"result"`
 }
 type Event struct {
 	Seq       int64           `json:"seq"`
@@ -65,10 +68,26 @@ type Event struct {
 	CreatedAt string          `json:"created_at"`
 }
 type Handler func(context.Context, Workspace, json.RawMessage, func(string, string, any)) (any, error)
+
+// TaskReference is the immutable domain dispatch snapshot belonging to one Run.
+// Generation is not updated when the domain grants or revokes a lease.
+type TaskReference struct {
+	ID         string
+	Generation int64
+}
+type Cancellation struct {
+	RunID       string
+	WorkspaceID string
+	Kind        string
+	Reference   TaskReference
+}
+type CancellationHook func(context.Context, Cancellation) error
 type registration struct {
 	lane    string
 	handler Handler
+	cancel  CancellationHook
 }
+type cancellationOperation struct{ done chan struct{} }
 type job struct {
 	run     Run
 	ws      Workspace
@@ -76,6 +95,7 @@ type job struct {
 	handler Handler
 }
 type Manager struct {
+	modelResolver func(workspaceID, sessionID, modelID string) (string, error)
 	mu            sync.Mutex
 	db            *sql.DB
 	closed        bool
@@ -86,6 +106,10 @@ type Manager struct {
 	queues        map[string]chan job
 	slots         map[string]chan struct{}
 	workers       sync.WaitGroup
+	operations    sync.WaitGroup
+	pending       map[string]*cancellationOperation
+	closeDone     chan struct{}
+	closeErr      error
 }
 type Execution struct {
 	ID        string
@@ -131,6 +155,7 @@ func Open(path string) (*Manager, error) {
 	for _, q := range []string{
 		`PRAGMA busy_timeout=5000`, `PRAGMA journal_mode=WAL`, `PRAGMA foreign_keys=ON`,
 		`CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, root_key TEXT NOT NULL, body BLOB NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS session_models (workspace_id TEXT NOT NULL REFERENCES workspaces(id), session_id TEXT NOT NULL, model_id TEXT NOT NULL, PRIMARY KEY(workspace_id,session_id))`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS unique_workspace_root ON workspaces(root_key) WHERE root_key<>''`,
 		`CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), status TEXT NOT NULL, created_at TEXT NOT NULL, body BLOB NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS workspace_runs ON runs(workspace_id,created_at DESC)`,
@@ -142,7 +167,7 @@ func Open(path string) (*Manager, error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{db: db, ctx: ctx, cancel: cancel, registrations: map[string]registration{}, executions: map[string]*Execution{}, queues: map[string]chan job{}, slots: map[string]chan struct{}{}}
+	m := &Manager{db: db, ctx: ctx, cancel: cancel, registrations: map[string]registration{}, executions: map[string]*Execution{}, queues: map[string]chan job{}, slots: map[string]chan struct{}{}, pending: map[string]*cancellationOperation{}, closeDone: make(chan struct{})}
 	stamp := now()
 	local := Workspace{ID: "local", Name: "本地工作区", CreatedAt: stamp, UpdatedAt: stamp}
 	body, _ := json.Marshal(local)
@@ -214,22 +239,30 @@ func (m *Manager) recover() error {
 }
 func (m *Manager) Close() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.closed {
-		return nil
+		done := m.closeDone
+		m.mu.Unlock()
+		<-done
+		return m.closeErr
 	}
 	m.closed = true
 	m.cancel()
 	for _, ex := range m.executions {
 		ex.cancel()
 	}
+	m.mu.Unlock()
+	// Hooks and handlers may need Manager.mu to unwind. Keep dependencies alive
+	// until all owned workers and already admitted cancellation operations exit.
+	m.operations.Wait()
+	m.workers.Wait()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	// Mark work interrupted before closing; startup recovery covers abrupt termination.
 	e := m.recover()
 	closeErr := m.db.Close()
-	if e != nil {
-		return e
-	}
-	return closeErr
+	m.closeErr = errors.Join(e, closeErr)
+	close(m.closeDone)
+	return m.closeErr
 }
 
 func canonicalRoot(path string) (string, string, error) {
@@ -417,6 +450,32 @@ func (m *Manager) Run(id string) (Run, error) {
 	}
 	return m.run(id)
 }
+
+// FindReferencedRun resolves a durable dispatch independently of the bounded
+// recent-history view. The earliest matching Run is the original dispatch if
+// historical duplicate records exist; domain worker CAS still fences execution.
+func (m *Manager) FindReferencedRun(workspaceID, kind string, reference TaskReference) (Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return Run{}, ErrClosed
+	}
+	if !referencedKind(kind) || !safeID.MatchString(reference.ID) || reference.Generation < 0 {
+		return Run{}, ErrInvalid
+	}
+	if _, err := m.workspace(workspaceID); err != nil {
+		return Run{}, err
+	}
+	var id string
+	err := m.db.QueryRow(`SELECT id FROM runs WHERE workspace_id=? AND json_extract(CAST(body AS TEXT),'$.kind')=? AND json_extract(CAST(body AS TEXT),'$.reference_id')=? AND coalesce(json_extract(CAST(body AS TEXT),'$.reference_generation'),0)=? ORDER BY created_at ASC,rowid ASC LIMIT 1`, workspaceID, kind, reference.ID, reference.Generation).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Run{}, ErrNotFound
+	}
+	if err != nil {
+		return Run{}, err
+	}
+	return m.run(id)
+}
 func (m *Manager) Runs(id string) ([]Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -481,12 +540,21 @@ func (m *Manager) Events(id string, after int64) ([]Event, error) {
 	return out, rows.Err()
 }
 
+func referencedKind(kind string) bool { return kind == "evaluation" || kind == "release_simulation" }
+
 func validateRun(r Run) error {
 	if !safeID.MatchString(r.ID) || !safeID.MatchString(r.WorkspaceID) || len(r.SessionID) > 256 || len(r.Title) > 512 || len(r.ModelID) > 256 {
 		return ErrInvalid
 	}
-	if r.Kind != "chat" && r.Kind != "index" && r.Kind != "diagnosis" && r.Kind != "agent" {
+	if r.Kind != "chat" && r.Kind != "index" && r.Kind != "diagnosis" && r.Kind != "agent" && !referencedKind(r.Kind) {
 		return fmt.Errorf("%w: unsupported run kind", ErrInvalid)
+	}
+	if referencedKind(r.Kind) {
+		if !safeID.MatchString(r.ReferenceID) || r.ReferenceGeneration < 0 {
+			return fmt.Errorf("%w: evaluation reference required", ErrInvalid)
+		}
+	} else if r.ReferenceID != "" || r.ReferenceGeneration != 0 {
+		return fmt.Errorf("%w: unsupported task reference", ErrInvalid)
 	}
 	return nil
 }
@@ -502,6 +570,15 @@ func (m *Manager) createRun(r Run, status string) (Run, error) {
 	}
 	if _, e := m.workspace(r.WorkspaceID); e != nil {
 		return Run{}, e
+	}
+	if (r.Kind == "chat" || r.Kind == "agent") && r.SessionID != "" {
+		id, bound, err := m.sessionModel(r.WorkspaceID, r.SessionID)
+		if err != nil {
+			return Run{}, err
+		}
+		if bound && r.ModelID != id {
+			return Run{}, fmt.Errorf("%w: 会话模型已变化，请刷新后重试", ErrConflict)
+		}
 	}
 	if _, e := m.run(r.ID); e == nil {
 		return Run{}, ErrConflict
@@ -552,14 +629,60 @@ func (m *Manager) Register(kind, lane string, handler Handler) {
 	if (kind != "chat" && kind != "index" && kind != "diagnosis" && kind != "agent") || m.queues[lane] == nil || handler == nil {
 		panic("invalid workspace worker registration")
 	}
-	m.registrations[kind] = registration{lane, handler}
+	m.registrations[kind] = registration{lane: lane, handler: handler}
+}
+func (m *Manager) RegisterReferenced(kind, lane string, handler Handler, cancel CancellationHook) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || !referencedKind(kind) || lane != "background" || handler == nil || cancel == nil {
+		panic("invalid referenced workspace worker registration")
+	}
+	m.registrations[kind] = registration{lane: lane, handler: handler, cancel: cancel}
 }
 func (m *Manager) Submit(workspaceID, kind, title string, input json.RawMessage) (Run, error) {
+	if referencedKind(kind) {
+		return Run{}, fmt.Errorf("%w: evaluation requires typed reference", ErrInvalid)
+	}
+	return m.submit(workspaceID, kind, title, TaskReference{}, input)
+}
+func (m *Manager) SubmitReferenced(workspaceID, kind, title string, reference TaskReference, input json.RawMessage) (Run, error) {
+	if !referencedKind(kind) || !safeID.MatchString(reference.ID) || reference.Generation < 0 {
+		return Run{}, ErrInvalid
+	}
+	return m.submit(workspaceID, kind, title, reference, input)
+}
+func (m *Manager) submit(workspaceID, kind, title string, reference TaskReference, input json.RawMessage) (Run, error) {
 	if len(input) == 0 {
 		input = json.RawMessage("null")
 	}
 	if len(input) > maxResultBytes || !json.Valid(input) {
 		return Run{}, ErrInvalid
+	}
+	// Resolve outside m.mu: Gateway resolution reads this Manager. Pin before
+	// enqueue so later configuration edits cannot reroute queued Agent work.
+	if kind == "agent" {
+		m.mu.Lock()
+		resolver := m.modelResolver
+		m.mu.Unlock()
+		if resolver != nil {
+			var source struct {
+				SessionID string `json:"session_id"`
+				ModelID   string `json:"model_id"`
+			}
+			if json.Unmarshal(input, &source) != nil {
+				return Run{}, ErrInvalid
+			}
+			id, err := resolver(workspaceID, source.SessionID, source.ModelID)
+			if err != nil {
+				return Run{}, fmt.Errorf("%w: 模型不可用或会话绑定已变化", ErrInvalid)
+			}
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(input, &fields) != nil || fields == nil {
+				return Run{}, ErrInvalid
+			}
+			fields["model_id"], _ = json.Marshal(id)
+			input, _ = json.Marshal(fields)
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -567,8 +690,11 @@ func (m *Manager) Submit(workspaceID, kind, title string, input json.RawMessage)
 		return Run{}, ErrClosed
 	}
 	reg, ok := m.registrations[kind]
-	if !ok {
+	if !ok || reg.handler == nil {
 		return Run{}, fmt.Errorf("%w: unregistered task kind", ErrInvalid)
+	}
+	if referencedKind(kind) && reg.cancel == nil {
+		return Run{}, ErrCancellationUnavailable
 	}
 	q := m.queues[reg.lane]
 	if len(q) == cap(q) {
@@ -581,7 +707,7 @@ func (m *Manager) Submit(workspaceID, kind, title string, input json.RawMessage)
 	if e != nil {
 		return Run{}, e
 	}
-	spec := Run{WorkspaceID: workspaceID, Kind: kind, Title: title}
+	spec := Run{WorkspaceID: workspaceID, Kind: kind, Title: title, ReferenceID: reference.ID, ReferenceGeneration: reference.Generation}
 	if kind == "agent" {
 		var source struct {
 			SessionID string `json:"session_id"`
@@ -592,6 +718,24 @@ func (m *Manager) Submit(workspaceID, kind, title string, input json.RawMessage)
 		}
 		spec.SessionID = source.SessionID
 		spec.ModelID = source.ModelID
+		if source.SessionID != "" {
+			id, bound, err := m.sessionModel(workspaceID, source.SessionID)
+			if err != nil {
+				return Run{}, err
+			}
+			if bound {
+				if source.ModelID != "" && source.ModelID != id {
+					return Run{}, fmt.Errorf("%w: 会话模型已变化，请刷新后重试", ErrConflict)
+				}
+				spec.ModelID = id
+				var fields map[string]json.RawMessage
+				if json.Unmarshal(input, &fields) != nil {
+					return Run{}, ErrInvalid
+				}
+				fields["model_id"], _ = json.Marshal(id)
+				input, _ = json.Marshal(fields)
+			}
+		}
 	}
 	r, e := m.createRun(spec, "queued")
 	if e != nil {
@@ -602,10 +746,17 @@ func (m *Manager) Submit(workspaceID, kind, title string, input json.RawMessage)
 }
 
 type runIDKey struct{}
+type referenceKey struct{}
 
 func RunID(ctx context.Context) string { id, _ := ctx.Value(runIDKey{}).(string); return id }
-func (m *Manager) execution(ctx context.Context, id string, release func()) *Execution {
+func Reference(ctx context.Context) TaskReference {
+	reference, _ := ctx.Value(referenceKey{}).(TaskReference)
+	return reference
+}
+func (m *Manager) execution(ctx context.Context, r Run, release func()) *Execution {
+	id := r.ID
 	ctx = context.WithValue(ctx, runIDKey{}, id)
+	ctx = context.WithValue(ctx, referenceKey{}, TaskReference{ID: r.ReferenceID, Generation: r.ReferenceGeneration})
 	ctx, cancel := context.WithCancel(ctx)
 	ex := &Execution{ID: id, manager: m, ctx: ctx, cancel: cancel, release: release}
 	m.executions[id] = ex
@@ -613,6 +764,9 @@ func (m *Manager) execution(ctx context.Context, id string, release func()) *Exe
 	return ex
 }
 func (m *Manager) Start(ctx context.Context, spec Run) (context.Context, *Execution, error) {
+	if referencedKind(spec.Kind) {
+		return nil, nil, fmt.Errorf("%w: evaluation requires queued referenced submission", ErrInvalid)
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -643,7 +797,7 @@ func (m *Manager) Start(ctx context.Context, spec Run) (context.Context, *Execut
 		<-slots
 		return nil, nil, e
 	}
-	ex := m.execution(ctx, r.ID, func() { <-slots })
+	ex := m.execution(ctx, r, func() { <-slots })
 	return ex.ctx, ex, nil
 }
 func (m *Manager) worker(lane string) {
@@ -667,7 +821,7 @@ func (m *Manager) worker(lane string) {
 			<-slots
 			return
 		}
-		r, e := m.run(j.run.ID)
+		r, e := m.waitRunLocked(m.ctx, j.run.ID)
 		if e != nil || terminal(r.Status) {
 			m.mu.Unlock()
 			<-slots
@@ -681,7 +835,7 @@ func (m *Manager) worker(lane string) {
 			<-slots
 			continue
 		}
-		ex := m.execution(m.ctx, r.ID, func() { <-slots })
+		ex := m.execution(m.ctx, r, func() { <-slots })
 		m.mu.Unlock()
 		func() {
 			defer func() {
@@ -705,7 +859,7 @@ func (ex *Execution) Emit(phase, message string, data any) {
 	if m.closed {
 		return
 	}
-	r, e := m.run(ex.ID)
+	r, e := m.waitRunLocked(m.ctx, ex.ID)
 	if e != nil || terminal(r.Status) {
 		return
 	}
@@ -723,12 +877,19 @@ func (ex *Execution) Finish(result any, taskErr error) error {
 		ex.release()
 	})
 	m := ex.manager
+	// A referenced task may not bypass durable cancellation through a handler's
+	// context.Canceled return or its execution watcher.
+	if errors.Is(ex.ctx.Err(), context.Canceled) || errors.Is(taskErr, context.Canceled) {
+		if _, e := m.stop(ex.ID, context.Canceled); e != nil {
+			return e
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
 		return ErrClosed
 	}
-	r, e := m.run(ex.ID)
+	r, e := m.waitRunLocked(m.ctx, ex.ID)
 	if e != nil {
 		return e
 	}
@@ -767,20 +928,81 @@ func (ex *Execution) Finish(result any, taskErr error) error {
 	return validation
 }
 func (m *Manager) Cancel(id string) (Run, error) {
-	return m.stop(id, context.Canceled)
+	return m.CancelContext(context.Background(), id)
+}
+func (m *Manager) CancelContext(ctx context.Context, id string) (Run, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m.stopContext(ctx, id, context.Canceled)
 }
 func (m *Manager) stop(id string, reason error) (Run, error) {
+	return m.stopContext(context.Background(), id, reason)
+}
+
+// waitRunLocked returns with Manager.mu held, but never waits while holding it.
+func (m *Manager) waitRunLocked(ctx context.Context, id string) (Run, error) {
+	for {
+		if m.closed {
+			return Run{}, ErrClosed
+		}
+		op := m.pending[id]
+		if op == nil {
+			return m.run(id)
+		}
+		m.mu.Unlock()
+		var err error
+		select {
+		case <-op.done:
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
+		m.mu.Lock()
+		if err != nil {
+			return Run{}, err
+		}
+	}
+}
+
+func (m *Manager) stopContext(ctx context.Context, id string, reason error) (Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.closed {
-		return Run{}, ErrClosed
+	if e := ctx.Err(); e != nil {
+		return Run{}, e
 	}
-	r, e := m.run(id)
+	r, e := m.waitRunLocked(ctx, id)
 	if e != nil {
 		return Run{}, e
 	}
 	if terminal(r.Status) {
 		return r, nil
+	}
+	if referencedKind(r.Kind) && !errors.Is(reason, context.DeadlineExceeded) {
+		hook := m.registrations[r.Kind].cancel
+		if hook == nil {
+			return Run{}, ErrCancellationUnavailable
+		}
+		op := &cancellationOperation{done: make(chan struct{})}
+		m.pending[id] = op
+		m.operations.Add(1) // Close cannot begin waiting until mu is released.
+		defer func() { delete(m.pending, id); close(op.done); m.operations.Done() }()
+		request := Cancellation{RunID: r.ID, WorkspaceID: r.WorkspaceID, Kind: r.Kind, Reference: TaskReference{ID: r.ReferenceID, Generation: r.ReferenceGeneration}}
+		m.mu.Unlock()
+		e = callCancellationHook(ctx, hook, request)
+		m.mu.Lock()
+		if e != nil {
+			return Run{}, e
+		}
+		if m.closed {
+			return Run{}, ErrClosed
+		}
+		r, e = m.run(id)
+		if e != nil {
+			return Run{}, e
+		}
+		if terminal(r.Status) {
+			return r, nil
+		}
 	}
 	r.Status = "cancelled"
 	if errors.Is(reason, context.DeadlineExceeded) {
@@ -796,4 +1018,13 @@ func (m *Manager) stop(id string, reason error) (Run, error) {
 		ex.cancel()
 	}
 	return m.run(id)
+}
+
+func callCancellationHook(ctx context.Context, hook CancellationHook, request Cancellation) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errors.New("task cancellation hook panicked")
+		}
+	}()
+	return hook(ctx, request)
 }

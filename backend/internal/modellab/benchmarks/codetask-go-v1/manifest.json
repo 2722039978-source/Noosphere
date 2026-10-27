@@ -1,0 +1,60 @@
+{
+  "id": "codetask-go-v1",
+  "version": "1.0.0",
+  "source": "Original Noosphere benchmark fixtures authored for this repository; no external problem corpus.",
+  "license": "CC0-1.0",
+  "scorer_version": "host-exact-v1.0.0",
+  "scorer_sha256": "6a679f7243e3cac32312f33cd68148fe7418b0310eb4799c38a00d55c6aaacb9",
+  "prompt_version": "repair-go-v1.0.0",
+  "prompt_sha256": "cd75af484880cfbf4be7f74a9e3802f64ed75cdd976b4c82ccd293f722afd8b2",
+  "cases": [
+    {
+      "id": "trim-ascii-spaces",
+      "sha256": "25d71c78e28b903a4c2808909c49f297f57538c25a9c1c120523968edfeffea5"
+    },
+    {
+      "id": "reverse-ascii",
+      "sha256": "74907aba6f158878b5f914dfabc2423e90f2d1f12b48ba3ef23cb7826f597e23"
+    },
+    {
+      "id": "count-vowels",
+      "sha256": "694e027af3a0f910cbb63b8e2acfddfd11f07076e5a20c485204ec0da792463b"
+    },
+    {
+      "id": "ascii-palindrome",
+      "sha256": "7a32796eb4670afe8820851ca2b1314cc125327f9388c23af2d4da8fd363f36c"
+    },
+    {
+      "id": "sort-integers",
+      "sha256": "a3b3aae9407431380e1bd328eab28a561edaac6e3980705a31dca905e8d4c52d"
+    },
+    {
+      "id": "stable-unique",
+      "sha256": "467eaea551dc13e3a32d0d0004795006e7a9e058f0f032a70a50cb516f242b0b"
+    },
+    {
+      "id": "maximum-or-zero",
+      "sha256": "002e5de412eed0deae457c88254ef100de3e3f37e90408adcbde3019da479d1b"
+    },
+    {
+      "id": "nondecreasing",
+      "sha256": "b4d1ec751344572534276298d40e77964aaf1736e126cf224783f70521703ae3"
+    },
+    {
+      "id": "prefix-sums",
+      "sha256": "05ac54fa438ad491027900975bb767d1c0569b0f87883a6c4ac4deb1da3e3d8e"
+    },
+    {
+      "id": "negate-integers",
+      "sha256": "df93cf73ee0b26fe784f19d3497bab3671d9848289646d2f4a1f3765ae13e4af"
+    },
+    {
+      "id": "join-with-dash",
+      "sha256": "65138adfadcd6540f6b8584b386390d41a6701a5de8119d6a1b3c9fb2c1a0bc0"
+    },
+    {
+      "id": "clamp-ten",
+      "sha256": "0cb0f6d862be8c38db35ecc1bca7f69d179b70dd8b7aa2b5dc9c273e31b06f4a"
+    }
+  ]
+}

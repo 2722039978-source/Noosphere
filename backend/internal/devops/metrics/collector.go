@@ -3,18 +3,30 @@ package metrics
 import (
 	"os"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 )
 
 type SystemSnapshot struct {
-	CPU        CPUMetrics    `json:"cpu"`
-	Memory     MemoryMetrics `json:"memory"`
-	Disk       DiskMetrics   `json:"disk"`
-	Processes  int           `json:"process_count"`
-	GoRoutines int           `json:"goroutines"`
-	Timestamp  string        `json:"timestamp"`
+	// Samples retain explicit units and host-only attribution. Legacy display
+	// fields stay compatible; evaluation callers should consume these samples.
+	Samples    map[string]Sample `json:"samples,omitempty"`
+	CPU        CPUMetrics        `json:"cpu"`
+	Memory     MemoryMetrics     `json:"memory"`
+	Disk       DiskMetrics       `json:"disk"`
+	Processes  int               `json:"process_count"`
+	GoRoutines int               `json:"goroutines"`
+	Timestamp  string            `json:"timestamp"`
+}
+
+type Sample struct {
+	Value         *float64 `json:"value"`
+	Unit          string   `json:"unit"`
+	Source        string   `json:"source"`
+	Quality       string   `json:"quality"`
+	MissingReason string   `json:"missing_reason,omitempty"`
 }
 
 type CPUMetrics struct {
@@ -35,10 +47,13 @@ type DiskMetrics struct {
 }
 
 type Collector struct {
-	lastIdle   uint64
-	lastKernel uint64
-	lastUser   uint64
-	lastTime   time.Time
+	mu          sync.Mutex
+	cpuKnown    bool
+	memoryKnown bool
+	lastIdle    uint64
+	lastKernel  uint64
+	lastUser    uint64
+	lastTime    time.Time
 }
 
 func NewCollector() *Collector {
@@ -46,6 +61,10 @@ func NewCollector() *Collector {
 }
 
 func (c *Collector) Snapshot() (*SystemSnapshot, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cpuKnown = false
+	c.memoryKnown = false
 	s := &SystemSnapshot{
 		GoRoutines: runtime.NumGoroutine(),
 		Timestamp:  time.Now().UTC().Format(time.RFC3339),
@@ -55,6 +74,26 @@ func (c *Collector) Snapshot() (*SystemSnapshot, error) {
 	s.Memory = c.collectMemory()
 	s.Disk = c.collectDisk()
 	s.Processes = c.countProcesses()
+	s.Samples = map[string]Sample{
+		"cpu_percent":          {Unit: "percent", Source: "windows.GetSystemTimes", Quality: "unknown", MissingReason: "two successful CPU samples with positive elapsed counters required"},
+		"ram_used_bytes":       {Unit: "bytes", Source: "windows.GlobalMemoryStatusEx", Quality: "unknown", MissingReason: "physical memory sample unavailable"},
+		"ram_total_bytes":      {Unit: "bytes", Source: "windows.GlobalMemoryStatusEx", Quality: "unknown", MissingReason: "physical memory sample unavailable"},
+		"available_vram_bytes": {Unit: "bytes", Source: "unavailable", Quality: "unknown", MissingReason: "physical GPU free-memory collector unavailable"},
+	}
+	set := func(name string, value float64) {
+		v := s.Samples[name]
+		v.Value = &value
+		v.Quality = "host_snapshot"
+		v.MissingReason = ""
+		s.Samples[name] = v
+	}
+	if c.cpuKnown {
+		set("cpu_percent", s.CPU.UsagePercent)
+	}
+	if c.memoryKnown {
+		set("ram_used_bytes", s.Memory.UsedGB*(1024*1024*1024))
+		set("ram_total_bytes", s.Memory.TotalGB*(1024*1024*1024))
+	}
 
 	return s, nil
 }
@@ -88,7 +127,8 @@ func (c *Collector) collectCPU() CPUMetrics {
 	deltaIdle := idleVal - c.lastIdle
 	deltaTotal := (kernelVal + userVal) - (c.lastKernel + c.lastUser)
 
-	if deltaTotal > 0 {
+	if deltaTotal > 0 && deltaIdle <= deltaTotal {
+		c.cpuKnown = true
 		cpu.UsagePercent = float64(deltaTotal-deltaIdle) / float64(deltaTotal) * 100
 		if cpu.UsagePercent > 100 {
 			cpu.UsagePercent = 100
@@ -127,6 +167,10 @@ func (c *Collector) collectMemory() MemoryMetrics {
 	proc := k32.NewProc("GlobalMemoryStatusEx")
 	r, _, _ := proc.Call(uintptr(unsafe.Pointer(&status)))
 	if r == 0 {
+		return mem
+	}
+	c.memoryKnown = status.TotalPhys > 0 && status.AvailPhys <= status.TotalPhys
+	if !c.memoryKnown {
 		return mem
 	}
 

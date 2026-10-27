@@ -208,3 +208,12 @@ html.dark {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+.ns-desktop-titlebar { display:flex; height:32px; flex:none; background:var(--bg-app,#f8f7f3); color:var(--text-2,#44443d); border-bottom:1px solid var(--border-soft,#e4e1d9); user-select:none; }
+.ns-desktop-drag { display:flex; align-items:center; gap:8px; flex:1; padding-left:12px; font-size:12px; }
+.ns-desktop-drag img { width:16px; height:16px; pointer-events:none; }
+.ns-desktop-controls { display:flex; }
+.ns-desktop-controls button { width:46px; display:grid; place-items:center; background:transparent; color:inherit; border:0; }
+.ns-desktop-controls button:hover { background:#b4946030; color:var(--text-1,#20211e); }
+.ns-desktop-controls button:focus-visible { outline:2px solid #a98750; outline-offset:-3px; }
+.ns-desktop-controls button:last-child:hover { background:#3c3933; color:#fff; }
+.ns-titlebar-error { padding:4px 12px; font-size:12px; color:var(--err); }

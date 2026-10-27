@@ -1,0 +1,27 @@
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { modelEngineering } from '@/lib/model-engineering-client';
+import type { ModelEngineeringRequest, ModelEngineeringResponses, Release, ReleasePolicy } from '@/lib/model-engineering-types';
+import { useWorkspaceStore } from '@/stores/workspace-store';
+import { Surface } from '@/components/ui/surface';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { EmptyState, LoadingState } from '@/components/ui/feedback';
+import { LabError, LabShell, JsonView } from '../model-lab/shared';
+export function ReleaseCenterPage(){
+ const workspace=useWorkspaceStore(s=>s.activeId),navigate=useNavigate(),[query]=useSearchParams();
+ const [reportID,setReportID]=useState(query.get('report')||''),[releases,setReleases]=useState<Release[]>([]),[cursor,setCursor]=useState(''),[policies,setPolicies]=useState<ReleasePolicy[]>([]);
+ const [report,setReport]=useState<ModelEngineeringResponses['get_report']|null>(null),[error,setError]=useState<unknown>(),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[refresh,setRefresh]=useState(0),[failed,setFailed]=useState<ModelEngineeringRequest|null>(null);
+ const epoch=useRef(0),mutation=useRef(false),reportEpoch=useRef(0);
+ useEffect(()=>{const e=++epoch.current;setLoading(true);setReleases([]);setPolicies([]);setError(undefined);setFailed(null);mutation.current=false;setBusy(false);
+ Promise.allSettled([modelEngineering({operation:'list_releases',workspace_id:workspace,limit:20}),modelEngineering({operation:'list_policies'})]).then(([r,p])=>{if(epoch.current!==e)return;if(r.status==='fulfilled'){setReleases(r.value.releases);setCursor(r.value.next_cursor);}if(p.status==='fulfilled')setPolicies(p.value.policies);const fail=[r,p].find(x=>x.status==='rejected');if(fail?.status==='rejected')setError(fail.reason);setLoading(false);});return()=>{epoch.current++;};},[workspace,refresh]);
+ useEffect(()=>{const e=++reportEpoch.current;setReport(null);setFailed(null);if(!reportID)return;modelEngineering({operation:'get_report',workspace_id:workspace,id:reportID}).then(r=>{if(reportEpoch.current===e)setReport(r);}).catch(e2=>{if(reportEpoch.current===e)setError(e2);});return()=>{reportEpoch.current++;};},[workspace,reportID]);
+ const create=async(request:ModelEngineeringRequest)=>{if(mutation.current)return;mutation.current=true;setBusy(true);setError(undefined);setFailed(null);const e=epoch.current,re=reportEpoch.current;try{const r=await modelEngineering(request) as Release;if(e===epoch.current&&re===reportEpoch.current)navigate(`/release-center/${encodeURIComponent(r.id)}`);}catch(err){if(e===epoch.current&&re===reportEpoch.current){setError(err);setFailed(request);}}finally{if(e===epoch.current){mutation.current=false;setBusy(false);}}};
+ return <LabShell title="Release Center" subtitle="工作流模型发布控制 · 基于保存的测评证据演练晋级、暂停和回滚">
+ <p className="ns-release-banner" role="status"><strong>SIMULATION · 仅模拟灰度</strong> 不分配真实用户请求、不改变 Gateway 默认模型，也不绕过工具审批。</p><LabError error={error} onRetry={failed?()=>void create(failed):undefined}/>
+ <Surface className="ns-lab-panel"><h2>创建模拟发布草稿</h2><p>工作流：codelens.codetask.go.v1 · 任务过滤：codetask_go · 策略：simulation-demo-v1</p><label className="ns-lab-field">测评报告 ID<Input value={reportID} disabled={busy} onChange={e=>{setReportID(e.target.value.trim());setError(undefined);}} placeholder="从 Evaluation Reports 选择报告，或粘贴报告 ID"/></label>
+ {report?<><p>已读取持久化报告：{report.report.id} · 成对案例 {report.report.counts.paired_complete} · 当前证据资格 {report.promotion_eligibility.eligible?'可用':'不满足（后续规则可能拒绝）'}</p><p>{report.promotion_eligibility.reasons.join('；')}</p><Link to={`/evaluation-reports/${encodeURIComponent(report.report.id)}`}>核对报告和失败案例 →</Link></>:<p className="ns-lab-muted">先读取真实保存的报告；草稿不代表通过任何发布门槛。</p>}
+ <div className="ns-lab-actions"><Button disabled={busy||!report||!policies.some(p=>p.id==='simulation-demo-v1')} onClick={()=>void create({operation:'create_release',workspace_id:workspace,mode:'simulation',workflow_id:'codelens.codetask.go.v1',task_type_filter:'codetask_go',policy_id:'simulation-demo-v1',report_id:reportID,idempotency_key:crypto.randomUUID()})}>{busy?'正在保存…':'创建模拟发布草稿'}</Button><Link to="/evaluation-reports">选择测评报告 →</Link></div><JsonView value={policies} title="核对服务端发布及回滚策略"/></Surface>
+ <Surface className="ns-lab-panel"><div className="ns-lab-section"><h2>工作流发布历史</h2><Button variant="outline" size="sm" onClick={()=>setRefresh(v=>v+1)} disabled={busy}>刷新发布历史</Button></div>{loading?<LoadingState label="正在读取模拟发布记录…"/>:!releases.length?<EmptyState title="尚无模拟发布" description="从测评报告创建草稿，再查看每条服务端规则与证据。"/>:releases.map(r=><article className="ns-lab-record" key={r.id}><div className="ns-lab-section"><h3>{r.workflow_id}</h3><Link to={`/release-center/${encodeURIComponent(r.id)}`}>打开模拟发布 →</Link></div><p>SIMULATION · {r.state} · 目标 {r.target_bps/100}% · 版本 {r.revision}</p><p className="ns-lab-hash">{r.id}<br/>Stable {r.stable_revision_id}<br/>Candidate {r.candidate_revision_id}</p></article>)}
+ {cursor&&<Button variant="outline" disabled={busy} onClick={async()=>{const e=epoch.current;try{const r=await modelEngineering({operation:'list_releases',workspace_id:workspace,cursor,limit:20});if(e===epoch.current){setReleases(old=>[...old,...r.releases]);setCursor(r.next_cursor);}}catch(err){if(e===epoch.current)setError(err);}}}>加载更早发布</Button>}</Surface></LabShell>;
+}

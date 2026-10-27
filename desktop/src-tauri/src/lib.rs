@@ -28,6 +28,8 @@ pub fn run() {
             commands::gateway::add_model,
             commands::gateway::delete_model,
             commands::gateway::test_model,
+            commands::model_selection::select_model,
+            commands::model_selection::get_model_selection,
             commands::gateway::gateway_chat,
             commands::gateway::gateway_chat_stream,
             commands::gateway::gateway_chat_cancel,
@@ -59,6 +61,7 @@ pub fn run() {
             commands::workspaces::get_workspace_run,
             commands::workspaces::get_run_events,
             commands::workspaces::cancel_workspace_run,
+            commands::model_engineering::model_engineering,
         ])
         .setup(|app| {
             let paths = runtime::RuntimePaths::from_app(app.handle());

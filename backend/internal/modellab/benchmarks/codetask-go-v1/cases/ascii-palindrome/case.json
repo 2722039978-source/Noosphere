@@ -1,0 +1,33 @@
+{
+  "id": "ascii-palindrome",
+  "version": "1.0.0",
+  "category": "boundary-string",
+  "task": "Return whether ASCII input reads identically forwards and backwards, case sensitive, counting spaces. Empty and singleton strings are palindromes.",
+  "function": "IsPalindrome",
+  "input_type": "string",
+  "output_type": "bool",
+  "fixture_sha256": "7b7a679795553993da882b4de0c45f5afe856c4bb87af0ce16e92306830ec7ec",
+  "reference_sha256": "f94f707a7dc8c8c66d64c6566a9731a0e50e0bd3ae353545403813966010286b",
+  "assertions": [
+    {
+      "input": "",
+      "expected": true
+    },
+    {
+      "input": "z",
+      "expected": true
+    },
+    {
+      "input": "level",
+      "expected": true
+    },
+    {
+      "input": "ab",
+      "expected": false
+    },
+    {
+      "input": "Aa",
+      "expected": false
+    }
+  ]
+}

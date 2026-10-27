@@ -1,0 +1,42 @@
+.ns-gateway-dialog[data-slot=dialog-content] {
+  width: min(720px, calc(100vw - 32px));
+  max-width: min(720px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  align-content: start;
+}
+
+.ns-gateway-dialog [data-slot=dialog-title] { padding-right: 28px; }
+.ns-gateway-dialog [data-slot=dialog-description] { color: var(--text-2); line-height: 1.8; }
+.ns-gateway-dialog .ns-model-form { min-width: 0; margin: 0; padding: 20px 0 0; border: 0; border-top: 1px solid var(--border-soft); }
+.ns-gateway-dialog .ns-model-form fieldset { min-width: 0; }
+.ns-gateway-dialog .ns-model-form fieldset > p { margin-top: 14px; color: var(--text-2); font-size: 12px; line-height: 1.8; }
+.ns-gateway-dialog .ns-model-fields > div { min-width: 0; }
+.ns-gateway-dialog .ns-model-form-actions { position: sticky; bottom: -24px; margin-inline: -2px; padding-bottom: 2px; background: var(--bg-elevated); }
+
+.ns-gateway-drawer[data-slot=dialog-content] {
+  top: 0;
+  left: auto;
+  right: 0;
+  width: min(680px, 100vw);
+  max-width: min(680px, 100vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  translate: 0 0;
+  transform: none;
+  border-radius: 4px 0 0 4px;
+}
+
+.ns-gateway-confirm[data-slot=dialog-content] { width: min(480px, calc(100vw - 32px)); max-width: min(480px, calc(100vw - 32px)); }
+.ns-gateway-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+
+@media (max-width: 639px) {
+  .ns-gateway-dialog[data-slot=dialog-content] { padding: 20px; }
+  .ns-gateway-dialog .ns-model-form-actions { bottom: -20px; }
+  .ns-gateway-drawer[data-slot=dialog-content] { border-radius: 0; }
+}

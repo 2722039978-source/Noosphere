@@ -9,6 +9,15 @@ export function isRunActive(run: Pick<WorkspaceRun, 'status'>) {
   return run.status === 'queued' || run.status === 'running';
 }
 
+/** The persisted reference also exists for queued/interrupted tasks without a result. */
+export function workspaceRunDestination(run: Pick<WorkspaceRun, 'kind' | 'result' | 'reference_id'>): string | null {
+  if (run.kind !== 'evaluation' && run.kind !== 'release_simulation') return null;
+  const result = run.result && typeof run.result === 'object' && !Array.isArray(run.result) ? run.result as Record<string, unknown> : {};
+  const id = run.reference_id || result[run.kind === 'evaluation' ? 'evaluation_id' : 'release_id'];
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(id)) return null;
+  return run.kind === 'evaluation' ? `/model-lab?evaluation=${encodeURIComponent(id)}` : `/release-center/${encodeURIComponent(id)}`;
+}
+
 function observationAborted() {
   return new DOMException('已停止观察任务；后台任务继续运行。', 'AbortError');
 }

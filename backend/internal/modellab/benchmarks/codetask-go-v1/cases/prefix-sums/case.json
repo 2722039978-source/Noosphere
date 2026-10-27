@@ -1,0 +1,47 @@
+{
+  "id": "prefix-sums",
+  "version": "1.0.0",
+  "category": "deterministic-transformation",
+  "task": "Return inclusive prefix sums of int64 values, one output per input. Inputs guarantee no int64 sum overflow. Empty returns non-null empty slice.",
+  "function": "PrefixSums",
+  "input_type": "[]int64",
+  "output_type": "[]int64",
+  "fixture_sha256": "6934a445ff3f34f87a6f7f8b2baac8fd6c534d2464ae930ea2e9c0dcaae987a6",
+  "reference_sha256": "d4e1d08e3c0ba23278ace239bcf4262954e14929102d62d710c8cd66f14481bf",
+  "assertions": [
+    {
+      "input": [],
+      "expected": []
+    },
+    {
+      "input": [
+        0
+      ],
+      "expected": [
+        0
+      ]
+    },
+    {
+      "input": [
+        2,
+        -3,
+        5
+      ],
+      "expected": [
+        2,
+        -1,
+        4
+      ]
+    },
+    {
+      "input": [
+        9007199254740993,
+        2
+      ],
+      "expected": [
+        9007199254740993,
+        9007199254740995
+      ]
+    }
+  ]
+}

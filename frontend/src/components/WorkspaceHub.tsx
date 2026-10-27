@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { FolderOpen, ListTodo, Plus, RefreshCw } from 'lucide-react';
 import { api, errMessage, type RunEvent, type WorkspaceRun } from '@/lib/api';
-import { isRunActive, RUN_STATUS_LABEL } from '@/lib/task-client';
+import { isRunActive, RUN_STATUS_LABEL, workspaceRunDestination } from '@/lib/task-client';
 import { useWorkspaceStore, type WorkspaceInput } from '@/stores/workspace-store';
 import { useBackend } from '@/hooks/useBackend';
 import { Button } from './ui/button';
@@ -11,7 +12,7 @@ import './workspace-hub.css';
 import { AgentActions } from './AgentActions';
 import { AgentResultView } from './AgentTaskRecord';
 
-const KIND_LABEL: Record<string, string> = { chat: '对话', index: '代码索引', diagnosis: '诊断', agent: 'Agent' };
+const KIND_LABEL: Record<string, string> = { chat: '对话', index: '代码索引', diagnosis: '诊断', agent: 'Agent', evaluation: '模型离线测评', release_simulation: '发布模拟' };
 const PHASE_LABEL: Record<string, string> = { ...RUN_STATUS_LABEL, preparing:'准备上下文', waiting:'等待模型', streaming:'正在生成', planning:'分析问题', tool:'工具检查', indexing:'解析项目', indexed:'索引已保存' };
 
 export function WorkspaceHub() {
@@ -25,12 +26,12 @@ export function WorkspaceHub() {
     {open && <DialogContent className="ns-workspace-dialog" aria-describedby="workspace-hub-description">
       <DialogTitle>工作区与任务</DialogTitle>
       <DialogDescription id="workspace-hub-description">每个工作区保存自己的项目目录、默认模型和任务记录。索引与诊断在后台继续运行，切换页面不会取消。</DialogDescription>
-      <WorkspacePanel key={activeId} />
+      <WorkspacePanel key={activeId} onNavigate={() => setOpen(false)} />
     </DialogContent>}
   </Dialog>;
 }
 
-function WorkspacePanel() {
+function WorkspacePanel({ onNavigate }: { onNavigate: () => void }) {
   const { models } = useBackend();
   const activeId = useWorkspaceStore(state => state.activeId);
   const workspaces = useWorkspaceStore(state => state.workspaces);
@@ -80,7 +81,14 @@ function WorkspacePanel() {
     event.preventDefault(); if (saving) return;
     setSaving(true); setError(''); setSaved('');
     try {
-      const workspace = await useWorkspaceStore.getState().save({ ...draft, name: draft.name.trim(), project_path: draft.project_path.trim() });
+      const previousDefault = workspaces.find(item => item.id === draft.id)?.default_model_id ?? '';
+      let workspace = await useWorkspaceStore.getState().save({ ...draft, default_model_id: previousDefault, name: draft.name.trim(), project_path: draft.project_path.trim() });
+      if (draft.default_model_id !== previousDefault) {
+        try { await api.selectModel({ scope:'workspace',workspace_id:workspace.id,session_id:'',model_id:draft.default_model_id }); }
+        catch (error) { setDraft({...draft,id:workspace.id}); throw new Error(`工作区内容已保存，默认模型设置未完成：${errMessage(error)}`); }
+        await useWorkspaceStore.getState().refresh();
+        workspace = useWorkspaceStore.getState().workspaces.find(item => item.id === workspace.id) ?? workspace;
+      }
       useWorkspaceStore.getState().select(workspace.id);
       setDraft(workspace); setSaved('工作区已保存');
     } catch (error) { setError(errMessage(error)); }
@@ -122,16 +130,17 @@ function WorkspacePanel() {
         <span className="min-w-0"><strong>{run.title || KIND_LABEL[run.kind] || run.kind}</strong><small>{KIND_LABEL[run.kind] || run.kind} · {new Date(run.created_at).toLocaleString()}</small></span>
         <span className="shrink-0 text-xs" data-status={run.status}>{RUN_STATUS_LABEL[run.status] || run.status}</span>
       </button>)}</div>
-      {selected && <RunDetail key={selected.id} initial={selected} onChanged={() => setRevision(value => value + 1)} />}
+      {selected && <RunDetail key={selected.id} initial={selected} onChanged={() => setRevision(value => value + 1)} onNavigate={onNavigate} />}
     </section>
   </div>;
 }
 
-function RunDetail({ initial, onChanged }: { initial: WorkspaceRun; onChanged: () => void }) {
+function RunDetail({ initial, onChanged, onNavigate }: { initial: WorkspaceRun; onChanged: () => void; onNavigate: () => void }) {
   const [run, setRun] = useState(initial);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const [error, setError] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const destination = workspaceRunDestination(run);
   const changeRef = useRef(onChanged); changeRef.current = onChanged;
   useEffect(() => {
     let disposed = false, inFlight = false, after = 0, unchanged = 0;
@@ -166,6 +175,7 @@ function RunDetail({ initial, onChanged }: { initial: WorkspaceRun; onChanged: (
   return <section className="ns-workspace-detail" aria-label="任务详情">
     <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="min-w-0 break-words text-sm font-semibold">{run.title || KIND_LABEL[run.kind]}</h4>{isRunActive(run) && <Button variant="outline" size="sm" disabled={cancelling} onClick={() => void cancel()}>{cancelling ? '取消中…' : '取消任务'}</Button>}</div>
     <p className="mt-2 text-xs text-text-2">{RUN_STATUS_LABEL[run.status] || run.status}{run.phase && run.phase !== run.status ? ` · ${PHASE_LABEL[run.phase] || run.phase}` : ''}</p>
+    {destination && <p className="mt-3 text-xs text-text-2"><Link to={destination} onClick={onNavigate}>{run.kind === 'evaluation' ? '重开模型测评与报告 →' : '重开发布模拟 →'}</Link>{run.kind === 'release_simulation' && <span> · 模拟任务，不影响真实流量</span>}</p>}
     {run.status === 'interrupted' && <p className="mt-2 text-xs text-text-2">上次应用退出时任务尚未完成。任务不会自动重放，请按需重新发起。</p>}
     {(error || run.error) && <p role="alert" className="mt-2 text-xs text-err">{error || run.error}</p>}
     {events.length > 0 && <ol className="ns-workspace-events">{events.map(event => <li key={event.seq}><span>{PHASE_LABEL[event.phase] || event.phase}</span><p>{event.message}</p>{event.data != null && <details><summary>查看数据</summary><pre>{displayResult(event.data)}</pre></details>}</li>)}</ol>}

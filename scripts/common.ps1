@@ -131,13 +131,108 @@ function Get-NoosphereChangedInstallers {
   }
 }
 
+function Get-NoosphereSourceIdentity {
+  param([string]$ProjectRoot)
+  $Git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $Git) { return @{ revision = $null; dirty = $null; fingerprint = $null } }
+  $Revision = & $Git.Source -C $ProjectRoot rev-parse HEAD 2>$null
+  if ($LASTEXITCODE -ne 0) { return @{ revision = $null; dirty = $null; fingerprint = $null } }
+  $Changes = @(& $Git.Source -C $ProjectRoot status --porcelain --untracked-files=normal 2>$null)
+  if ($LASTEXITCODE -ne 0) { throw 'Could not inspect source changes for the build manifest.' }
+  # Hash actual build inputs, including unstaged and untracked nonignored files.
+  # Documentation and private ignored runtime/build output do not affect this scope.
+  $Listed = @(& $Git.Source -C $ProjectRoot ls-files -co --exclude-standard -z 2>$null)
+  if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate production source for the build manifest.' }
+  [string[]]$Entries = @((($Listed -join "`n") -split "`0") | Where-Object {
+    $_ -match '^(backend/|frontend/|desktop/|scripts/|\.cargo/|VERSION$|setup\.bat$|\.gitignore$|\.gitattributes$)'
+  } | Select-Object -Unique | ForEach-Object {
+    $Path = Join-Path $ProjectRoot $_
+    $Hash = if (Test-Path -LiteralPath $Path -PathType Leaf) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash } else { 'MISSING' }
+    $_ + "`t" + $Hash
+  })
+  [Array]::Sort($Entries, [StringComparer]::Ordinal)
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  try { $Fingerprint = [BitConverter]::ToString($Hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes(($Entries -join "`n")))).Replace('-', '') }
+  finally { $Hasher.Dispose() }
+  return @{ revision = ([string]$Revision).Trim(); dirty = ($Changes.Count -gt 0); fingerprint = $Fingerprint }
+}
+
+function Get-NoosphereFrontendHash {
+  param([string]$ProjectRoot)
+  $Directory = [IO.Path]::GetFullPath((Join-Path $ProjectRoot 'frontend/dist'))
+  if (-not (Test-Path -LiteralPath (Join-Path $Directory 'index.html') -PathType Leaf)) { throw 'frontend/dist/index.html is missing.' }
+  [string[]]$Entries = @(Get-ChildItem -LiteralPath $Directory -Recurse -File | ForEach-Object {
+    $Relative = $_.FullName.Substring($Directory.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+    $Relative + "`t" + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+  })
+  [Array]::Sort($Entries, [StringComparer]::Ordinal)
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  try { return [BitConverter]::ToString($Hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes(($Entries -join "`n")))).Replace('-', '') }
+  finally { $Hasher.Dispose() }
+}
+
+function Get-NoosphereReleaseInfo {
+  param([string]$ReleaseRoot, [string]$ExpectedSourceRevision, [string]$ExpectedSourceFingerprint)
+  $ReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot)
+  foreach ($Relative in @('Noosphere.exe', 'bin/noosphere-backend.exe', 'codelens-python/main.py', 'config.defaults.yaml', 'build-info.json')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $ReleaseRoot $Relative) -PathType Leaf)) { throw "Portable release is incomplete: $Relative. Run scripts/build.ps1 first." }
+  }
+  $Info = Get-Content -LiteralPath (Join-Path $ReleaseRoot 'build-info.json') -Raw | ConvertFrom-Json
+  if ($ExpectedSourceRevision -and $Info.source_revision -ne $ExpectedSourceRevision) { throw 'Release source revision differs from the requested build. Publish the current desktop build before refreshing shortcuts.' }
+  if ($ExpectedSourceFingerprint -and $Info.source_fingerprint -ne $ExpectedSourceFingerprint) { throw 'Release source fingerprint differs from the current production source, including uncommitted changes. Rebuild and publish before refreshing shortcuts.' }
+  foreach ($Pair in @(@('Noosphere.exe', 'desktop_sha256'), @('bin/noosphere-backend.exe', 'backend_sha256'))) {
+    $Actual = (Get-FileHash -LiteralPath (Join-Path $ReleaseRoot $Pair[0]) -Algorithm SHA256).Hash
+    if ($Info.($Pair[1]) -ne $Actual) { throw "Release manifest hash mismatch: $($Pair[0]). Publish a complete build before refreshing shortcuts." }
+  }
+  return $Info
+}
+
+function New-NoosphereShortcut {
+  param([string]$LinkPath, [string]$ReleaseRoot, [string]$ExpectedSourceRevision, [string]$ExpectedSourceFingerprint)
+  $ReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot)
+  $LinkPath = [IO.Path]::GetFullPath($LinkPath)
+  $null = Get-NoosphereReleaseInfo $ReleaseRoot $ExpectedSourceRevision $ExpectedSourceFingerprint
+  $Executable = Join-Path $ReleaseRoot 'Noosphere.exe'
+  $Shell = New-Object -ComObject WScript.Shell
+  if (Test-Path -LiteralPath $LinkPath) {
+    $Backup = $LinkPath + '.' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.bak'
+    Copy-Item -LiteralPath $LinkPath -Destination $Backup
+  }
+  $Link = $Shell.CreateShortcut($LinkPath)
+  $Link.TargetPath = $Executable
+  $Link.WorkingDirectory = $ReleaseRoot
+  $Link.Arguments = ''
+  $Link.IconLocation = "$Executable,0"
+  $Link.Description = 'Noosphere - Personal Intelligence Workspace'
+  $Link.WindowStyle = 1
+  $Link.Save()
+  $Verified = $Shell.CreateShortcut($LinkPath)
+  if ($Verified.TargetPath -ne $Executable -or $Verified.WorkingDirectory -ne $ReleaseRoot -or $Verified.Arguments -ne '') { throw "Shortcut read-back verification failed: $LinkPath" }
+  Write-Host "Verified application shortcut: $LinkPath -> $Executable"
+}
+
 function Publish-NoosphereRelease {
-  param([string]$ProjectRoot, [string]$DesktopArtifact, [string]$BackendArtifact, [string[]]$InstallerArtifacts = @())
+  param(
+    [string]$ProjectRoot, [string]$DesktopArtifact, [string]$BackendArtifact, [string[]]$InstallerArtifacts = @(),
+    [string]$ReleaseRoot, [ValidateSet('release', 'dev')][string]$BuildProfile = 'release'
+  )
+  $ProjectRoot = [IO.Path]::GetFullPath($ProjectRoot)
+  if (-not $ReleaseRoot) { $ReleaseRoot = Join-Path $ProjectRoot 'release' }
+  $ReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot)
+  if ($ReleaseRoot.TrimEnd('\', '/') -eq [IO.Path]::GetPathRoot($ReleaseRoot).TrimEnd('\', '/') -or $ReleaseRoot -eq $ProjectRoot) { throw 'ReleaseRoot must be a dedicated portable application directory.' }
   foreach ($Artifact in (@($DesktopArtifact, $BackendArtifact) + $InstallerArtifacts)) {
     if (-not (Test-Path -LiteralPath $Artifact -PathType Leaf)) { throw "Build artifact is missing: $Artifact" }
   }
-  $ReleaseRoot = Join-Path $ProjectRoot 'release'
+  $Source = Get-NoosphereSourceIdentity $ProjectRoot
+  $FrontendHash = Get-NoosphereFrontendHash $ProjectRoot
   $ReleaseBin = Join-Path $ReleaseRoot 'bin'
+  # Detect locked user executables before replacing either member of the desktop/backend pair.
+  foreach ($Destination in @((Join-Path $ReleaseRoot 'Noosphere.exe'), (Join-Path $ReleaseBin 'noosphere-backend.exe'))) {
+    if (Test-Path -LiteralPath $Destination -PathType Leaf) {
+      try { $Handle = [IO.File]::Open($Destination, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None); $Handle.Dispose() }
+      catch { throw "Cannot replace $Destination. Close the running Noosphere application gracefully and retry; no process was stopped. $($_.Exception.Message)" }
+    }
+  }
   New-Item -ItemType Directory -Path $ReleaseBin -Force | Out-Null
   $PreviousDesktop = Join-Path $ReleaseRoot 'Noosphere.exe'
   if (Test-Path -LiteralPath $PreviousDesktop -PathType Leaf) {
@@ -146,6 +241,8 @@ function Publish-NoosphereRelease {
     Copy-Item -LiteralPath $PreviousDesktop -Destination (Join-Path $BackupRoot 'Noosphere.exe')
     $PreviousBackend = Join-Path $ReleaseBin 'noosphere-backend.exe'
     if (Test-Path -LiteralPath $PreviousBackend) { Copy-Item -LiteralPath $PreviousBackend -Destination (Join-Path $BackupRoot 'noosphere-backend.exe') }
+    $PreviousInfo = Join-Path $ReleaseRoot 'build-info.json'
+    if (Test-Path -LiteralPath $PreviousInfo) { Copy-Item -LiteralPath $PreviousInfo -Destination (Join-Path $BackupRoot 'build-info.json') }
   }
   Copy-Item -LiteralPath $DesktopArtifact -Destination (Join-Path $ReleaseRoot 'Noosphere.exe') -Force
   Copy-Item -LiteralPath $BackendArtifact -Destination (Join-Path $ReleaseBin 'noosphere-backend.exe') -Force
@@ -163,16 +260,29 @@ function Publish-NoosphereRelease {
   if ($OldInstallers.Count -gt 0) {
     $LegacyRoot = Join-Path $ReleaseRoot ('legacy/installers/' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
     New-Item -ItemType Directory -Path $LegacyRoot -Force | Out-Null
-    foreach ($OldInstaller in $OldInstallers) { Move-Item -LiteralPath $OldInstaller.FullName -Destination (Join-Path $LegacyRoot $OldInstaller.Name) }
+    foreach ($OldInstaller in $OldInstallers) {
+      $SourcePath = [IO.Path]::GetFullPath($OldInstaller.FullName)
+      $DestinationPath = [IO.Path]::GetFullPath((Join-Path $LegacyRoot $OldInstaller.Name))
+      $Boundary = $ReleaseRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+      if (-not $SourcePath.StartsWith($Boundary, [StringComparison]::OrdinalIgnoreCase) -or -not $DestinationPath.StartsWith($Boundary, [StringComparison]::OrdinalIgnoreCase)) { throw 'Installer archive path escaped the release directory.' }
+      Move-Item -LiteralPath $SourcePath -Destination $DestinationPath
+    }
   }
   foreach ($Installer in $InstallerArtifacts) { Copy-Item -LiteralPath $Installer -Destination (Join-Path $ReleaseRoot (Split-Path -Leaf $Installer)) -Force }
   $BuildInfo = [ordered]@{
     version = Get-NoosphereVersion $ProjectRoot
     built_at_utc = [DateTime]::UtcNow.ToString('o')
     runtime_revision = 1
+    source_revision = $Source.revision
+    source_dirty = $Source.dirty
+    source_fingerprint = $Source.fingerprint
+    source_fingerprint_scope = 'production-v1:backend/,frontend/,desktop/,scripts/,.cargo/,VERSION,setup.bat,.gitignore,.gitattributes;git-nonignored'
+    build_profile = $BuildProfile
+    frontend_sha256 = $FrontendHash
     desktop_sha256 = (Get-FileHash -LiteralPath (Join-Path $ReleaseRoot 'Noosphere.exe') -Algorithm SHA256).Hash
     backend_sha256 = (Get-FileHash -LiteralPath (Join-Path $ReleaseBin 'noosphere-backend.exe') -Algorithm SHA256).Hash
     installers = @($InstallerArtifacts | ForEach-Object { Split-Path -Leaf $_ })
   }
   Write-NoosphereUtf8 (Join-Path $ReleaseRoot 'build-info.json') ($BuildInfo | ConvertTo-Json -Depth 3)
+  $null = Get-NoosphereReleaseInfo $ReleaseRoot $Source.revision $Source.fingerprint
 }

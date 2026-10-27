@@ -132,6 +132,7 @@ export class ArchiveScene {
   private labelTexture?: THREE.CanvasTexture;
   private labelMark = new Image();
   private reduced = false;
+  private overviewPresentation = false;
   private highQuality = true;
   onSelect?: (index: number, cell?: ArchiveCell) => void;
   onHover?: (index: number | null) => void;
@@ -493,6 +494,10 @@ export class ArchiveScene {
   setReduced(value: boolean) {
     this.reduced = value;
   }
+  /** The hub reuses the live archive with a closer, lower camera above its cards. */
+  setPresentation(value: 'archive' | 'overview') {
+    this.overviewPresentation = value === 'overview';
+  }
   setQuality(high: boolean) {
     this.highQuality = high;
     this.renderer.transmissionResolutionScale = high ? 0.5 : 0.25;
@@ -793,7 +798,7 @@ export class ArchiveScene {
     this.pulses = this.pulses.filter((p) => time - p.time < 3.2);
     const aligningCopy = this.outgoing.some((o) => o.returnY !== null);
     // Demand rendering keeps the desktop idle when the user stops interacting.
-    const idle = false;
+    const idle = this.overviewPresentation && !this.reduced;
     this.idleGain = cinematic
       ? 0
       : THREE.MathUtils.lerp(
@@ -886,6 +891,13 @@ export class ArchiveScene {
       : THREE.MathUtils.lerp(this.detail, cameraTarget, blend);
     const detail = this.detail;
     this.appearance.apply(this.model, ease(this.lift.value / 0.4));
+    if (this.overviewPresentation) {
+      for (const child of this.model.children) {
+        const mesh = child as THREE.Mesh;
+        if (['Champagne_Index', 'Ivory_Edges'].includes(mesh.userData.surface)) (mesh.material as THREE.MeshPhysicalMaterial).color.set('#d6b776');
+        if (mesh.userData.surface === 'Amber_Lightguide') (mesh.material as THREE.MeshPhysicalMaterial).color.set('#ba862c');
+      }
+    }
     // Reference 26.92–27.76: the array travels horizontally into a white field.
     const entry = cinematic ? ease((shot - 21.9) / 0.86) : this.reveal;
     const entranceTime = THREE.MathUtils.clamp((shot - 21.92) / 0.75, 0, 1);
@@ -1103,6 +1115,13 @@ export class ArchiveScene {
       detailAim.addScaledVector(up, (560 - 540) / pixelScale);
       cameraAim.lerp(detailAim, detail);
     }
+    if (this.overviewPresentation && !cinematic) {
+      viewDirection.set(-0.97, 0.18, 0.16).normalize();
+      cameraAim.copy(this.model.position).add(new THREE.Vector3(-1.0, 1.65, 0));
+      const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), viewDirection).normalize();
+      cameraAim.addScaledVector(right, 0.35);
+    }
+    const viewSpan = this.overviewPresentation && !cinematic ? 5.6 : THREE.MathUtils.lerp(span, 5.9, detail);
     const cameraPosition = cameraAim
       .clone()
       .addScaledVector(viewDirection, distance);
@@ -1117,7 +1136,7 @@ export class ArchiveScene {
     this.camera.fov = THREE.MathUtils.lerp(
       this.camera.fov,
       THREE.MathUtils.radToDeg(
-        2 * Math.atan(THREE.MathUtils.lerp(span, 5.9, detail) / (2 * distance)),
+        2 * Math.atan(viewSpan / (2 * distance)),
       ),
       cameraBlend,
     );

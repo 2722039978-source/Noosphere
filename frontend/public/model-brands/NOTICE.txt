@@ -1,0 +1,8 @@
+# Bundled model brand artwork
+
+Source: https://github.com/lobehub/lobe-icons
+Package: @lobehub/icons-static-svg 1.101.0, MIT license (see LICENSE.txt).
+Only the seven referenced SVG icons are shipped. Runtime uses local image files,
+never third-party image URLs or inline untrusted SVG markup. Images fall back to
+a neutral model icon when unavailable. Logos identify their respective products;
+trademark rights remain with their owners and no endorsement is implied.
