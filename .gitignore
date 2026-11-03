@@ -81,3 +81,14 @@ desktop/src-tauri/logs/
 playwright-report/
 test-results/
 coverage/
+
+# Development tests and fixtures remain local, outside the public source tree.
+**/tests/
+**/testdata/
+**/fixtures/
+*_test.go
+test_*.py
+*.test.*
+*.spec.*
+/scripts/test-*
+backend/python/codelens/requirements-dev.txt

@@ -1,3 +1,0 @@
-package main
-import ("fmt";"strings")
-func main(){fmt.Printf("%q",strings.Repeat("x",32769))}

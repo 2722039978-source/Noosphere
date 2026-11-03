@@ -162,7 +162,7 @@ cd Noosphere
 npm --prefix frontend ci
 npm --prefix desktop ci
 python -m venv .local/venv
-.local/venv/Scripts/python.exe -m pip install -r backend/python/codelens/requirements-dev.txt
+.local/venv/Scripts/python.exe -m pip install -r backend/python/codelens/requirements.txt
 
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -RequireDesktop
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
@@ -185,20 +185,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
 # 启动本地后端、前端热更新和桌面开发程序
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1
 
-# 前端单元测试与生产构建
-npm --prefix frontend test
+# 前端类型检查与生产构建
 npm --prefix frontend run build
 
-# 后端测试
+# 后端构建与静态检查
 Push-Location backend
-go test ./...
+go build ./...
+go vet ./...
 Pop-Location
 
-# Python CodeLens 测试
-.local/venv/Scripts/python.exe -m unittest discover -s backend/python/codelens -p "test_*.py" -v
+# Python CodeLens 语法检查
+python -m compileall -q backend/python/codelens
 ```
 
-`frontend/tests/` 还包含基于隔离数据的交互与构建资源检查入口。原生窗口、快捷方式启动、真实 Provider 和本机硬件体验需要另外验证；运行界面测试不代表已完成这些检查。
+公开源码不包含开发测试文件与测试夹具。CI 保留前端构建、Go 构建与静态检查以及 Python 语法检查；实际模型服务与本机硬件体验需另外验证。
 
 ### 构建与数据目录
 

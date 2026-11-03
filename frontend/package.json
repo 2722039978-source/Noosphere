@@ -5,11 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --test tests/*.test.mjs",
-    "test:ui": "node tests/ui-regression.cjs",
-    "test:archive": "node tests/rhine-ui.cjs",
-    "test:production": "node tests/production-smoke.cjs",
-    "test:startup": "node tests/backend-startup-feedback.cjs",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
