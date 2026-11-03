@@ -92,3 +92,8 @@ test_*.py
 *.spec.*
 /scripts/test-*
 backend/python/codelens/requirements-dev.txt
+
+# Local promotional videos are not part of the public repository.
+/video/
+/videos/
+/vidio/
