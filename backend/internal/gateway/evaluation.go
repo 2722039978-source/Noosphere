@@ -57,7 +57,7 @@ func (g *Gateway) EvaluationSourceFingerprint(id string) (string, error) {
 }
 
 func sourceFingerprint(model *ModelConfig) (string, error) {
-	if model.Provider != "ollama" {
+	if model.Provider != "ollama" && model.Provider != "openai_compatible" {
 		return "", &providers.EvaluationError{Code: "UNSUPPORTED_CAPABILITY", Message: "configured provider does not implement local native evaluation"}
 	}
 	origin, err := providers.NormalizeEvaluationEndpoint(model.BaseURL)
@@ -69,6 +69,14 @@ func sourceFingerprint(model *ModelConfig) (string, error) {
 }
 
 func (g *Gateway) DiscoverEvaluationModels(parent context.Context, id string) (providers.ModelDiscovery, error) {
+	return g.discoverEvaluationModels(parent, id, true)
+}
+
+// InspectEvaluationModels reads identity without updating saved connection metadata.
+func (g *Gateway) InspectEvaluationModels(parent context.Context, id string) (providers.ModelDiscovery, error) {
+	return g.discoverEvaluationModels(parent, id, false)
+}
+func (g *Gateway) discoverEvaluationModels(parent context.Context, id string, save bool) (providers.ModelDiscovery, error) {
 	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -94,10 +102,28 @@ func (g *Gateway) DiscoverEvaluationModels(parent context.Context, id string) (p
 	if err = ctx.Err(); err != nil {
 		return discovery, providers.EvaluationContextError(err)
 	}
-	if err = g.syncDiscoveredModelMetadata(model, discovery); err != nil {
-		return discovery, err
+	if save {
+		if err = g.syncDiscoveredModelMetadata(model, discovery); err != nil {
+			return discovery, err
+		}
 	}
 	return discovery, nil
+}
+
+func (g *Gateway) CheckEvaluationOptions(ctx context.Context, id string, options providers.EvaluationOptions) error {
+	if err := providers.ValidateEvaluationOptions(options); err != nil {
+		return err
+	}
+	p, err := g.evaluationProvider(id)
+	if err != nil {
+		return err
+	}
+	if checker, ok := p.(interface {
+		CheckEvaluationOptions(context.Context, providers.EvaluationOptions) error
+	}); ok {
+		return checker.CheckEvaluationOptions(ctx, options)
+	}
+	return nil
 }
 
 func (g *Gateway) Evaluate(parent context.Context, id string, req providers.EvaluationRequest) (*providers.EvaluationResponse, error) {
@@ -152,7 +178,7 @@ func (g *Gateway) Evaluate(parent context.Context, id string, req providers.Eval
 	if err = ctx.Err(); err != nil {
 		return nil, providers.EvaluationContextError(err)
 	}
-	if explicitSession && req.Kind != "warmup" {
+	if explicitSession && req.Kind != "warmup" && model.Provider != "openai_compatible" {
 		key, keyErr := evaluationOwnershipKey(model, req)
 		if keyErr != nil {
 			return nil, keyErr

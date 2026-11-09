@@ -20,7 +20,7 @@ if (-not $SkipBuild) {
 } elseif (-not (Test-Path -LiteralPath (Join-Path $TauriRoot 'bin/noosphere-backend.exe'))) {
   throw '-SkipBuild requires desktop/src-tauri/bin/noosphere-backend.exe. Run without -SkipBuild once.'
 }
-Initialize-NoosphereResources $ProjectRoot
+Initialize-NoosphereResources $ProjectRoot -ReaRuntime (Initialize-NoosphereRea $ProjectRoot)
 
 # Do not reuse an unrelated Vite server or stop a process this script did not start.
 $PortProbe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 1420)

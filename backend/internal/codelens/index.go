@@ -44,10 +44,20 @@ func StoreIndex(eng *engine.Engine, project string, chunks []SourceChunk) error 
 }
 
 func StoreIndexContext(ctx context.Context, eng *engine.Engine, project string, chunks []SourceChunk) (engine.DeltaStats, error) {
+	return storeIndexSnapshot(ctx, eng, project, "", chunks)
+}
+
+func storeIndexSnapshot(ctx context.Context, eng *engine.Engine, project, revision string, chunks []SourceChunk) (engine.DeltaStats, error) {
 	if !projectIDPattern.MatchString(project) {
 		return engine.DeltaStats{}, fmt.Errorf("invalid project namespace")
 	}
-	records := make(map[string]engine.TextRecord, len(chunks))
+	records := make(map[string]engine.TextRecord, len(chunks)+1)
+	if revision != "" {
+		if !evidenceDigest.MatchString(revision) {
+			return engine.DeltaStats{}, fmt.Errorf("invalid index revision")
+		}
+		records[project+":@revision"] = engine.TextRecord{Value: []byte(revision)}
+	}
 	for _, c := range chunks {
 		if c.File == "" || c.StartLine < 1 || c.EndLine < c.StartLine {
 			return engine.DeltaStats{}, fmt.Errorf("invalid source reference")
@@ -78,6 +88,17 @@ func StoreIndexContext(ctx context.Context, eng *engine.Engine, project string, 
 	return eng.ReplacePrefixContext(ctx, project+":", records)
 }
 
+func IndexRevision(eng *engine.Engine, project string) (string, error) {
+	if eng == nil || !projectIDPattern.MatchString(project) {
+		return "", ErrTraceIndexRequired
+	}
+	raw, err := eng.Get(project + ":@revision")
+	if err != nil || !evidenceDigest.Match(raw) {
+		return "", ErrTraceIndexRequired
+	}
+	return string(raw), nil
+}
+
 // PersistIndexResponse runs before the proxy exposes a successful index result.
 // The UI only announces retrieval readiness after the durable snapshot commits.
 func PersistIndexResponse(eng *engine.Engine) func(*http.Response) error {
@@ -95,6 +116,7 @@ func PersistIndexResponse(eng *engine.Engine) func(*http.Response) error {
 		}
 		var result struct {
 			ProjectID string        `json:"project_id"`
+			Revision  string        `json:"revision"`
 			Chunks    []SourceChunk `json:"chunks"`
 		}
 		if err = json.Unmarshal(raw, &result); err != nil {
@@ -106,7 +128,7 @@ func PersistIndexResponse(eng *engine.Engine) func(*http.Response) error {
 		if err = resp.Request.Context().Err(); err != nil {
 			return err
 		}
-		stats, storeErr := StoreIndexContext(resp.Request.Context(), eng, result.ProjectID, result.Chunks)
+		stats, storeErr := storeIndexSnapshot(resp.Request.Context(), eng, result.ProjectID, result.Revision, result.Chunks)
 		if storeErr != nil {
 			return storeErr
 		}

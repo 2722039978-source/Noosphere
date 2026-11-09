@@ -8,7 +8,8 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 import uvicorn
 from ast_parser import get_analyzer, LANGUAGES
-from project_index import GRAPH_CACHE, INDEX_LOCK, build_index, project_root, project_file, source_files
+from project_index import GRAPH_CACHE, INDEX_LOCK, build_index, project_id, project_root, project_file, source_files
+from source_trace import find_trace, load_snapshot
 
 app = FastAPI(title='CodeLens AI', version='0.6.0')
 
@@ -37,6 +38,12 @@ class AnalyzeRequest(BaseModel):
 
 class GraphRequest(BaseModel):
     project_path: str
+
+
+class TraceRequest(BaseModel):
+    project_path: str
+    query: str = Field(min_length=1, max_length=1000)
+    revision: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
 
 @app.exception_handler(ValueError)
 async def invalid_value(_request, error):
@@ -95,7 +102,18 @@ def analyze_file(req: AnalyzeRequest):
         result = get_analyzer().analyze_file(str(path))
     if result is None:
         raise HTTPException(400, 'unsupported file type')
-    return {**result, 'size_bytes': path.stat().st_size}
+    return {**{key: value for key, value in result.items() if not key.startswith('trace_')}, 'size_bytes': path.stat().st_size}
+
+@app.post('/api/v1/trace')
+def trace_source(req: TraceRequest):
+    root = project_root(req.project_path)
+    cache = GRAPH_CACHE.get(str(root))
+    trace = cache['trace'] if cache else None
+    if req.revision is not None and (trace is None or trace['revision'] != req.revision):
+        trace = load_snapshot(project_id(root), req.revision)
+    if trace is None:
+        raise HTTPException(409, '请先更新项目索引。')
+    return find_trace(root, trace, req.query)
 
 def graph_entry(req, name):
     cache = GRAPH_CACHE.get(str(project_root(req.project_path)))

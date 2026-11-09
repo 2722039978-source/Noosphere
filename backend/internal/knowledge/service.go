@@ -80,6 +80,8 @@ type Service struct {
 	mu      sync.Mutex
 	manager *workspaces.Manager
 	eng     *engine.Engine
+	trace   SourceTraceLookup
+	read    SourceTraceExcerpt
 }
 
 func New(m *workspaces.Manager, e *engine.Engine) *Service { return &Service{manager: m, eng: e} }
@@ -389,12 +391,16 @@ func (s *Service) Context(ctx context.Context, wsID, query string, topK int) (Co
 	}
 	s.mu.Unlock()
 	if ws.ProjectID != "" {
+		s.addSourceTrace(ctx, ws, query, min(3, topK-len(result.Citations)), add, warn)
 		hits, err = s.eng.SearchScopedContext(ctx, query, 60, ws.ProjectID+":")
 		if err != nil {
 			return result, err
 		}
 		versions := map[string]string{}
 		for _, hit := range hits {
+			if len(result.Citations) >= topK {
+				break
+			}
 			if err := ctx.Err(); err != nil {
 				return result, err
 			}
@@ -421,16 +427,7 @@ func (s *Service) Context(ctx context.Context, wsID, query string, topK int) (Co
 			}
 			start, _ := strconv.Atoi(m.Metadata["start_line"])
 			end, _ := strconv.Atoi(m.Metadata["end_line"])
-			excerpt := m.Content
-			for _, relation := range []string{"callees", "callers", "unresolved"} {
-				if v := m.Metadata[relation]; v != "" && v != "null" && v != "[]" {
-					excerpt += "\n[" + relation + "] " + v
-				}
-			}
-			add(Citation{Kind: "code", Title: file, File: file, StartLine: start, EndLine: end, SourceHash: version, Symbol: m.Metadata["symbol"], Excerpt: excerpt, ProjectID: ws.ProjectID})
-			if len(result.Citations) >= topK {
-				break
-			}
+			add(Citation{Kind: "code", Title: file, File: file, StartLine: start, EndLine: end, SourceHash: version, Symbol: m.Metadata["symbol"], Excerpt: m.Content, ProjectID: ws.ProjectID})
 		}
 	}
 	latest, err := s.manager.Workspace(wsID)

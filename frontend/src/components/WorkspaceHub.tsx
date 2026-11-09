@@ -15,28 +15,33 @@ import { AgentResultView } from './AgentTaskRecord';
 const KIND_LABEL: Record<string, string> = { chat: '对话', index: '代码索引', diagnosis: '诊断', agent: 'Agent', evaluation: '模型离线测评', release_simulation: '发布模拟' };
 const PHASE_LABEL: Record<string, string> = { ...RUN_STATUS_LABEL, preparing:'准备上下文', waiting:'等待模型', streaming:'正在生成', planning:'分析问题', tool:'工具检查', indexing:'解析项目', indexed:'索引已保存' };
 
-export function WorkspaceHub() {
+export function WorkspaceHub({ triggerLabel, createProject = false, onProjectSaved }: {
+  triggerLabel?: string;
+  createProject?: boolean;
+  onProjectSaved?: () => void;
+} = {}) {
   const [open, setOpen] = useState(false);
   const activeId = useWorkspaceStore(state => state.activeId);
   const name = useWorkspaceStore(state => state.workspaces.find(item => item.id === state.activeId)?.name ?? '本地工作区');
   return <Dialog open={open} onOpenChange={setOpen}>
-    <Button variant="outline" className="ns-workspace-trigger" onClick={() => setOpen(true)} aria-label={`工作区与任务：${name}`} title={`${name} · 工作区与任务`}>
-      <FolderOpen size={15} aria-hidden="true" /><span>{name}</span><ListTodo size={14} aria-hidden="true" />
+    <Button variant={triggerLabel ? 'ghost' : 'outline'} className={triggerLabel ? 'ns-project-tool' : 'ns-workspace-trigger'} onClick={() => setOpen(true)} aria-label={triggerLabel ?? `工作区与任务：${name}`}>
+      {triggerLabel && !createProject ? <ListTodo size={15} aria-hidden="true" /> : <FolderOpen size={15} aria-hidden="true" />}
+      <span>{triggerLabel ?? name}</span>{!triggerLabel && <ListTodo size={14} aria-hidden="true" />}
     </Button>
     {open && <DialogContent className="ns-workspace-dialog" aria-describedby="workspace-hub-description">
-      <DialogTitle>工作区与任务</DialogTitle>
+      <DialogTitle>{createProject ? '打开项目' : '工作区与任务'}</DialogTitle>
       <DialogDescription id="workspace-hub-description">每个工作区保存自己的项目目录、默认模型和任务记录。索引与诊断在后台继续运行，切换页面不会取消。</DialogDescription>
-      <WorkspacePanel key={activeId} onNavigate={() => setOpen(false)} />
+      <WorkspacePanel key={activeId} createProject={createProject} onNavigate={() => setOpen(false)} onProjectSaved={onProjectSaved && (() => { setOpen(false); onProjectSaved(); })} />
     </DialogContent>}
   </Dialog>;
 }
 
-function WorkspacePanel({ onNavigate }: { onNavigate: () => void }) {
+function WorkspacePanel({ onNavigate, createProject, onProjectSaved }: { onNavigate: () => void; createProject: boolean; onProjectSaved?: () => void }) {
   const { models } = useBackend();
   const activeId = useWorkspaceStore(state => state.activeId);
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const current = workspaces.find(item => item.id === activeId);
-  const [draft, setDraft] = useState<WorkspaceInput>(() => ({ id: current?.id, name: current?.name ?? '', project_path: current?.project_path ?? '', default_model_id: current?.default_model_id ?? '' }));
+  const [draft, setDraft] = useState<WorkspaceInput>(() => createProject ? { name: '', project_path: '', default_model_id: '' } : ({ id: current?.id, name: current?.name ?? '', project_path: current?.project_path ?? '', default_model_id: current?.default_model_id ?? '' }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
@@ -91,6 +96,7 @@ function WorkspacePanel({ onNavigate }: { onNavigate: () => void }) {
       }
       useWorkspaceStore.getState().select(workspace.id);
       setDraft(workspace); setSaved('工作区已保存');
+      onProjectSaved?.();
     } catch (error) { setError(errMessage(error)); }
     finally { setSaving(false); }
   };
@@ -185,7 +191,7 @@ function RunDetail({ initial, onChanged, onNavigate }: { initial: WorkspaceRun; 
 }
 
 function TaskResult({ run }: { run: WorkspaceRun }) {
-  if (run.kind === 'agent') return <AgentResultView result={run.result} />;
+  if (run.kind === 'agent') return <AgentResultView result={run.result} workspaceId={run.workspace_id} />;
   const result = run.result as Record<string, unknown>;
   const answer = result && typeof result === 'object' ? result.content ?? result.answer : undefined;
   return <div className="mt-4"><h5 className="text-xs font-medium">任务结果</h5>

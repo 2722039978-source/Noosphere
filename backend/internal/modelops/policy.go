@@ -20,6 +20,11 @@ func DemoPolicy() modelstore.ReleasePolicy {
 
 func identity(s modelstore.SimulationSnapshot) bool {
 	m := s.Evaluation.Manifest
+	// The immutable demo policy is calibrated for its original built-in suite.
+	// User-owned tasks need their own policy, even with the same case count.
+	if m.Dataset.SourceRevisionID != "" || m.Dataset.SourceContentHash != "" {
+		return false
+	}
 	_, _, err := modelstore.CanonicalManifest(m)
 	if m.Stable.Digest != "" && m.Stable.Provider == m.Candidate.Provider && m.Stable.Digest == m.Candidate.Digest {
 		return false

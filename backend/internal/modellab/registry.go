@@ -73,6 +73,9 @@ func (s *Service) Register(ctx context.Context, gatewayModelID, modelName, confi
 			return modelstore.ModelRevision{}, err
 		}
 		revision := modelstore.ModelRevision{ID: id, GatewayModelID: gatewayModelID, Provider: "ollama", ModelName: model.Name, IdentityLevel: "digest", Digest: model.Digest, ConfigHash: model.ConfigHash, MetadataHash: model.MetadataHash, TemplateHash: model.TemplateHash, EndpointFingerprint: fingerprint, EngineVersion: model.EngineVersion, Format: model.Format, Quantization: model.Quantization, Capabilities: append([]string(nil), model.Capabilities...), ParameterSize: model.ParameterSize, SizeBytes: modelstore.Int(model.SizeBytes), UnknownReason: strings.Join(append([]string{"parameter count was not independently inspected; reported model file size is not a VRAM measurement"}, model.Limitations...), "; ")}
+		if model.Provider != "" {
+			revision.Provider = model.Provider
+		}
 		// The content ID excludes time. A repeated confirmed discovery returns
 		// the original immutable record, including its first observed timestamp.
 		if existing, readErr := s.store.GetModelRevision(ctx, id); readErr == nil {

@@ -11,10 +11,12 @@ func (g *Gateway) ToolCapability(model *ModelConfig) error {
 	if model == nil {
 		return fmt.Errorf("model unavailable")
 	}
-	switch model.Provider {
-	case "deepseek", "openai", "openai_compatible", "ollama":
-	default:
+	if !toolProviderAllowed(model.Provider) {
 		return fmt.Errorf("模型提供方 %s 尚未接入结构化工具协议，请选择 DeepSeek 或 OpenAI 兼容模型", model.Provider)
+	}
+	configuration := configuredCapability(Capability{Supported: true}, *model)
+	if !configuration.Available {
+		return fmt.Errorf("%s", configuration.Reason)
 	}
 	provider, err := g.getOrCreateProvider(model)
 	if err != nil {

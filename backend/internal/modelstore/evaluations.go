@@ -348,6 +348,9 @@ func (s *Store) buildReport(ctx context.Context, q queryer, e Evaluation) (Repor
 	if e.Manifest.Stable.IdentityLevel == "unknown" || e.Manifest.Candidate.IdentityLevel == "unknown" {
 		r.IneligibilityReasons = append(r.IneligibilityReasons, "UNKNOWN_IDENTITY")
 	}
+	if e.Manifest.EvaluationMode == "baseline" {
+		r.IneligibilityReasons = append(r.IneligibilityReasons, "BASELINE_NOT_COMPARISON")
+	}
 	r.PromotionEligible = len(r.IneligibilityReasons) == 0
 	return r, nil
 }
@@ -402,7 +405,7 @@ func (s *Store) CompleteEvaluationWithAnalysis(ctx context.Context, id string, g
 			}
 		}
 		status := "incomplete"
-		if out.Counts.Scored == out.Counts.Planned && len(out.IneligibilityReasons) == 0 {
+		if out.Counts.Scored == out.Counts.Planned && (len(out.IneligibilityReasons) == 0 || (len(out.IneligibilityReasons) == 1 && out.IneligibilityReasons[0] == "BASELINE_NOT_COMPARISON")) {
 			status = "completed"
 		}
 		body, h, err := canonical(out)

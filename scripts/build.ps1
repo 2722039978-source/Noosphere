@@ -27,8 +27,9 @@ if (-not $SkipTauri) {
 }
 
 Write-Host "Building Noosphere $Version" -ForegroundColor Cyan
+$ReaRuntime = if (-not $SkipTauri) { Initialize-NoosphereRea $ProjectRoot }
 $BackendArtifact = Build-NoosphereBackend $ProjectRoot $GoCommand $Version
-Initialize-NoosphereResources $ProjectRoot
+Initialize-NoosphereResources $ProjectRoot -ReaRuntime $ReaRuntime
 
 if (-not $SkipFrontend) {
   Invoke-NoosphereCommand $NpmCommand @('run', 'build') $FrontendRoot
@@ -65,7 +66,7 @@ if ($BundleNsis) {
 }
 
 # Publication starts only after every requested build has succeeded.
-Publish-NoosphereRelease $ProjectRoot $DesktopArtifact $BackendArtifact $InstallerArtifacts -ReleaseRoot $ReleaseRoot
+Publish-NoosphereRelease $ProjectRoot $DesktopArtifact $BackendArtifact $InstallerArtifacts -ReleaseRoot $ReleaseRoot -ReaRuntime $ReaRuntime
 if ($DesktopShortcut) { & (Join-Path $PSScriptRoot 'create-shortcuts.ps1') -Desktop -ReleaseRoot $ReleaseRoot }
 Write-Host "Portable release ready: $(Join-Path $ReleaseRoot 'Noosphere.exe')" -ForegroundColor Green
 if ($InstallerArtifacts.Count -eq 0) {

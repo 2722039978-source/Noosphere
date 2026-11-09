@@ -71,6 +71,24 @@ pub struct StartBackendResponse {
 // ============ gateway ============
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Capability {
+    pub supported: bool,
+    pub available: bool,
+    pub code: String,
+    pub reason: String,
+    pub verification: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelCapabilities {
+    pub schema_version: u32,
+    pub source: String,
+    pub chat: Capability,
+    pub agent_tools: Capability,
+    pub native_evaluation: Capability,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub id: String,
     pub name: String,
@@ -91,6 +109,8 @@ pub struct ModelConfig {
     pub is_default: Option<bool>,
     #[serde(default)]
     pub api_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ModelCapabilities>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +118,24 @@ pub struct ModelsResponse {
     #[serde(default)]
     pub models: Vec<ModelConfig>,
     pub count: Option<u64>,
+}
+
+#[cfg(test)]
+mod capability_transport_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn model_list_preserves_server_capabilities_and_legacy_unknown() {
+        let capability=json!({"supported":true,"available":true,"code":"ADAPTER_SUPPORTED","reason":"协议已接入，未验证具体模型","verification":"not_checked"});
+        let input=json!({"models":[{"id":"local","name":"Local","provider":"ollama","base_url":"http://127.0.0.1:11434","model_name":"test","enabled":true,"is_default":false,"capabilities":{"schema_version":1,"source":"gateway-adapter-policy-v1","chat":capability,"agent_tools":capability,"native_evaluation":{"supported":false,"available":false,"code":"LOCAL_ENDPOINT_REQUIRED","reason":"需要本机核验","verification":"not_applicable"}}}],"count":1});
+        let response:ModelsResponse=serde_json::from_value(input.clone()).unwrap();
+        let output=serde_json::to_value(response).unwrap();
+        assert_eq!(output["models"][0]["capabilities"],input["models"][0]["capabilities"]);
+        let mut legacy=input;legacy["models"][0].as_object_mut().unwrap().remove("capabilities");
+        let response:ModelsResponse=serde_json::from_value(legacy).unwrap();
+        assert!(serde_json::to_value(response).unwrap()["models"][0].get("capabilities").is_none());
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

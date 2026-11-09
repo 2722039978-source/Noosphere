@@ -69,6 +69,9 @@ func (a *Adapter) workerJSON(ctx context.Context, method, path string, body any,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if path == "trace" && resp.StatusCode == http.StatusConflict {
+			return nil, ErrTraceIndexRequired
+		}
 		return nil, fmt.Errorf("CodeLens %s HTTP %d", path, resp.StatusCode)
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, (256<<10)+1))

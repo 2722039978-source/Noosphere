@@ -45,7 +45,7 @@ func (s *Service) Control(ctx context.Context, r modelstore.EvaluationControl) (
 		if _, err = s.runtimeReady(); err != nil {
 			return previous, identityError("PROVIDER_UNAVAILABLE", "trusted runtime unavailable")
 		}
-		dataset, err := LoadDataset(previous.Manifest.Dataset.BenchmarkID)
+		dataset, err := s.frozenDataset(ctx, previous)
 		if err != nil {
 			// Embedded dataset/validation failures are fixed compatibility facts,
 			// not a temporary provider or filesystem availability condition.

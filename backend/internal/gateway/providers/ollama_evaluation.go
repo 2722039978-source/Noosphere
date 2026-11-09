@@ -98,6 +98,10 @@ func (p *OllamaProvider) nativeClient() (*http.Client, string, error) {
 func closeNativeClient(c *http.Client) { c.CloseIdleConnections() }
 
 func (p *OllamaProvider) nativeJSON(ctx context.Context, c *http.Client, origin, path string, body any) (map[string]any, json.RawMessage, error) {
+	return p.nativeJSONPath(ctx, c, origin, "/api/"+path, body)
+}
+
+func (p *OllamaProvider) nativeJSONPath(ctx context.Context, c *http.Client, origin, path string, body any) (map[string]any, json.RawMessage, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, EvaluationContextError(err)
 	}
@@ -114,7 +118,7 @@ func (p *OllamaProvider) nativeJSON(ctx context.Context, c *http.Client, origin,
 			return nil, nil, evaluationError("INVALID_REQUEST", "request exceeds one MiB")
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, method, origin+"/api/"+path, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, method, origin+path, bytes.NewReader(payload))
 	if err != nil {
 		return nil, nil, evaluationError("INVALID_REQUEST", "invalid native request")
 	}

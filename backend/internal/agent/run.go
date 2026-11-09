@@ -10,6 +10,16 @@ import (
 )
 
 type ModelCall func(context.Context, []providers.ToolMessage, []providers.ToolDefinition) (*providers.ToolResponse, error)
+
+const RunTimeout = 6 * time.Minute
+const ModelTurnTimeout = 120 * time.Second
+
+type runBudget struct{ Total, Model, Tool time.Duration }
+type ModelStep struct {
+	Number     int    `json:"number"`
+	DurationMS int64  `json:"duration_ms"`
+	Status     string `json:"status"`
+}
 type Step struct {
 	Number     int             `json:"number"`
 	CallID     string          `json:"call_id"`
@@ -19,22 +29,26 @@ type Step struct {
 	DurationMS int64           `json:"duration_ms"`
 }
 type Result struct {
-	Answer      string     `json:"answer"`
-	Steps       []Step     `json:"steps"`
-	Evidence    []Evidence `json:"evidence"`
-	ModelCalls  int        `json:"model_calls"`
-	ToolCalls   int        `json:"tool_calls"`
-	TokensIn    int        `json:"tokens_in"`
-	TokensOut   int        `json:"tokens_out"`
-	StopReason  string     `json:"stop_reason"`
-	ModelID     string     `json:"model_id"`
-	WorkspaceID string     `json:"workspace_id"`
-	ProjectID   string     `json:"project_id"`
+	Answer      string      `json:"answer"`
+	Steps       []Step      `json:"steps"`
+	Evidence    []Evidence  `json:"evidence"`
+	ModelCalls  int         `json:"model_calls"`
+	ModelSteps  []ModelStep `json:"model_steps"`
+	ToolCalls   int         `json:"tool_calls"`
+	TokensIn    int         `json:"tokens_in"`
+	TokensOut   int         `json:"tokens_out"`
+	StopReason  string      `json:"stop_reason"`
+	ModelID     string      `json:"model_id"`
+	WorkspaceID string      `json:"workspace_id"`
+	ProjectID   string      `json:"project_id"`
 }
 
 func Run(parent context.Context, goal string, registry *Registry, call ModelCall, emit func(string, string, any), validate func() error) (result Result, err error) {
+	return runWithBudget(parent, goal, registry, call, emit, validate, runBudget{Total: RunTimeout, Model: ModelTurnTimeout, Tool: 15 * time.Second})
+}
+func runWithBudget(parent context.Context, goal string, registry *Registry, call ModelCall, emit func(string, string, any), validate func() error, budget runBudget) (result Result, err error) {
 	result = Result{Steps: []Step{}, Evidence: []Evidence{}, WorkspaceID: registry.workspace.ID, ProjectID: registry.workspace.ProjectID}
-	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
+	ctx, cancel := context.WithTimeout(parent, budget.Total)
 	defer cancel()
 	if emit == nil {
 		emit = func(string, string, any) {}
@@ -74,7 +88,30 @@ func Run(parent context.Context, goal string, registry *Registry, call ModelCall
 		}
 		emit("agent_model", fmt.Sprintf("正在分析 · 模型调用 %d/6", turn+1), map[string]int{"model_calls": turn + 1, "tool_calls": result.ToolCalls})
 		result.ModelCalls++
-		response, callErr := call(ctx, messages, registry.Definitions())
+		modelCtx, modelCancel := context.WithTimeout(ctx, budget.Model)
+		modelStarted := time.Now()
+		response, callErr := call(modelCtx, messages, registry.Definitions())
+		contextErr := modelCtx.Err()
+		modelCancel()
+		status := "completed"
+		if callErr != nil || contextErr != nil {
+			status = "failed"
+		}
+		if contextErr == context.DeadlineExceeded {
+			status = "timeout"
+		}
+		if contextErr == context.Canceled {
+			status = "cancelled"
+		}
+		step := ModelStep{Number: turn + 1, DurationMS: time.Since(modelStarted).Milliseconds(), Status: status}
+		result.ModelSteps = append(result.ModelSteps, step)
+		emit("agent_model_completed", fmt.Sprintf("模型调用 %d · %s · %.1f 秒", turn+1, status, float64(step.DurationMS)/1000), step)
+		if contextErr == context.DeadlineExceeded {
+			return result, fmt.Errorf("第 %d 次模型请求超时（单次上限 %.0f 秒、任务总上限 %.0f 秒）；已完成的工具证据保留，可缩小任务后重新发起: %w", turn+1, budget.Model.Seconds(), budget.Total.Seconds(), contextErr)
+		}
+		if contextErr != nil {
+			return result, contextErr
+		}
 		if callErr != nil {
 			return result, callErr
 		}
@@ -119,7 +156,7 @@ func Run(parent context.Context, goal string, registry *Registry, call ModelCall
 			key := tc.Function.Name + ":" + string(encoded)
 			started := time.Now()
 			emit("tool_started", "正在执行 · "+tc.Function.Name, map[string]any{"call_id": tc.ID, "tool": tc.Function.Name, "number": result.ToolCalls})
-			toolCtx, stop := context.WithTimeout(ctx, 15*time.Second)
+			toolCtx, stop := context.WithTimeout(ctx, budget.Tool)
 			out := registry.Execute(toolCtx, tc.Function.Name, json.RawMessage(tc.Function.Arguments))
 			stop()
 			if err = check(); err != nil {

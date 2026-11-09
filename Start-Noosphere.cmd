@@ -6,8 +6,8 @@ if not exist "%~dp0release\Noosphere.exe" (
   exit /b 1
 )
 if not exist "%~dp0release\build-info.json" (
-  echo This release predates the startup fix. Run a full scripts\build.ps1 build first.
-  echo See docs\STARTUP_RELIABILITY.md for the current build status.
+  echo Build metadata is missing. Run scripts\build.ps1 to build the application.
+  echo See README.md for the build instructions.
   pause
   exit /b 1
 )

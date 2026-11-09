@@ -58,6 +58,20 @@ func requestModule(ctx context.Context, handler http.Handler, path string, input
 		return nil, fmt.Errorf("module result exceeds limit")
 	}
 	if out.status < 200 || out.status >= 300 {
+		var problem struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+			Detail string `json:"detail"`
+		}
+		if json.Unmarshal(out.body.Bytes(), &problem) == nil {
+			if problem.Error.Message != "" {
+				return nil, fmt.Errorf("%s", problem.Error.Message)
+			}
+			if problem.Detail != "" {
+				return nil, fmt.Errorf("%s", problem.Detail)
+			}
+		}
 		return nil, fmt.Errorf("module request failed (HTTP %d); check module availability and project path", out.status)
 	}
 	var result map[string]any

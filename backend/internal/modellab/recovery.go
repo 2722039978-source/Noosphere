@@ -45,7 +45,7 @@ func (s *Service) Resume(ctx context.Context, workspaceID, evaluationID string, 
 			return empty, identityError("MODEL_DRIFT", "identity drift was observed; create a new evaluation")
 		}
 	}
-	dataset, err := LoadDataset(e.Manifest.Dataset.BenchmarkID)
+	dataset, err := s.frozenDataset(ctx, e)
 	if err != nil {
 		return empty, err
 	}

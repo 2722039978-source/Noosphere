@@ -1,0 +1,37 @@
+.ns-nebula-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.ns-nebula-page .ns-knowledge-panel { margin-bottom: 0; padding: 24px; }
+.ns-nebula-page .ns-knowledge-panel > h2 { letter-spacing: -.02em; }
+.ns-nebula-page .ns-memory-editor { border: 0; padding: 0; margin: 0; }
+.ns-nebula-page .ns-memory-editor-fields { min-width: 0; }
+.ns-nebula-page .ns-memory-editor-fields label { min-width: 150px; max-width: 100%; grid-template-columns: minmax(0, 1fr); }
+.ns-nebula-page .ns-memory-editor-fields select,
+.ns-nebula-page .ns-memory-editor-fields input { min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 38px; border-radius: 0; }
+.ns-nebula-page .ns-memory-editor textarea { min-height: 112px; border-radius: 0; background: var(--bg-input); }
+.ns-memory-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ns-memory-filters > input { flex: 1; min-width: 200px; }
+.ns-memory-filter-select { min-width: 122px; }
+.ns-memory-filter-select select { width: 100%; min-height: 38px; border-radius: 0; }
+.ns-memory-result-count { padding: 12px 0 0; font-size: 12px; color: var(--text-3); }
+.ns-knowledge-record { background: var(--bg-input); }
+.ns-nebula-history { padding-top: 4px; }
+.ns-nebula-history > .ns-task-path { margin-bottom: 18px; }
+.ns-memory-history-layout { display: grid; grid-template-columns: 215px minmax(0, 1fr); gap: 18px; align-items: start; }
+.ns-nebula-page .ns-memory-sidebar { position: relative; width: auto; height: auto; max-height: 460px; min-height: 150px; border: 1px solid var(--border-soft); background: var(--bg-input); }
+.ns-memory-session-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; padding: 0 12px 14px; }
+.ns-memory-session-list button { min-width: 0; border: 1px solid transparent; }
+.ns-memory-session-list button[aria-pressed="true"] { border-color: var(--border-strong); }
+.ns-nebula-legacy-main { min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.ns-nebula-legacy-main > .ns-surface { padding: 22px; }
+.ns-nebula-page .ns-record-detail summary { overflow-wrap: anywhere; }
+.ns-legacy-feedback { font-size: 12px; line-height: 1.7; color: var(--text-2); padding: 12px 0 0; }
+@media (max-width: 900px) {
+  .ns-memory-history-layout { grid-template-columns: minmax(0, 1fr); }
+  .ns-nebula-page .ns-memory-sidebar { max-height: 230px; }
+}
+@media (max-width: 639px) {
+  .ns-nebula-page .ns-knowledge-panel, .ns-nebula-legacy-main > .ns-surface { padding: 18px; }
+  .ns-memory-filters > input { flex-basis: 100%; min-width: 0; }
+  .ns-memory-filter-select { flex: 1; min-width: 100px; }
+  .ns-nebula-page .ns-memory-editor-fields { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .ns-nebula-page .ns-memory-editor-fields > label { min-width: 0; width: 100%; }
+}

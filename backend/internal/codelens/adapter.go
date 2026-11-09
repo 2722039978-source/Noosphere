@@ -1,6 +1,7 @@
 package codelens
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"log"
@@ -22,6 +23,7 @@ type Adapter struct {
 	done           chan struct{}
 	waitErr        error // written before done closes
 	ModifyResponse func(*http.Response) error
+	TraceDirectory string
 	token          string
 }
 
@@ -46,6 +48,7 @@ func (a *Adapter) Start() (err error) {
 	probe.Close()
 	a.cmd = exec.Command(a.cmdArgs[0], a.cmdArgs[1:]...)
 	a.cmd.Env = append(os.Environ(), fmt.Sprintf("NOOSPHERE_CODELENS_PORT=%d", a.port), "NOOSPHERE_CODELENS_TOKEN="+a.token)
+	a.cmd.Env = append(a.cmd.Env, "NOOSPHERE_CODELENS_TRACE_DIR="+a.TraceDirectory)
 	configureWorker(a.cmd)
 	log.Printf("[codelens] starting Python worker: %v", a.cmdArgs)
 	if err := a.cmd.Start(); err != nil {
@@ -105,6 +108,21 @@ func (a *Adapter) Stop() {
 		a.cmd.Process.Kill()
 		<-a.done
 		log.Println("[codelens] worker stopped")
+	}
+}
+
+func (a *Adapter) WaitForExit(ctx context.Context) error {
+	if a.done == nil {
+		return fmt.Errorf("CodeLens 源码服务尚未启动")
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-a.done:
+		if a.waitErr != nil {
+			return fmt.Errorf("CodeLens 源码服务已退出: %w", a.waitErr)
+		}
+		return fmt.Errorf("CodeLens 源码服务已退出")
 	}
 }
 

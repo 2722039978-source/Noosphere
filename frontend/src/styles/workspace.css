@@ -22,19 +22,17 @@
 [data-slot=dialog-content] { border-top: 3px solid var(--primary); border-radius: 0; }
 [data-slot=tabs-list] { border-radius: 0; background: transparent; border-bottom: 1px solid var(--border-soft); }
 [data-slot=tabs-trigger] { border-radius: 0; font-size: 12px; }[data-slot=tabs-trigger][data-state=active] { box-shadow: none; background: var(--secondary); }
-.ns-chat-session-header { min-height: 83px; padding-left: 30px; background: transparent; }.ns-chat-session-header h1 { font-size: 16px; font-weight: 500; }.ns-chat-session-header .ns-kicker { font-size: 8px; letter-spacing: .16em; }
-.ns-chat-empty { max-width: 790px; }.ns-chat-empty h2 { font-size: clamp(32px,3.7vw,58px); font-weight: 300; letter-spacing: -.04em; }.ns-chat-empty h2 strong { font-weight: 500; }.ns-chat-empty > .ns-kicker { font-size: 9px; }.ns-chat-empty > div:last-of-type button { min-height: 63px; }
 .ns-statusbar { border-top: 0; min-height: 33px; padding: 0 34px 5px; font-size: 9px; background: transparent; }.ns-footer-signature { font-size: 9px; }
 .ns-experience-settings > div:first-child { margin-bottom: 20px; }.ns-preference-row { display: flex; align-items: center; justify-content: space-between; gap: 25px; padding: 17px 0; border-top: 1px solid var(--border-soft); }.ns-preference-row label { font-size: 13px; }.ns-preference-row small { display: block; margin-top: 5px; font-size: 11px; color: var(--text-3); }.ns-preference-row select { max-width: 45%; min-width: 155px; border: 1px solid var(--border-soft); padding: 9px 12px; background: var(--bg-input); color: var(--text-1); font: inherit; font-size: 12px; }.ns-preference-row input { width: 17px; height: 17px; accent-color: var(--brand); }
 html.dark .ns-app-shell main { background: var(--bg-raised); }html.dark .ns-index-item.is-active { background: #ffffff09; }
 @media (max-width: 1279px) { .ns-page-wrap { padding: 27px 25px; }.ns-sidebar { width: 186px; padding-left: 15px; padding-right: 13px; }.ns-masthead { height: 89px; padding: 0 26px; }.ns-masthead-section { margin-left: 0; }.ns-app-shell main { margin-right: 18px; } }
 @media (max-width: 1023px) { .ns-app-shell main { margin: 0 16px 10px; }.ns-masthead-current { margin-left: auto; }.ns-page-header h1 { font-size: 32px; }.ns-nav-dialog .ns-sidebar { padding-top: 24px; } }
-@media (max-width: 639px) { .ns-masthead { height: 80px; padding: 0 19px; gap: 10px; }.ns-wordmark strong { font-size: 25px; }.ns-wordmark span { font-size: 7px; }.ns-masthead-current { display: none; }.ns-mobile-menu { margin-left: auto; }.ns-app-shell main { margin: 0; border-width: 1px 0 0; }.ns-page-wrap { padding: 23px 20px 32px; gap: 22px; }.ns-page-header { padding-bottom: 22px; }.ns-page-header h1 { font-size: 32px; }.ns-statusbar { padding: 6px 16px; min-height: 35px; }.ns-chat-session-header { padding: 14px 18px; }.ns-chat-empty { padding: 35px 24px; }.ns-chat-empty h2 { font-size: 38px; }.ns-preference-row { flex-wrap: wrap; gap: 12px; }.ns-preference-row select { max-width: 100%; }.ns-page-wrap .ns-surface { padding-left: 0; padding-right: 0; } }
+@media (max-width: 639px) { .ns-masthead { height: 80px; padding: 0 19px; gap: 10px; }.ns-wordmark strong { font-size: 25px; }.ns-wordmark span { font-size: 7px; }.ns-masthead-current { display: none; }.ns-mobile-menu { margin-left: auto; }.ns-app-shell main { margin: 0; border-width: 1px 0 0; }.ns-page-wrap { padding: 23px 20px 32px; gap: 22px; }.ns-page-header { padding-bottom: 22px; }.ns-page-header h1 { font-size: 32px; }.ns-statusbar { padding: 6px 16px; min-height: 35px; }.ns-preference-row { flex-wrap: wrap; gap: 12px; }.ns-preference-row select { max-width: 100%; }.ns-page-wrap .ns-surface { padding-left: 0; padding-right: 0; } }
 @media (prefers-reduced-motion: reduce) { .ns-app-shell *, .ns-app-shell *::before, .ns-app-shell *::after { animation: none !important; transition: none !important; } }
 
 /* Readable dossier hierarchy at native Windows scaling. */
 .ns-index-label { font-size: 14px; }
-.ns-index-english, .ns-sidebar-heading, .ns-masthead-section > span, .ns-masthead-current, .ns-page-header .ns-kicker, .ns-chat-session-header .ns-kicker { font-size: 10px; }
+.ns-index-english, .ns-sidebar-heading, .ns-masthead-section > span, .ns-masthead-current, .ns-page-header .ns-kicker { font-size: 10px; }
 .ns-index-number, .ns-sidebar-foot, .ns-footer-signature, .ns-statusbar { font-size: 11px; }
 .ns-page-header p, .ns-model-fields label, .ns-preference-row small { font-size: 13px; line-height: 1.7; }
 .ns-button, [data-slot=input], [data-slot=select-trigger], .ns-preference-row select, [data-slot=tabs-trigger] { font-size: 14px; }
@@ -47,9 +45,6 @@ html.dark .ns-app-shell main { background: var(--bg-raised); }html.dark .ns-inde
 .ns-model-form-actions { padding-top: 18px; border-top: 1px solid var(--border-soft); }
 .ns-statusbar { gap: 16px; min-height: 36px; }
 .ns-memory-sidebar { border-right: 1px solid var(--border-soft); }
-.ns-chat-empty > .ns-kicker { font-size: 11px; }
-.ns-chat-session-header { border-bottom: 1px solid var(--border-soft); }
-.ns-message-body { font-size: 15px; }
 @media (max-width: 639px) { .ns-page-wrap .ns-surface { padding-left: 18px; padding-right: 18px; }.ns-model-form { padding: 18px; }.ns-statusbar { font-size: 10px; }.ns-footer-signature { font-size: 10px; }.ns-masthead { gap: 8px; } }
 
 /* Model engineering uses the existing workspace surfaces and typography. */
@@ -130,7 +125,7 @@ html.dark .ns-app-shell main { background: var(--bg-raised); }html.dark .ns-inde
 .ns-reference-shell .ns-statusbar .ns-footer-signature { font-size: 9px; }
 html.dark .ns-reference-shell { --bg-app: #191b19; --bg-raised: #20231f; --bg-elevated: #2a2c27; --bg-input: #ffffff05; --text-1: #ebe9e3; --text-2: #bfc0b8; --text-3: #979b91; --border-soft: #ebe9e32b; --border-strong: #ebe9e35e; }
 html.dark .ns-reference-shell .ns-sidebar, html.dark .ns-reference-shell .ns-workspace-trigger { background: #ffffff03; }
-@media (min-width: 1024px) { .ns-reference-shell .ns-statusbar { position: relative; }.ns-reference-shell .ns-statusbar > span:first-child { position: fixed; left: 46px; bottom: 38px; font-size: 11px; }.ns-reference-shell .ns-statusbar .ns-footer-signature { margin-left: auto; } }
+@media (min-width: 1024px) { .ns-reference-shell .ns-statusbar { position: relative; }.ns-reference-shell .ns-statusbar .ns-footer-signature { margin-left: auto; } }
 @media (max-width: 1370px) and (min-width: 1024px) { .ns-reference-shell .ns-sidebar { padding-left: 25px; padding-right: 14px; }.ns-reference-shell .ns-index-item { gap: 12px; padding-left: 10px; }.ns-reference-shell .ns-sidebar-brand > strong { font-size: 27px; }.ns-reference-shell .ns-sidebar-brand > span { font-size: 24px; }.ns-reference-shell .ns-masthead { padding-left: 34px; }.ns-reference-shell .ns-masthead-tools { gap: 18px; margin-right: 65px; }.ns-reference-shell .ns-workspace-trigger { max-width: 215px; }.ns-reference-shell .ns-header-search kbd { margin-left: 6px; } }
 @media (max-width: 1100px) { .ns-reference-shell .ns-masthead-tools { gap: 13px; }.ns-reference-shell .ns-header-search span,.ns-reference-shell .ns-header-search kbd { display: none; }.ns-reference-shell .ns-masthead-current { font-size: 9px; } }
 @media (max-width: 1023px) { .ns-reference-shell .ns-masthead { height: 85px; padding: 10px 22px 0; }.ns-reference-shell .ns-masthead > .ns-workspace-signal { align-self: center; margin-top: 0; }.ns-reference-shell .ns-masthead-tools { margin-right: 0; }.ns-reference-shell .ns-masthead-current { display: none; }.ns-reference-shell .ns-sidebar { width: 100%; padding-top: 35px; }.ns-reference-shell .ns-sidebar-foot { margin-bottom: 35px; }.ns-reference-shell .ns-sidebar-brand { margin-bottom: 35px; }.ns-reference-shell .ns-mobile-menu { margin-left: 0; } }

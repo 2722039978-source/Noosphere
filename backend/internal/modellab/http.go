@@ -72,6 +72,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, manager *workspaces.Manager
 			}
 		})
 	}
+	s.registerDatasetRoutes(route)
 	route("POST /api/model-lab/discovery", func(w http.ResponseWriter, r *http.Request) error {
 		if e := modelhttp.Query(r); e != nil {
 			return e
@@ -211,6 +212,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, manager *workspaces.Manager
 			return identityError("PROVIDER_UNAVAILABLE", "runtime unavailable")
 		}
 		env, e := s.runtime.config.CollectEnvironment(r.Context())
+		environmentError := e
 		environmentAvailable := e == nil
 		if e != nil && (env.Hardware == nil || r.Context().Err() != nil) {
 			return identityError("PROVIDER_UNAVAILABLE", "environment unavailable")
@@ -228,14 +230,38 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, manager *workspaces.Manager
 		pre := map[string]any{"available": ready == nil && environmentAvailable, "budget": s.runtime.config.Budget}
 		if ready != nil {
 			pre["code"] = "RUNNER_UNAVAILABLE"
-		}
-		if !environmentAvailable {
+			pre["reason"] = "Trusted Go/WASI runner unavailable; configure model_lab.go_binary with the absolute path to a trusted Go executable and restart Noosphere."
+		} else if !environmentAvailable {
 			pre["code"] = "ENVIRONMENT_UNAVAILABLE"
+			pre["reason"] = environmentError.Error()
 		}
 		modelhttp.JSON(w, 200, map[string]any{"environment": env, "preflight": pre})
 		return nil
 	})
 	base := "/api/workspaces/{ws}"
+	route("POST "+base+"/evaluations/preparation", func(w http.ResponseWriter, r *http.Request) error {
+		if e := modelhttp.Query(r); e != nil {
+			return e
+		}
+		var spec EvaluationSpec
+		if e := modelhttp.Decode(w, r, &spec); e != nil {
+			return e
+		}
+		if spec.IdempotencyKey != "" {
+			return workspaces.ErrInvalid
+		}
+		for _, id := range []string{spec.StableRevisionID, spec.CandidateRevisionID, spec.ProfileID, spec.DatasetID, spec.WorkflowID} {
+			if id != "" && !modelhttp.ID(id) {
+				return workspaces.ErrInvalid
+			}
+		}
+		result, e := s.PrepareEvaluation(r.Context(), r.PathValue("ws"), spec)
+		if e != nil {
+			return e
+		}
+		modelhttp.JSON(w, 200, result)
+		return nil
+	})
 	route("POST "+base+"/evaluations", func(w http.ResponseWriter, r *http.Request) error {
 		if e := modelhttp.Query(r); e != nil {
 			return e
@@ -246,6 +272,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, manager *workspaces.Manager
 		}
 		var body struct {
 			Stable    string `json:"stable_revision_id"`
+			Mode      string `json:"evaluation_mode,omitempty"`
 			Candidate string `json:"candidate_revision_id"`
 			Profile   string `json:"profile_id"`
 			Dataset   string `json:"dataset_id,omitempty"`
@@ -264,7 +291,7 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, manager *workspaces.Manager
 				return workspaces.ErrInvalid
 			}
 		}
-		v, e := s.CreateEvaluation(r.Context(), r.PathValue("ws"), EvaluationSpec{StableRevisionID: body.Stable, CandidateRevisionID: body.Candidate, ProfileID: body.Profile, DatasetID: body.Dataset, WorkflowID: body.Workflow, IdempotencyKey: key})
+		v, e := s.CreateEvaluation(r.Context(), r.PathValue("ws"), EvaluationSpec{EvaluationMode: body.Mode, StableRevisionID: body.Stable, CandidateRevisionID: body.Candidate, ProfileID: body.Profile, DatasetID: body.Dataset, WorkflowID: body.Workflow, IdempotencyKey: key})
 		if e != nil {
 			return e
 		}
@@ -431,22 +458,43 @@ func (s *Service) handleCase(w http.ResponseWriter, r *http.Request) error {
 	if selected == nil {
 		return modelstore.ErrNotFound
 	}
-	c, n, e := modelhttp.Page(r)
-	if e != nil {
-		return e
-	}
-	ids, next, e := s.store.PageIDs(r.Context(), "attempts", ev.ID, selected.ID, c, n)
-	if e != nil {
-		return e
-	}
 	items := []modelstore.Attempt{}
-	refs := []string{selected.InputArtifact, selected.FixtureArtifact}
-	for _, id := range ids {
-		a, e := s.store.GetAttempt(r.Context(), id)
+	next := ""
+	reportID := r.URL.Query().Get("report_id")
+	if reportID != "" {
+		if e = modelhttp.Query(r, "report_id", "limit"); e != nil {
+			return e
+		}
+		if !modelhttp.ID(reportID) {
+			return workspaces.ErrInvalid
+		}
+		if _, e = modelhttp.Limit(r, 100); e != nil {
+			return e
+		}
+		items, e = s.store.ReportCaseAttempts(r.Context(), reportID, ev.ID, selected.ID)
 		if e != nil {
 			return e
 		}
-		items = append(items, a)
+	} else {
+		c, n, err := modelhttp.Page(r)
+		if err != nil {
+			return err
+		}
+		ids, cursor, err := s.store.PageIDs(r.Context(), "attempts", ev.ID, selected.ID, c, n)
+		if err != nil {
+			return err
+		}
+		next = cursor
+		for _, id := range ids {
+			a, err := s.store.GetAttempt(r.Context(), id)
+			if err != nil {
+				return err
+			}
+			items = append(items, a)
+		}
+	}
+	refs := []string{selected.InputArtifact, selected.FixtureArtifact}
+	for _, a := range items {
 		refs = append(refs, a.InputArtifact, a.OutputArtifact, a.Metrics.WarmupArtifact)
 		refs = append(refs, a.Result.EvidenceArtifacts...)
 	}
@@ -481,7 +529,7 @@ func (s *Service) handleCase(w http.ResponseWriter, r *http.Request) error {
 		}
 		artifacts = append(artifacts, v)
 	}
-	modelhttp.JSON(w, 200, map[string]any{"case": selected, "attempts": items, "artifacts": artifacts, "next_cursor": next})
+	modelhttp.JSON(w, 200, map[string]any{"case": selected, "attempts": items, "artifacts": artifacts, "next_cursor": next, "report_id": reportID})
 	return nil
 }
 

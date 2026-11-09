@@ -14,7 +14,7 @@ import (
 
 func init() {
 	Register("openai", NewOpenAI)
-	Register("openai_compatible", NewOpenAI)
+	Register("openai_compatible", NewLocalCompatible)
 	Register("ollama", NewOllama)
 	Register("deepseek", func(baseURL, apiKey string) (LLMProvider, error) {
 		provider, err := NewOpenAI(baseURL, apiKey)

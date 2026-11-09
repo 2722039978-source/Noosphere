@@ -15,9 +15,10 @@ export function sameOptions(a: Options, b: Options): boolean {
   const normalize = (v: Options) => JSON.stringify(Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).sort(([a], [b]) => a.localeCompare(b))));
   return normalize(a) === normalize(b);
 }
-export function validateSetup(stable: string, candidate: string, dataset: string, p: Options, budget?: LocalBudget): string {
-  if (!stable || !candidate) return '请先在 Model Hub 注册两个模型版本。';
-  if (stable === candidate) return '请选择两个不同的模型版本。';
+export function validateSetup(stable: string, candidate: string, dataset: string, p: Options, budget?: LocalBudget, mode: 'baseline' | 'compare' = 'compare'): string {
+  if (!stable || !candidate) return mode === 'baseline' ? '请先在 Model Hub 注册一个本地模型版本。' : '请先在 Model Hub 注册两个模型版本。';
+  if (mode === 'compare' && stable === candidate) return '请选择两个不同的模型版本。';
+  if (mode === 'baseline' && stable !== candidate) return '单模型基线须使用同一模型版本。';
   if (!dataset) return '测评集尚未就绪。';
   const ctx = Math.min(budget?.max_context ?? 8192, 8192), out = Math.min(budget?.max_output ?? 2048, 2048), seconds = Math.min(budget?.inference_timeout_ns ?? 120e9, 120e9) / 1e9;
   if (!Number.isInteger(p.num_ctx) || p.num_ctx < 1 || p.num_ctx > ctx) return `上下文预算必须为 1–${ctx} tokens。`;
@@ -32,7 +33,7 @@ export function validateSetup(stable: string, candidate: string, dataset: string
 export interface Proportion { successes: number; n: number; rate: number | null; lower_95: number | null; upper_95: number | null }
 export interface CategoryComparison { stable: Proportion; candidate: Proportion; pair_matrix: number[]; paired_complete: number; loss_rate: Proportion }
 export interface Comparison {
-  version: string; source: string; status: string; arms: Record<string, Proportion>; categories: Record<string, CategoryComparison>;
+  version: string; source: string; status: string; evaluation_mode?: 'baseline' | 'compare'; arms: Record<string, Proportion>; categories: Record<string, CategoryComparison>;
   loss_rate: Proportion; performance: { status: string; sample_count: number; planned_pairs: number; paired_median_ratio: Metric; reasons: string[]; warmup_calls: number };
   diagnostics: { case_id: string; arm: string; attempt_id: string; loading_protocol: string; warm_verified: boolean; [key: string]: unknown }[];
   metric_coverage: Record<string, Record<string, { planned: number; samples: number; missing: number; unit: string; missing_reasons: Record<string, number> }>>;

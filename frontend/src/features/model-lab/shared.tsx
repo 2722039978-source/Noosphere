@@ -19,6 +19,7 @@ export function LabError({ error, onRetry }: { error: unknown; onRetry?: () => v
   const e = asModelEngineeringError(error);
   return <div role="alert" className="ns-lab-error"><strong>{e.code || '连接或操作失败'}</strong><p>{e.message}</p>
     {e.details?.current_revision !== undefined && <p>当前服务端版本：{e.details.current_revision}，请刷新后重新决定。</p>}
+    {typeof e.details?.validation === 'string' && <p>校验原因：{e.details.validation}</p>}
     {e.details?.gates?.map((g, i) => <p key={i}>{g.id} · {g.status} · {g.reason}</p>)}
     {onRetry && <Button size="sm" variant="outline" onClick={onRetry}>重试同一请求</Button>}</div>;
 }

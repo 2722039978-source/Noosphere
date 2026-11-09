@@ -69,7 +69,37 @@ class ASTAnalyzer:
             "entities":  entities,
             "imports":   imports,
             "calls":     calls,
+            "trace_imports": self._trace_imports(root, source),
+            "trace_package": next((self._text(node.named_children[0], source)
+                                   for node in root.named_children if node.type == 'package_clause' and node.named_children), ''),
+            "trace_parse_error": root.has_error,
         }
+
+    @staticmethod
+    def _text(node, source):
+        return source[node.start_byte:node.end_byte].decode('utf8', errors='replace')
+
+    def _trace_imports(self, root, source):
+        result = []
+        for node in root.named_children:
+            if node.type not in ('import_statement', 'export_statement'):
+                continue
+            module = node.child_by_field_name('source')
+            if module is None or len(module.named_children) != 1 or module.named_children[0].type != 'string_fragment':
+                continue
+            bindings = {}
+            for clause in node.named_children:
+                for named in clause.named_children:
+                    if named.type != 'named_imports':
+                        continue
+                    for item in named.named_children:
+                        name = item.child_by_field_name('name')
+                        alias = item.child_by_field_name('alias')
+                        if name is not None:
+                            bindings[self._text(alias or name, source)] = self._text(name, source)
+            result.append({'path': self._text(module.named_children[0], source), 'line': node.start_point[0] + 1,
+                           'end_line': node.end_point[0] + 1, 'bindings': bindings})
+        return result
 
     def _extract_entities(self, node, source, lang, entities, depth=0):
         if depth > 300:

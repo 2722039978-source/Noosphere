@@ -2,6 +2,8 @@ import type { ChatSession } from './chat-store';
 
 export interface ChatSnapshot { sessions: ChatSession[]; activeId: string | null }
 
+export const automaticSessionTitle = (content: string) => content.replace(/\s+/gu, ' ').trim() || '新会话';
+
 export const sessionWorkspaceId = (session: ChatSession) => session.workspaceId ?? 'local';
 export const sessionsInWorkspace = (sessions: ChatSession[], workspaceId: string) => sessions.filter(session => sessionWorkspaceId(session) === workspaceId);
 export function activeWorkspaceSession(sessions: ChatSession[], activeId: string | null, workspaceId: string) {
@@ -30,8 +32,9 @@ export function validateChatSnapshot(value: unknown): ChatSnapshot {
       if (!message || typeof message.id !== 'string' || !message.id || messages.has(message.id) || !['user','assistant'].includes(message.role) || typeof message.content !== 'string' || !Number.isFinite(message.createdAt)) throw new Error('消息数据无效。');
       if (message.retrievalMode !== undefined && !['lexical', 'semantic'].includes(message.retrievalMode)) throw new Error('检索模式无效。');
       if (message.contextWarnings !== undefined && (!Array.isArray(message.contextWarnings) || message.contextWarnings.length > 8 || message.contextWarnings.some(w => typeof w !== 'string' || w.length > 8192))) throw new Error('引用提示格式无效。');
-      if (message.citations !== undefined && (!Array.isArray(message.citations) || message.citations.length > 8 || message.citations.some(c => {
-        if (!c || !['code', 'memory'].includes(c.kind)) return true;
+      if (message.citations !== undefined && (!Array.isArray(message.citations) || message.citations.length > 9 || message.citations.some(c => {
+        if (!c || !['code', 'memory', 'artifact'].includes(c.kind)) return true;
+        if (c.kind === 'artifact' && (typeof c.artifact_id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(c.artifact_id))) return true;
         for (const key of ['id', 'title', 'excerpt', 'workspace_id'] as const) if (typeof c[key] !== 'string' || c[key].length > 20000) return true;
         for (const key of ['file', 'source_hash', 'symbol', 'memory_id', 'project_id'] as const) if (c[key] !== undefined && (typeof c[key] !== 'string' || c[key]!.length > 20000)) return true;
         for (const key of ['start_line', 'end_line', 'revision'] as const) if (c[key] !== undefined && (!Number.isSafeInteger(c[key]) || c[key]! < 0)) return true;
@@ -44,7 +47,13 @@ export function validateChatSnapshot(value: unknown): ChatSnapshot {
       if (message.agentProgress !== undefined && (typeof message.agentProgress !== 'string' || message.agentProgress.length > 8192)) throw new Error('Agent 进度格式无效。');
     }
   }
-  return { sessions: state.sessions, activeId: state.activeId !== null && ids.has(state.activeId) ? state.activeId : state.sessions[0]?.id ?? null };
+  const sessions = state.sessions.map(session => {
+    const firstQuestion = session.messages.find(message => message.role === 'user')?.content;
+    if (!firstQuestion || session.title !== firstQuestion.slice(0, 24)) return session;
+    const title = automaticSessionTitle(firstQuestion);
+    return title === session.title ? session : { ...session, title };
+  });
+  return { sessions, activeId: state.activeId !== null && ids.has(state.activeId) ? state.activeId : state.sessions[0]?.id ?? null };
 }
 
 export function mergeChatBackup(current: ChatSnapshot, incoming: ChatSnapshot): ChatSnapshot {

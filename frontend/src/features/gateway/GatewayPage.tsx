@@ -18,6 +18,7 @@ import { useChatStore, useChatPersistence } from '@/features/chat/chat-store';
 import { activeWorkspaceSession } from '@/features/chat/chat-backup';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import './gateway-dialogs.css';
+import { ModelCapabilities } from '@/components/ModelCapabilities';
 
 
 /** Provider → 模块色 */
@@ -205,6 +206,7 @@ export function GatewayPage() {
                     <Badge variant={status.state === 'failed' ? 'err' : status.state === 'verified' ? 'ok' : status.state === 'running' || status.state === 'checking' ? 'info' : 'secondary'} className="text-xs">{status.label}</Badge>
                     <span className="text-xs text-text-3">{status.detail}</span>
                   </div>
+                  <ModelCapabilities model={m} />
                   <div className="ns-provider-actions"><Button variant="outline" size="sm" disabled={testing !== null || m.enabled === false} onClick={() => void test(m.id)}>{testing === m.id ? '连接测试中…' : '测试连接'}</Button><Button variant="ghost" size="sm" aria-haspopup="dialog" onClick={event => openForm(event.currentTarget, m)}>编辑配置</Button><Button variant="outline" size="sm" disabled={!persistenceReady || switching || !!selectionPending || sessionBusy || m.enabled === false || session?.modelId === m.id} onClick={() => void activate(m, 'session')}>{session?.modelId === m.id ? '当前使用' : switching ? '验证中…' : '使用'}</Button>{!m.is_default && <Button variant="ghost" size="sm" disabled={switching || !!selectionPending || m.enabled === false} onClick={() => void activate(m, 'global')}>设为全局默认</Button>}{workspaceDefault !== m.id && <Button variant="ghost" size="sm" disabled={switching || !!selectionPending || m.enabled === false} onClick={() => void activate(m, 'workspace')}>设为工作区默认</Button>}</div>
                   {checks[m.id] && <p role={checks[m.id].ok ? 'status' : 'alert'} className={checks[m.id].ok ? 'ns-result-status' : 'ns-form-error'}>{checks[m.id].message}</p>}
                 </Surface>

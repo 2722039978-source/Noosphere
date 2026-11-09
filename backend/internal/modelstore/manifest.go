@@ -60,8 +60,11 @@ func decodeManifestRecord(b []byte) (Manifest, error) {
 	return m, nil
 }
 func CanonicalManifest(m Manifest) ([]byte, string, error) {
-	if m.SchemaVersion != 1 || m.EncoderVersion != EncoderVersion || !validID(m.WorkspaceID) || !validID(m.WorkflowID) || !validID(m.Stable.ID) || !validID(m.Candidate.ID) || m.Stable.ID == m.Candidate.ID || !validID(m.Profile.ID) || !validID(m.Dataset.ID) || !validID(m.Environment.ID) || len(m.Dataset.Cases) == 0 {
+	if m.SchemaVersion != 1 || m.EncoderVersion != EncoderVersion || !validID(m.WorkspaceID) || !validID(m.WorkflowID) || !validID(m.Stable.ID) || !validID(m.Candidate.ID) || !validID(m.Profile.ID) || !validID(m.Dataset.ID) || !validID(m.Environment.ID) || len(m.Dataset.Cases) == 0 {
 		return nil, "", fmt.Errorf("%w: manifest identity/schema/cases", ErrInvalid)
+	}
+	if (m.EvaluationMode != "" && m.EvaluationMode != "compare" && m.EvaluationMode != "baseline") || (m.Stable.ID == m.Candidate.ID) != (m.EvaluationMode == "baseline") {
+		return nil, "", fmt.Errorf("%w: explicit baseline requires one model revision; comparison requires two", ErrInvalid)
 	}
 	if m.Source != "offline_real" && m.Source != "offline_fixture" {
 		return nil, "", fmt.Errorf("%w: evaluation provenance", ErrInvalid)

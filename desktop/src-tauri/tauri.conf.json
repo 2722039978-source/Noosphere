@@ -37,6 +37,7 @@
     "resources": {
       "bin/noosphere-backend.exe": "bin/noosphere-backend.exe",
       "codelens-python/": "codelens-python/",
+      "rea-runtime/": "rea-runtime/",
       "config.defaults.yaml": "config.defaults.yaml",
       "setup.bat": "setup.bat"
     },

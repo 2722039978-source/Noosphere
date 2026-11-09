@@ -29,6 +29,7 @@ type RuntimeConfig struct {
 	CollectEnvironment func(context.Context) (modelstore.EnvironmentSnapshot, error)
 }
 type EvaluationSpec struct {
+	EvaluationMode      string `json:"evaluation_mode,omitempty"`
 	StableRevisionID    string `json:"stable_revision_id"`
 	CandidateRevisionID string `json:"candidate_revision_id"`
 	ProfileID           string `json:"profile_id"`
@@ -50,13 +51,14 @@ type evaluationRuntime struct {
 	closeOnce        sync.Once
 	closeErr         error
 	// These package-private test seams always force fixture provenance.
-	fixture bool
-	build   func(context.Context, *Dataset, CaseRef) (FrozenContext, error)
-	verify  func(context.Context, modelstore.ModelRevision) error
-	begin   func(context.Context) (context.Context, func(), error)
-	infer   func(context.Context, string, providers.EvaluationRequest) (*providers.EvaluationResponse, error)
-	inspect func(context.Context, string, providers.EvaluationRequest) (providers.ModelResidencySnapshot, error)
-	release func(context.Context, string, providers.EvaluationRequest) (providers.ModelResidencySnapshot, error)
+	fixture   bool
+	build     func(context.Context, *Dataset, CaseRef) (FrozenContext, error)
+	verify    func(context.Context, modelstore.ModelRevision) error
+	begin     func(context.Context) (context.Context, func(), error)
+	infer     func(context.Context, string, providers.EvaluationRequest) (*providers.EvaluationResponse, error)
+	inspect   func(context.Context, string, providers.EvaluationRequest) (providers.ModelResidencySnapshot, error)
+	release   func(context.Context, string, providers.EvaluationRequest) (providers.ModelResidencySnapshot, error)
+	resources func(context.Context) (string, error)
 }
 type frozenInput struct {
 	SchemaVersion   int           `json:"schema_version"`
@@ -91,6 +93,7 @@ func (s *Service) ConfigureRuntime(c RuntimeConfig) error {
 	r.inspect = s.gateway.InspectEvaluationResidency
 	r.release = s.gateway.ReleaseEvaluationModel
 	r.verify = s.verifyModel
+	r.resources = resourceReadiness
 	s.runtime = r
 	return nil
 }
@@ -154,8 +157,15 @@ func (s *Service) publishSource(ctx context.Context, source string) (string, err
 	return a.ID, err
 }
 func normalizeSpec(spec EvaluationSpec) EvaluationSpec {
+	if spec.EvaluationMode == "compare" {
+		spec.EvaluationMode = ""
+	}
 	if spec.DatasetID == "" {
 		spec.DatasetID = DatasetID
+	} else if installed, err := LoadDataset(DatasetID); err == nil && spec.DatasetID == installed.Revision().ID {
+		// The catalogue exposes the immutable revision ID, while execution
+		// resolves the installed benchmark. Accept only that exact revision.
+		spec.DatasetID = installed.Revision().BenchmarkID
 	}
 	if spec.WorkflowID == "" {
 		spec.WorkflowID = "codelens.codetask.go.v1"
@@ -163,7 +173,11 @@ func normalizeSpec(spec EvaluationSpec) EvaluationSpec {
 	return spec
 }
 func sameSpec(e modelstore.Evaluation, spec EvaluationSpec) bool {
-	return e.Manifest.Stable.ID == spec.StableRevisionID && e.Manifest.Candidate.ID == spec.CandidateRevisionID && e.Manifest.Profile.ID == spec.ProfileID && e.Manifest.Dataset.BenchmarkID == spec.DatasetID && e.Manifest.WorkflowID == spec.WorkflowID
+	datasetID := e.Manifest.Dataset.BenchmarkID
+	if e.Manifest.Dataset.SourceRevisionID != "" {
+		datasetID = e.Manifest.Dataset.SourceRevisionID
+	}
+	return e.Manifest.EvaluationMode == spec.EvaluationMode && e.Manifest.Stable.ID == spec.StableRevisionID && e.Manifest.Candidate.ID == spec.CandidateRevisionID && e.Manifest.Profile.ID == spec.ProfileID && datasetID == spec.DatasetID && e.Manifest.WorkflowID == spec.WorkflowID
 }
 
 func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec EvaluationSpec) (modelstore.Evaluation, error) {
@@ -180,7 +194,7 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 		return empty, err
 	}
 	spec = normalizeSpec(spec)
-	if len(spec.IdempotencyKey) > 128 || len(spec.WorkflowID) > 128 {
+	if len(spec.IdempotencyKey) > 128 || spec.WorkflowID != DatasetWorkflowID {
 		return empty, modelstore.ErrInvalid
 	}
 	if _, err = r.config.Workspaces.Workspace(workspaceID); err != nil {
@@ -197,9 +211,14 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 			return empty, e
 		}
 	}
-	dataset, err := LoadDataset(spec.DatasetID)
+	dataset, err := s.resolveDataset(ctx, workspaceID, spec.DatasetID, false)
 	if err != nil {
 		return empty, err
+	}
+	if !r.fixture {
+		if _, err = r.resources(ctx); err != nil {
+			return empty, err
+		}
 	}
 	stable, err := s.GetModel(ctx, spec.StableRevisionID)
 	if err != nil {
@@ -209,7 +228,7 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 	if err != nil {
 		return empty, err
 	}
-	if stable.ID == candidate.ID {
+	if (spec.EvaluationMode != "" && spec.EvaluationMode != "baseline") || (stable.ID == candidate.ID) != (spec.EvaluationMode == "baseline") {
 		return empty, modelstore.ErrInvalid
 	}
 	for _, model := range []modelstore.ModelRevision{stable, candidate} {
@@ -282,9 +301,10 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 	revision.ContentHash = ""
 	raw, _ = json.Marshal(revision)
 	revision.ContentHash = digest(raw)
-	revision.ID = DatasetID + "." + revision.ContentHash[:24]
+	revision.ID = revision.BenchmarkID + "." + revision.ContentHash[:24]
 	manifest := modelstore.Manifest{SchemaVersion: 1, EncoderVersion: modelstore.EncoderVersion, WorkspaceID: workspaceID, WorkflowID: spec.WorkflowID, Source: s.source(), Stable: stable, Candidate: candidate, Profile: profile, Dataset: revision, Environment: env, MemoryMode: "not_applicable", ToolRegistryVersion: "not_applicable"}
 	key := spec.IdempotencyKey
+	manifest.EvaluationMode = spec.EvaluationMode
 	if key == "" {
 		key = id
 	}
@@ -346,7 +366,7 @@ func (s *Service) verifyModel(ctx context.Context, m modelstore.ModelRevision) e
 	if fingerprint != m.EndpointFingerprint {
 		return identityError("MODEL_DRIFT", "configured model source changed")
 	}
-	d, err := s.gateway.DiscoverEvaluationModels(ctx, m.GatewayModelID)
+	d, err := s.gateway.InspectEvaluationModels(ctx, m.GatewayModelID)
 	if err != nil {
 		return err
 	}
@@ -395,8 +415,10 @@ func (s *Service) readInput(ctx context.Context, d *Dataset, c modelstore.Case) 
 		return in, err
 	}
 	expected, _ := json.Marshal(e.Assertions)
+	audit, _ := json.Marshal(in.Case)
+	trustedAudit, _ := json.Marshal(e)
 	// Audit DTOs never replace authoritative dataset assertions.
-	if in.SchemaVersion != 1 || in.LoadingProtocol != LoadingProtocol || in.FaultySource != e.Faulty || !bytes.Equal(fixture, []byte(e.Faulty)) || c.FixtureHash != e.FixtureHash || c.Expected != string(expected) || in.Case.ID != c.ID || in.Case.CaseHash != "" {
+	if in.SchemaVersion != 1 || in.LoadingProtocol != LoadingProtocol || in.FaultySource != e.Faulty || !bytes.Equal(fixture, []byte(e.Faulty)) || c.FixtureHash != e.FixtureHash || c.Expected != string(expected) || in.Case.ID != c.ID || in.Case.CaseHash != "" || !bytes.Equal(audit, trustedAudit) {
 		return in, identityError("INSUFFICIENT_EVIDENCE", "frozen input differs from installed benchmark")
 	}
 	if in.Budget != s.runtime.config.Budget {

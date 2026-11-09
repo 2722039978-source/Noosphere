@@ -38,6 +38,13 @@ func responseMetrics(m modelstore.Metrics, response *providers.EvaluationRespons
 	m.PromptNS = reportedMetric(response.PromptEvalDurationNS, "ns")
 	m.DecodeNS = reportedMetric(response.EvalDurationNS, "ns")
 	m.Tokens = reportedMetric(response.EvalCount, "tokens")
+	if response.MetricSource != "" {
+		for _, metric := range []*modelstore.Metric{&m.LoadNS, &m.PromptNS, &m.DecodeNS, &m.Tokens} {
+			if metric.Value != nil {
+				metric.Source = response.MetricSource
+			}
+		}
+	}
 	return m
 }
 
@@ -122,7 +129,7 @@ func (s *Service) Execute(ctx context.Context, evaluationID, runID string, emit 
 			_ = s.store.InterruptEvaluation(persist, e.ID, runID, e.LeaseGeneration, code)
 		}
 	}()
-	dataset, err := LoadDataset(e.Manifest.Dataset.BenchmarkID)
+	dataset, err := s.frozenDataset(ctx, e)
 	if err != nil {
 		return err
 	}
@@ -198,7 +205,7 @@ func (s *Service) Execute(ctx context.Context, evaluationID, runID string, emit 
 				}
 			}
 			if emit != nil {
-				emit("evaluating", "CodeTaskBench case", map[string]any{"evaluation_id": e.ID, "case_id": c.ID, "arm": arm, "attempt_no": a.AttemptNo, "planned": 24, "completed": countCompleted(latest)})
+				emit("evaluating", "CodeTaskBench case", map[string]any{"evaluation_id": e.ID, "case_id": c.ID, "arm": arm, "attempt_no": a.AttemptNo, "planned": len(e.Manifest.Dataset.Cases) * 2, "completed": countCompleted(latest)})
 			}
 			var outcome modelstore.AttemptOutcome
 			if previous.OutputArtifact != "" && previous.Result.InferenceCompleted && !previous.Result.Truncated {
@@ -311,6 +318,11 @@ func fatalInference(err error) bool {
 func (s *Service) runArm(ctx context.Context, e modelstore.Evaluation, m modelstore.ModelRevision, in frozenInput, a modelstore.Attempt, scorer *Scorer, ref CaseRef) (out modelstore.AttemptOutcome, returned error) {
 	r := s.runtime
 	out = modelstore.AttemptOutcome{State: "running", Verdict: "not_scored", Metrics: emptyMetrics()}
+	persistent := m.Provider == "openai_compatible"
+	if persistent {
+		out.Metrics.LoadingProtocol = "persistent_local_v1"
+		out.Metrics.WarmupCost = unknownMetric("ns", "externally managed resident model; owned warmup is not applicable")
+	}
 	persist := func(v any, kind string) error {
 		p, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.config.Budget.CleanupTimeout)
 		defer cancel()
@@ -412,53 +424,55 @@ func (s *Service) runArm(ctx context.Context, e modelstore.Evaluation, m modelst
 		returned = errors.Join(returned, cleanupErr, closeErr)
 	}()
 	start := time.Now()
-	before, err := r.inspect(session, m.GatewayModelID, req)
-	err = sessionError(session, err)
-	if recordErr := persist(phase("initial_residency", &req, nil, &before, err, start), ""); recordErr != nil {
-		return fail(recordErr)
+	if !persistent {
+		before, err := r.inspect(session, m.GatewayModelID, req)
+		err = sessionError(session, err)
+		if recordErr := persist(phase("initial_residency", &req, nil, &before, err, start), ""); recordErr != nil {
+			return fail(recordErr)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		if before.TargetResident || len(before.Models) > 0 {
+			return fail(identityError("MODEL_BUSY", "preexisting model residency is shared or externally owned"))
+		}
+		warm := req
+		warm.Kind = "warmup"
+		warm.Messages = nil
+		warm.Options.MaxOutputTokens = new(int)
+		*warm.Options.MaxOutputTokens = 1
+		warm.Options.KeepAlive = "30s"
+		if err = persist(phase("planned_warmup", &warm, nil, nil, nil, time.Now()), ""); err != nil {
+			return fail(err)
+		}
+		owned = true
+		start = time.Now()
+		warmed, warmErr := r.infer(session, m.GatewayModelID, warm)
+		warmErr = sessionError(session, warmErr)
+		out.Metrics.WarmupCost = observedMetric(float64(time.Since(start)), "ns", "host_monotonic")
+		if err = persist(phase("warmup", &warm, warmed, nil, warmErr, start), "warmup"); err != nil {
+			return fail(err)
+		}
+		if warmErr != nil {
+			return fail(warmErr)
+		}
+		if warmed == nil {
+			return fail(identityError("INSUFFICIENT_EVIDENCE", "warmup terminal response missing"))
+		}
+		start = time.Now()
+		resident, err := r.inspect(session, m.GatewayModelID, req)
+		err = sessionError(session, err)
+		if recordErr := persist(phase("warm_residency", &req, nil, &resident, err, start), ""); recordErr != nil {
+			return fail(recordErr)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		if !resident.TargetResident {
+			return fail(identityError("INSUFFICIENT_EVIDENCE", "warm target digest was not observed resident"))
+		}
+		out.Metrics.WarmVerified = true
 	}
-	if err != nil {
-		return fail(err)
-	}
-	if before.TargetResident || len(before.Models) > 0 {
-		return fail(identityError("MODEL_BUSY", "preexisting model residency is shared or externally owned"))
-	}
-	warm := req
-	warm.Kind = "warmup"
-	warm.Messages = nil
-	warm.Options.MaxOutputTokens = new(int)
-	*warm.Options.MaxOutputTokens = 1
-	warm.Options.KeepAlive = "30s"
-	if err = persist(phase("planned_warmup", &warm, nil, nil, nil, time.Now()), ""); err != nil {
-		return fail(err)
-	}
-	owned = true
-	start = time.Now()
-	warmed, warmErr := r.infer(session, m.GatewayModelID, warm)
-	warmErr = sessionError(session, warmErr)
-	out.Metrics.WarmupCost = observedMetric(float64(time.Since(start)), "ns", "host_monotonic")
-	if err = persist(phase("warmup", &warm, warmed, nil, warmErr, start), "warmup"); err != nil {
-		return fail(err)
-	}
-	if warmErr != nil {
-		return fail(warmErr)
-	}
-	if warmed == nil {
-		return fail(identityError("INSUFFICIENT_EVIDENCE", "warmup terminal response missing"))
-	}
-	start = time.Now()
-	resident, err := r.inspect(session, m.GatewayModelID, req)
-	err = sessionError(session, err)
-	if recordErr := persist(phase("warm_residency", &req, nil, &resident, err, start), ""); recordErr != nil {
-		return fail(recordErr)
-	}
-	if err != nil {
-		return fail(err)
-	}
-	if !resident.TargetResident {
-		return fail(identityError("INSUFFICIENT_EVIDENCE", "warm target digest was not observed resident"))
-	}
-	out.Metrics.WarmVerified = true
 	start = time.Now()
 	response, inferErr := r.infer(session, m.GatewayModelID, req)
 	inferErr = sessionError(session, inferErr)
@@ -556,7 +570,7 @@ func (s *Service) score(ctx context.Context, scorer *Scorer, ref CaseRef, source
 
 func (s *Service) preflightFrozen(ctx context.Context, e modelstore.Evaluation, d *Dataset) error {
 	r := s.runtime
-	if e.Manifest.Source != s.source() || len(e.Manifest.Dataset.Cases) != 12 || e.Manifest.Dataset.ScorerVersion != ScorerVersion || e.Manifest.Dataset.RunnerVersion != d.Revision().RunnerVersion {
+	if e.Manifest.Source != s.source() || len(e.Manifest.Dataset.Cases) != len(d.Cases()) || e.Manifest.Dataset.ScorerVersion != ScorerVersion || e.Manifest.Dataset.RunnerVersion != d.Revision().RunnerVersion || e.Manifest.Dataset.PromptTemplateHash != d.Revision().PromptTemplateHash || e.Manifest.Dataset.ScorerHash != d.Revision().ScorerHash {
 		return identityError("INSUFFICIENT_EVIDENCE", "installed benchmark/scorer/runner differs from frozen evaluation")
 	}
 	current, err := r.config.CollectEnvironment(ctx)

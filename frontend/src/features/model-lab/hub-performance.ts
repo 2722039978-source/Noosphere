@@ -45,11 +45,13 @@ function matchingArm(evaluation: Evaluation, revision: ModelRevision): 'stable' 
 
 function generationMetric(value: unknown): value is Metric & { value: number; unit: 'tokens/s' } {
   return isRecord(value) && typeof value.value === 'number' && Number.isFinite(value.value) && value.value >= 0
-    && value.unit === 'tokens/s' && value.source === 'ollama_native_eval_count/eval_duration_ns'
+    && value.unit === 'tokens/s'
+    && (value.source === 'ollama_native_eval_count/eval_duration_ns'
+      || value.source === 'llamacpp_native_eval_count/eval_duration_ns')
     && value.quality === 'derived';
 }
 
-/** Read only the server's immutable, currently eligible selected-attempt report. */
+/** Read only immutable, complete, currently valid selected-attempt evidence. */
 export function readHubPerformance(
   evaluation: Evaluation,
   response: ModelEngineeringResponses['get_report'],
@@ -58,7 +60,14 @@ export function readHubPerformance(
   if (evaluation.status !== 'completed' || evaluation.manifest.source !== 'offline_real') return null;
   const arm = matchingArm(evaluation, revision);
   const { report, promotion_eligibility: eligibility } = response;
-  if (!arm || !eligibility.eligible || eligibility.reasons.length > 0 || !response.report_hash) return null;
+  // get_report verifies the saved hash and revalidates the current attempt set,
+  // artifacts and identities. A baseline's sole promotion restriction does not
+  // invalidate its measurements; every other server rejection stays blocking.
+  const baselineOnly = evaluation.manifest.evaluation_mode === 'baseline'
+    && sameRevision(evaluation.manifest.stable, evaluation.manifest.candidate)
+    && !eligibility.eligible && eligibility.reasons.length === 1
+    && eligibility.reasons[0] === 'BASELINE_NOT_COMPARISON';
+  if (!arm || (!baselineOnly && (!eligibility.eligible || eligibility.reasons.length > 0)) || !response.report_hash) return null;
   if (report.evaluation_id !== evaluation.id || report.manifest_hash !== evaluation.manifest_hash
     || !report.attempt_set_hash || report.counts.planned < 1 || report.counts.scored !== report.counts.planned) return null;
   const analysis = readComparison(report.analysis);
@@ -66,13 +75,14 @@ export function readHubPerformance(
     || !isRecord(report.analysis) || report.analysis.manifest_hash !== report.manifest_hash
     || report.analysis.attempt_set_hash !== report.attempt_set_hash) return null;
 
-  const selected = new Map(report.selected.filter(attempt => attempt.arm === arm && attempt.state === 'completed')
+  const selected = new Map(report.selected.filter(attempt => attempt.state === 'completed'
+    && sameRevision(evaluation.manifest[attempt.arm], revision))
     .map(attempt => [attempt.id, attempt]));
   const seen = new Set<string>();
   const samples: HubGenerationSample[] = [];
   for (const diagnostic of analysis.diagnostics) {
     const attempt = selected.get(diagnostic.attempt_id);
-    if (!attempt || diagnostic.arm !== arm || diagnostic.case_id !== attempt.case_id
+    if (!attempt || diagnostic.arm !== attempt.arm || diagnostic.case_id !== attempt.case_id
       || seen.has(attempt.id) || !generationMetric(diagnostic.tokens_per_second)) continue;
     seen.add(attempt.id);
     samples.push({
@@ -86,7 +96,9 @@ export function readHubPerformance(
   }
   // A deterministic saved sample keeps the card honest without inventing an aggregate.
   samples.sort((a, b) => a.caseID.localeCompare(b.caseID) || a.attemptID.localeCompare(b.attemptID));
-  const generation = samples[0];
+  // A baseline has independent attempts in both arms for the same revision.
+  // Count both rounds, while keeping the displayed sample in the primary arm.
+  const generation = samples.find(sample => selected.get(sample.attemptID)?.arm === arm) ?? samples[0];
   if (!generation) return null;
   return {
     reportID: report.id,
@@ -120,7 +132,7 @@ export async function loadHubPerformance(
   let cursor = '';
   do {
     checkCancelled(signal);
-    const page = await modelEngineering({ operation: 'list_evaluations', workspace_id: workspaceID, limit: 100, cursor });
+    const page = await modelEngineering({ operation: 'list_evaluations', workspace_id: workspaceID, limit: 100, ...(cursor ? { cursor } : {}) });
     checkCancelled(signal);
     candidates.push(...page.evaluations.filter(evaluation => evaluation.manifest.workspace_id === workspaceID
       && evaluation.status === 'completed' && evaluation.manifest.source === 'offline_real'

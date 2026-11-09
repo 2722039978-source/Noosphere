@@ -32,6 +32,19 @@ export interface DatasetRevision {
   id: string; benchmark_id: string; version: string; content_hash: string; scorer_version: string;
   runner_version?: string; codelens_version?: string; prompt_template_hash?: string; context_hash?: string;
   order_seed: number; license?: string; source?: string; cases: Case[];
+  kind?: 'builtin' | 'workspace_custom'; title?: string; description?: string; workspace_id?: string;
+  archived?: boolean; created_at?: string; workflow_id?: string; scoring_rule?: 'exact'; scorer_sha256?: string;
+  source_revision_id?: string; source_content_hash?: string;
+}
+export type GoTaskType = 'bool' | 'string' | 'int' | 'int64' | 'float64' | '[]bool' | '[]string' | '[]int' | '[]int64' | '[]float64';
+export interface DatasetAssertion { input: unknown; expected: unknown }
+export interface DatasetTask {
+  id: string; category: string; task: string; function: string; input_type: GoTaskType; output_type: GoTaskType;
+  faulty_source: string; assertions: DatasetAssertion[];
+}
+export interface DatasetDocument {
+  schema_version: 1; benchmark_id: string; version: string; title: string; description?: string;
+  source?: string; license?: string; scoring_rule: 'exact'; cases: DatasetTask[];
 }
 export interface Metric { value: number | null; unit: string; source: string; quality: string; missing_reason?: string }
 export interface EnvironmentSnapshot {
@@ -40,6 +53,7 @@ export interface EnvironmentSnapshot {
   driver?: string; vram: Metric; collector_version: string; toolchain_version?: string;
 }
 export interface Manifest {
+  evaluation_mode?: 'baseline' | 'compare';
   schema_version: number; encoder_version: string; workspace_id: string; workflow_id: string;
   source: 'offline_real' | 'offline_fixture'; parent_evaluation_id?: string;
   stable: ModelRevision; candidate: ModelRevision; profile: InferenceProfile; dataset: DatasetRevision;
@@ -117,6 +131,7 @@ export interface ArtifactContent {
   redacted?: boolean;
 }
 export interface EvaluationReference { evaluation_id: string; run_id: string; status: EvaluationStatus; revision: number }
+export interface EvaluationPreparation { ready: boolean; checked_at: string; checks: Array<{id: string; label: string; ready: boolean; code?: string; detail: string; action?: string}> }
 export interface SimulationReference { release_id: string; run_id: string; status: RunStatus }
 export interface ModelEngineeringError {
   message: string; status?: number; code?: string;
@@ -127,18 +142,23 @@ type Page = { cursor?: string; limit?: number };
 type Scope = { workspace_id: string };
 type Key = { idempotency_key: string };
 export type ModelEngineeringRequest =
+  | ({ operation: 'prepare_evaluation'; evaluation_mode: 'baseline' | 'compare'; stable_revision_id: string; candidate_revision_id: string; profile_id: string; dataset_id: string; workflow_id: string } & Scope)
   | { operation: 'discover'; gateway_model_id: string }
   | { operation: 'register_model'; gateway_model_id: string; discovered_identity_hash: string }
   | ({ operation: 'list_models' | 'list_profiles' } & Page)
-  | { operation: 'list_datasets' | 'list_policies' | 'environment' }
+  | { operation: 'list_policies' | 'environment' }
+  | ({ operation: 'list_datasets'; include_archived?: boolean } & Scope)
+  | ({ operation: 'create_dataset' } & ({ document: DatasetDocument; document_json?: never } | { document_json: string; document?: never }) & Scope)
+  | ({ operation: 'get_dataset'; id: string } & Scope)
+  | ({ operation: 'archive_dataset'; id: string; archived: boolean } & Scope)
   | { operation: 'create_profile'; requested: Options }
-  | ({ operation: 'create_evaluation'; stable_revision_id: string; candidate_revision_id: string; profile_id: string; dataset_id?: string; workflow_id?: string } & Scope & Key)
+  | ({ operation: 'create_evaluation'; evaluation_mode?: 'baseline' | 'compare'; stable_revision_id: string; candidate_revision_id: string; profile_id: string; dataset_id?: string; workflow_id?: string } & Scope & Key)
   | ({ operation: 'list_evaluations' | 'list_releases' } & Scope & Page)
   | ({ operation: 'get_evaluation'; id: string } & Scope & Page)
   | ({ operation: 'evaluation_command'; id: string; command: 'cancel' | 'resume'; expected_revision: number } & Scope & Key)
   | ({ operation: 'evaluation_command'; id: string; command: 'retry_case'; expected_revision: number; case_id: string; arm: 'stable' | 'candidate' } & Scope & Key)
   | ({ operation: 'get_report' | 'get_release'; id: string } & Scope)
-  | ({ operation: 'get_case'; evaluation_id: string; case_id: string } & Scope & Page)
+  | ({ operation: 'get_case'; evaluation_id: string; case_id: string; report_id?: string } & Scope & Page)
   | ({ operation: 'create_release'; mode: 'simulation'; workflow_id: string; report_id: string; policy_id?: 'simulation-demo-v1'; task_type_filter?: 'codetask_go' } & Scope & Key)
   | ({ operation: 'preview_release'; id: string; command: ReleaseCommand } & Scope)
   | ({ operation: 'release_command'; id: string; command: ReleaseCommand; expected_revision: number } & Scope & Key)
@@ -146,10 +166,14 @@ export type ModelEngineeringRequest =
   | ({ operation: 'release_events'; id: string; after?: number; limit?: number } & Scope);
 
 export interface ModelEngineeringResponses {
+  prepare_evaluation: EvaluationPreparation;
   discover: ModelDiscovery; register_model: ModelRevision; list_models: { models: ModelRevision[]; next_cursor: string };
   list_datasets: { datasets: DatasetRevision[] }; create_profile: InferenceProfile;
+  create_dataset: { revision: DatasetRevision; document: DatasetDocument; document_json?: string };
+  get_dataset: { revision: DatasetRevision; document: DatasetDocument; document_json?: string };
+  archive_dataset: { revision: DatasetRevision };
   list_profiles: { profiles: InferenceProfile[]; next_cursor: string };
-  list_policies: { policies: ReleasePolicy[] }; environment: { environment: EnvironmentSnapshot; preflight: { available: boolean; code?: string; budget?: { max_context: number; max_output: number; inference_timeout_ns: number; cleanup_timeout_ns: number } } };
+  list_policies: { policies: ReleasePolicy[] }; environment: { environment: EnvironmentSnapshot; preflight: { available: boolean; code?: string; reason?: string; budget?: { max_context: number; max_output: number; inference_timeout_ns: number; cleanup_timeout_ns: number } } };
   create_evaluation: EvaluationReference; list_evaluations: { evaluations: Evaluation[]; next_cursor: string };
   get_evaluation: { evaluation: Evaluation; attempts: AttemptSummary[]; progress: Counts; latest_report_id: string; next_cursor: string };
   evaluation_command: EvaluationReference;

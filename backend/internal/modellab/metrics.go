@@ -55,10 +55,10 @@ func diagnose(a modelstore.Attempt, read func(string) ([]byte, error)) AttemptDi
 	d.EngineTotalNS = unknownMetric("ns", "formal engine total duration evidence unavailable")
 	d.WarmupEngineTotalNS = unknownMetric("ns", "warmup engine total duration evidence unavailable")
 	d.WarmupLoadNS = unknownMetric("ns", "warmup engine load duration evidence unavailable")
-	if a.Result.InferenceCompleted && !a.Result.Truncated && knownMetric(m.Tokens, "tokens", false) && knownMetric(m.DecodeNS, "ns", true) && m.Tokens.Source == "ollama_native" && m.DecodeNS.Source == "ollama_native" {
+	if a.Result.InferenceCompleted && !a.Result.Truncated && knownMetric(m.Tokens, "tokens", false) && knownMetric(m.DecodeNS, "ns", true) && (m.Tokens.Source == "ollama_native" || m.Tokens.Source == "llamacpp_native") && m.DecodeNS.Source == m.Tokens.Source {
 		v := *m.Tokens.Value / (*m.DecodeNS.Value / 1e9)
 		if finite(v) {
-			d.TokensPerSecond = modelstore.Metric{Value: modelstore.Float(v), Unit: "tokens/s", Source: "ollama_native_eval_count/eval_duration_ns", Quality: "derived"}
+			d.TokensPerSecond = modelstore.Metric{Value: modelstore.Float(v), Unit: "tokens/s", Source: m.Tokens.Source + "_eval_count/eval_duration_ns", Quality: "derived"}
 		}
 	}
 	if read == nil {

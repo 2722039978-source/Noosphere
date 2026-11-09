@@ -164,10 +164,12 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		maxT = model.MaxTokens
 	}
 	finishInference := g.countInference(false)
-	ch, err := provider.ChatStream(ctx, model.ModelName, pMsgs, providers.ChatOptions{
+	streamCtx, stopStream := context.WithCancel(ctx)
+	ch, err := provider.ChatStream(streamCtx, model.ModelName, pMsgs, providers.ChatOptions{
 		SystemPrompt: body.SystemPrompt, Temperature: temp, MaxTokens: maxT,
 	})
 	if err != nil {
+		stopStream()
 		finishInference()
 		callErr = err
 		if ctx.Err() != nil {
@@ -178,10 +180,9 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// Channel close is the provider API's observable producer termination. Cancel
-	// and drain on every consumer exit before freeing the inference reservation.
+	// 关闭生产者并等待通道结束后释放推理额度，任务状态保留原始请求结果。
 	defer func() {
-		cancel()
+		stopStream()
 		for range ch {
 		}
 		finishInference()

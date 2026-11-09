@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createIndexedChatStorage } from "./indexed-chat-storage";
-import { parseChatBackup, mergeChatBackup, validateChatSnapshot, sessionWorkspaceId, activeWorkspaceSession } from "./chat-backup";
+import { parseChatBackup, mergeChatBackup, validateChatSnapshot, sessionWorkspaceId, automaticSessionTitle } from "./chat-backup";
+import { chooseWorkspaceSession } from './workspace-recency';
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { api, errMessage, type ContextCitation } from "@/lib/api";
 
@@ -45,6 +46,7 @@ interface ChatState {
   newSession: () => string;
   removeSession: (id: string) => void;
   setActive: (id: string) => void;
+  restoreWorkspaceSession: (workspaceId: string) => void;
   modelSelection: { sessionId: string; workspaceId: string } | null;
   modelSelectionError: string | null;
   setModel: (modelId: string) => Promise<boolean>;
@@ -116,10 +118,11 @@ export const useChatStore = create<ChatState>()(
 
       newSession: () => {
         if (!useChatPersistence.getState().ready) return '';
+        const workspace = useWorkspaceStore.getState();
         const id = uid();
         const s: ChatSession = {
           id,
-          workspaceId: useWorkspaceStore.getState().activeId,
+          workspaceId: workspace.activeId,
           title: "新会话",
           messages: [],
           modelId: "",
@@ -127,23 +130,37 @@ export const useChatStore = create<ChatState>()(
           updatedAt: Date.now(),
         };
         set((st) => ({ sessions: [s, ...st.sessions], activeId: id }));
+        workspace.rememberChat(workspace.activeId, id);
         flushChatPersistence();
         return id;
       },
 
       removeSession: (id) => {
-        set((st) => {
-          const sessions = st.sessions.filter((s) => s.id !== id);
-          const activeId =
-            st.activeId === id ? (activeWorkspaceSession(sessions, null, useWorkspaceStore.getState().activeId)?.id ?? null) : st.activeId;
-          return { sessions, activeId };
-        });
+        const removed = get().sessions.find(session => session.id === id);
+        if (!removed) return;
+        const workspace = useWorkspaceStore.getState();
+        const workspaceId = sessionWorkspaceId(removed);
+        if (workspace.lastChatByWorkspace[workspaceId] === id) workspace.rememberChat(workspaceId, null);
+        set(state => ({ sessions: state.sessions.filter(session => session.id !== id) }));
+        if (get().activeId === id) get().restoreWorkspaceSession(workspace.activeId);
         flushChatPersistence();
       },
 
       setActive: (activeId) => {
         const session = get().sessions.find(item => item.id === activeId);
-        if (session && sessionWorkspaceId(session) === useWorkspaceStore.getState().activeId) set({ activeId });
+        const workspace = useWorkspaceStore.getState();
+        if (!session || sessionWorkspaceId(session) !== workspace.activeId) return;
+        if (get().activeId !== activeId) set({ activeId });
+        workspace.rememberChat(workspace.activeId, activeId);
+      },
+
+      restoreWorkspaceSession: workspaceId => {
+        const workspace = useWorkspaceStore.getState();
+        if (workspace.activeId !== workspaceId || !useChatPersistence.getState().ready) return;
+        const { activeId, sessions } = get();
+        const restored = chooseWorkspaceSession(sessions, workspaceId, workspace.lastChatByWorkspace[workspaceId] ?? null, activeId)?.id ?? null;
+        if (restored !== activeId) set({ activeId: restored });
+        workspace.rememberChat(workspaceId, restored);
       },
 
       setModel: async (modelId) => {
@@ -198,7 +215,7 @@ export const useChatStore = create<ChatState>()(
                   ...s,
                   title:
                     s.title === "新会话" && msg.role === "user"
-                      ? msg.content.slice(0, 24) || "新会话"
+                      ? automaticSessionTitle(msg.content)
                       : s.title,
                   messages: [...s.messages, msg],
                   updatedAt: Date.now(),

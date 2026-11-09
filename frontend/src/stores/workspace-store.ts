@@ -11,10 +11,13 @@ export type WorkspaceInput = Partial<Workspace> & Pick<Workspace, 'name' | 'proj
 
 interface WorkspaceState {
   activeId: string;
+  recentProjectIds: string[];
+  lastChatByWorkspace: Record<string, string>;
   workspaces: Workspace[];
   hydrated: boolean;
   refresh: () => Promise<void>;
   select: (id: string) => void;
+  rememberChat: (workspaceId: string, sessionId: string | null) => void;
   save: (input: WorkspaceInput) => Promise<Workspace>;
 }
 
@@ -27,6 +30,8 @@ let refreshInFlight: Promise<void> | null = null;
 
 export const useWorkspaceStore = create<WorkspaceState>()(persist((set, get) => ({
   activeId: 'local',
+  recentProjectIds: [],
+  lastChatByWorkspace: {},
   workspaces: [LOCAL_WORKSPACE],
   hydrated: false,
   refresh: () => {
@@ -50,8 +55,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(persist((set, get) => 
   select: id => {
     const workspace = get().workspaces.find(item => item.id === id);
     if (!workspace) return;
-    set({ activeId: id });
+    set(state => ({ activeId: id, recentProjectIds: [id, ...state.recentProjectIds.filter(recent => recent !== id)] }));
     syncProject(workspace);
+  },
+  rememberChat: (workspaceId, sessionId) => {
+    const existing = get().lastChatByWorkspace;
+    if ((existing[workspaceId] ?? null) === sessionId) return;
+    const next = { ...existing };
+    if (sessionId) next[workspaceId] = sessionId;
+    else delete next[workspaceId];
+    set({ lastChatByWorkspace: next });
   },
   save: async input => {
     const workspace = await api.saveWorkspace(input);
@@ -63,5 +76,5 @@ export const useWorkspaceStore = create<WorkspaceState>()(persist((set, get) => 
   },
 }), {
   name: 'noosphere-workspace-v1',
-  partialize: ({ activeId }) => ({ activeId }),
+  partialize: ({ activeId, recentProjectIds, lastChatByWorkspace }) => ({ activeId, recentProjectIds, lastChatByWorkspace }),
 }));

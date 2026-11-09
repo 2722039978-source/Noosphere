@@ -23,6 +23,7 @@ type EvaluationOptions struct {
 }
 
 type ModelIdentity struct {
+	Provider            string   `json:"provider,omitempty"`
 	Name                string   `json:"name"`
 	Digest              string   `json:"digest"`
 	EngineVersion       string   `json:"engine_version"`
@@ -59,6 +60,7 @@ type EvaluationRequest struct {
 }
 
 type EvaluationResponse struct {
+	MetricSource         string            `json:"metric_source,omitempty"`
 	Output               string            `json:"output"`
 	Thinking             string            `json:"thinking"`
 	DoneReason           string            `json:"done_reason"`

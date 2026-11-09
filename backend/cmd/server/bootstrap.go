@@ -79,11 +79,11 @@ func bootstrap(cfg *config.AppConfig) *App {
 		Mux:       mux,
 	}
 	app.startupCtx, app.startupCancel = context.WithCancel(context.Background())
-	initCodeLens(cfg, lc, mux, &app.CodeLens, eng, app)
 	dataDir := cfg.App.DataDir
 	if dataDir == "" {
 		dataDir = filepath.Dir(cfg.Modules.Nebula.DataDir)
 	}
+	initCodeLens(cfg, lc, mux, &app.CodeLens, eng, app, dataDir)
 	manager, err := workspaces.Open(filepath.Join(dataDir, "workspace.sqlite"))
 	if err != nil {
 		lc.SetError("workspaces", err)
@@ -98,7 +98,21 @@ func bootstrap(cfg *config.AppConfig) *App {
 		gw.SetWorkspaceManager(manager)
 		manager.RegisterRoutes(mux)
 		knowledgeService := knowledge.New(manager, eng)
+		if cfg.Modules.CodeLens.Enabled {
+			knowledgeService.SetSourceTrace(app.traceCodeLens, func(ctx context.Context, ws workspaces.Workspace, location codelens.TraceLocation) (string, error) {
+				view, err := agent.ReadProjectSource(ctx, ws, location.File, location.StartLine, min(location.EndLine, location.StartLine+20), location.SourceHash)
+				if err != nil {
+					return "", err
+				}
+				if !view.MatchesVersion {
+					return "", knowledge.ErrConflict
+				}
+				return view.Excerpt, nil
+			})
+		}
 		knowledgeService.RegisterRoutes(mux)
+		app.registerCodeLensSources()
+		codelens.NewArtifactAnalyzer(manager, dataDir, os.Getenv("NOOSPHERE_REA_RUNTIME")).RegisterRoutes(mux)
 		actions, actionErr := agent.OpenActions(filepath.Join(dataDir, "agent-actions"), manager, agent.NewNativeExecutor(cfg.Modules.CodeLens.PythonPath, cfg.Modules.DevOps.Enabled))
 		if actionErr != nil {
 			lc.SetError("agent_actions", actionErr)
@@ -210,19 +224,29 @@ func initDevOps(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux, e
 	lc.SetState("devops", core.StateRunning)
 }
 
-func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux, clPtr *atomic.Pointer[codelens.Adapter], eng *engine.Engine, app *App) {
+func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux, clPtr *atomic.Pointer[codelens.Adapter], eng *engine.Engine, app *App, dataDir string) {
 	if !cfg.Modules.CodeLens.Enabled {
 		return
 	}
 
 	lc.SetState("codelens", core.StateStarting)
+	startupDone := make(chan struct{})
 
-	// Register lazy proxy route immediately — returns 404 until the Python
-	// worker is ready. Server startup is never blocked by Python detection.
+	// 索引任务等待 Python 启动，其余请求可以立即读取服务状态。
 	mux.HandleFunc("/api/v1/codelens/", func(w http.ResponseWriter, r *http.Request) {
 		cl := clPtr.Load()
+		if cl == nil && r.Method == http.MethodPost && r.URL.Path == "/api/v1/codelens/index" {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-startupDone:
+				cl = clPtr.Load()
+			}
+		}
 		if cl == nil || cl.Proxy() == nil {
-			http.NotFound(w, r)
+			problem := errors.New(errors.ErrUnavailable, errors.CatCodeLens, "CodeLens 源码服务未就绪，请检查 Python 依赖与服务状态")
+			problem.HTTPStatus = http.StatusServiceUnavailable
+			errors.WriteHTTP(w, r, problem)
 			return
 		}
 		cl.Proxy().ServeHTTP(w, r)
@@ -234,14 +258,22 @@ func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux,
 	scriptCandidates, err := resolveCodeLensScripts(os.Getenv("NOOSPHERE_CODELENS_SCRIPT"), workingDir, executable)
 	if err != nil {
 		lc.SetError("codelens", err)
+		close(startupDone)
 		return
 	}
 	pythonCmds := resolveCodeLensPython(cfg.Modules.CodeLens.PythonPath, scriptCandidates)
+	traceDir, err := filepath.Abs(filepath.Join(dataDir, "codelens-source", "trace-v1"))
+	if err != nil {
+		lc.SetError("codelens", err)
+		close(startupDone)
+		return
+	}
 
 	// Detect Python in background — CodeLens comes online when found.
 	app.startupWG.Add(1)
 	go func() {
 		defer app.startupWG.Done()
+		defer close(startupDone)
 		var lastError error
 		for _, pyCmd := range pythonCmds {
 			for _, sp := range scriptCandidates {
@@ -249,6 +281,7 @@ func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux,
 					return
 				}
 				clAdapter := codelens.NewAdapter(append([]string{}, pyCmd...), sp, cfg.Modules.CodeLens.Port)
+				clAdapter.TraceDirectory = traceDir
 				clAdapter.ModifyResponse = codelens.PersistIndexResponse(eng)
 				lastError = clAdapter.Start()
 				if lastError == nil {
@@ -262,6 +295,17 @@ func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux,
 					app.startupMu.Unlock()
 					lc.SetState("codelens", core.StateRunning)
 					log.Printf("[codelens] worker ready: %v %s", pyCmd, sp)
+					app.startupWG.Add(1)
+					go func() {
+						defer app.startupWG.Done()
+						workerErr := clAdapter.WaitForExit(app.startupCtx)
+						app.startupMu.Lock()
+						defer app.startupMu.Unlock()
+						if app.startupCtx.Err() == nil {
+							clPtr.CompareAndSwap(clAdapter, nil)
+							lc.SetError("codelens", workerErr)
+						}
+					}()
 					return
 				}
 				log.Printf("[codelens] retry failed: %v %s: %v", pyCmd, sp, lastError)

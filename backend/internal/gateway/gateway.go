@@ -243,11 +243,19 @@ func (g *Gateway) HandleHealth(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) HandleListModels(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	g.mu.RLock()
-	defer g.mu.RUnlock()
+	models := append([]ModelConfig(nil), g.config.Models...)
+	defaultModel := g.config.DefaultModel
+	g.mu.RUnlock()
+	views := make([]modelWithCapabilities, 0, len(models))
+	for _, model := range models {
+		capabilities := connectionCapabilities(model)
+		model.APIKey = ""
+		views = append(views, modelWithCapabilities{ModelConfig: model, Capabilities: capabilities})
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"models":        maskModels(g.config.Models),
-		"default_model": g.config.DefaultModel,
-		"count":         len(g.config.Models),
+		"models":        views,
+		"default_model": defaultModel,
+		"count":         len(views),
 	})
 }
 
@@ -550,11 +558,7 @@ func (g *Gateway) getOrCreateProvider(model *ModelConfig) (providers.LLMProvider
 		return p, nil
 	}
 
-	factory := providers.Get(model.Provider)
-	if factory == nil {
-		// Fallback to OpenAI-compatible for unknown providers
-		factory = providers.Get("openai_compatible")
-	}
+	factory, _ := chatProviderFactory(model.Provider)
 	if factory == nil {
 		return nil, fmt.Errorf("no provider factory for: %s", model.Provider)
 	}

@@ -41,17 +41,19 @@ qa-output/
 # Tauri resources staged by scripts/common.ps1 and local runtime data
 desktop/src-tauri/bin/
 desktop/src-tauri/codelens-python/
+desktop/src-tauri/rea-runtime/
 desktop/src-tauri/config.yaml
 desktop/src-tauri/config.defaults.yaml
 desktop/src-tauri/setup.bat
 desktop/src-tauri/data/
 desktop/src-tauri/logs/
 
-# Keep only the root project introduction on GitHub
+# 公开项目介绍和使用限制
 *.md
 *.MD
 *.markdown
 !/README.md
+!/LIMITATIONS.md
 
 # Local reference checkout and personal planning exports
 /RhineLabUI/
@@ -82,7 +84,7 @@ playwright-report/
 test-results/
 coverage/
 
-# Development tests and fixtures remain local, outside the public source tree.
+# 开发测试保留在本地，公开四个核心测试文件
 **/tests/
 **/testdata/
 **/fixtures/
@@ -92,8 +94,20 @@ test_*.py
 *.spec.*
 /scripts/test-*
 backend/python/codelens/requirements-dev.txt
+!/backend/internal/evalrunner/public_validation_test.go
+!/backend/internal/gateway/public_selection_test.go
+!/backend/internal/modelstore/public_versions_test.go
+!/backend/internal/modellab/public_report_test.go
 
-# Local promotional videos are not part of the public repository.
+# 本地视频和设计过程记录
 /video/
 /videos/
 /vidio/
+/frontend/public/assets/model-archive-art.txt
+/frontend/public/assets/workspace-architecture.txt
+
+# 桌面构建使用的图标
+/desktop/src-tauri/icons/*
+!/desktop/src-tauri/icons/32x32.png
+!/desktop/src-tauri/icons/128x128.png
+!/desktop/src-tauri/icons/icon.ico

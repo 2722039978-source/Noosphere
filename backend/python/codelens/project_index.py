@@ -5,12 +5,13 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 from ast_parser import LANGUAGES, get_analyzer
+from source_trace import save_snapshot, trace_snapshot
 from symbol_chunks import symbol_chunks
 
 GRAPH_CACHE = {}
 PARSE_CACHE = {}
 INDEX_LOCK = threading.RLock()
-EXCLUDES = {'.git', 'node_modules', '__pycache__', 'target', 'dist', '.next', 'vendor', '.local', '.venv', 'venv', '.tmp-edge-profile'}
+EXCLUDES = {'node_modules', '__pycache__', 'target', 'dist', 'vendor', 'venv', 'build', 'release', 'bin', 'obj', 'qa-output'}
 MAX_FILE_BYTES = 1_000_000
 MAX_PROJECT_BYTES = 30_000_000
 MAX_FILES = 5000
@@ -51,11 +52,11 @@ def source_files(root, excluded=(), cancelled=None):
     count = 0
     for directory, dirs, files in os.walk(root, followlinks=False):
         check_cancelled(cancelled)
-        dirs[:] = sorted(d for d in dirs if d not in EXCLUDES | set(excluded) and not (Path(directory) / d).is_symlink() and not getattr(Path(directory) / d, 'is_junction', lambda: False)())
+        dirs[:] = sorted(d for d in dirs if d not in excluded and allowed_source_name(d) and not (Path(directory) / d).is_symlink() and not getattr(Path(directory) / d, 'is_junction', lambda: False)())
         for name in sorted(files):
             check_cancelled(cancelled)
             path = Path(directory) / name
-            if path.suffix.lower() not in LANGUAGES or path.is_symlink():
+            if path.suffix.lower() not in LANGUAGES or not allowed_source_name(name) or path.is_symlink():
                 continue
             path = project_file(root, str(path))
             total += path.stat().st_size
@@ -63,6 +64,10 @@ def source_files(root, excluded=(), cancelled=None):
             if total > MAX_PROJECT_BYTES or count > MAX_FILES:
                 raise ValueError('project exceeds index limits (5000 files / 30 MB); exclude generated folders')
             yield path
+
+def allowed_source_name(name):
+    name = name.casefold()
+    return not (name.startswith('.') or name in EXCLUDES or 'credential' in name or 'secret' in name)
 
 def build_index(root, excluded=(), cancelled=None):
     with index_lock(cancelled):
@@ -124,8 +129,10 @@ def build_index(root, excluded=(), cancelled=None):
             check_cancelled(cancelled)
             chunks.extend(symbol_chunks(rel, sources[rel], parsed, result_graph, lambda: check_cancelled(cancelled)))
         revision = hashlib.sha256('\n'.join(f'{rel}:{fresh[rel][0]}' for rel in sorted(fresh)).encode()).hexdigest()
+        trace = trace_snapshot(fresh, result_graph, revision, lambda: check_cancelled(cancelled))
+        save_snapshot(project_id(root), trace, lambda: check_cancelled(cancelled))
         check_cancelled(cancelled)
-        GRAPH_CACHE[str(root)] = {'graph': result_graph, 'files': entity_files, 'names': names}
+        GRAPH_CACHE[str(root)] = {'graph': result_graph, 'files': entity_files, 'names': names, 'trace': trace}
         PARSE_CACHE[str(root)] = fresh
         while len(PARSE_CACHE) > 8:
             oldest = next(iter(PARSE_CACHE)); PARSE_CACHE.pop(oldest); GRAPH_CACHE.pop(oldest, None)

@@ -77,6 +77,9 @@ func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowl
 			}
 		}
 		registry := agent.NewRegistry(ws, lookup, system)
+		if knowledgeService != nil && ws.ProjectPath != "" && knowledgeService.TraceAvailable() {
+			registry.WithTrace(knowledgeService.Trace)
+		}
 		if args.ReviewedActions {
 			if len(actionStores) == 0 || actionStores[0] == nil {
 				return nil, fmt.Errorf("操作服务不可用")
@@ -87,7 +90,7 @@ func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowl
 		if args.ReviewedActions {
 			modeLabel = "Agent 操作提案模式已启动，执行前需确认"
 		}
-		emit("agent_started", modeLabel, map[string]any{"model_id": model.ID, "workspace_id": ws.ID, "max_model_calls": 6, "max_tool_calls": 12, "timeout_seconds": 120})
+		emit("agent_started", modeLabel, map[string]any{"model_id": model.ID, "workspace_id": ws.ID, "max_model_calls": 6, "max_tool_calls": 12, "timeout_seconds": int(agent.RunTimeout.Seconds()), "model_timeout_seconds": int(agent.ModelTurnTimeout.Seconds())})
 		result, err := agent.Run(ctx, args.Goal, registry, func(ctx context.Context, messages []providers.ToolMessage, definitions []providers.ToolDefinition) (*providers.ToolResponse, error) {
 			return gw.ChatTools(ctx, model, ws.ID, messages, definitions)
 		}, emit, validate)

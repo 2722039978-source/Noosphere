@@ -26,6 +26,7 @@ pub(crate) fn ensure_backend_ready() -> Result<(), ApiError> {
 pub(crate) struct RuntimePaths {
     backend: PathBuf,
     codelens: PathBuf,
+    rea: Option<PathBuf>,
     data_dir: PathBuf,
     config: PathBuf,
 }
@@ -66,6 +67,8 @@ impl RuntimePaths {
         .ok_or("未找到 bin/noosphere-backend.exe，请使用完整安装包或便携包")?;
         let codelens = find_resource(&roots, &["codelens-python/main.py"])
             .ok_or("未找到 codelens-python/main.py，请使用完整安装包或便携包")?;
+        let rea = find_resource(&roots, &["rea-runtime/node.exe"])
+            .and_then(|node| node.parent().map(Path::to_path_buf));
         let data_dir = choose_data_dir(exe_dir, app_data, override_dir)?;
         fs::create_dir_all(&data_dir)
             .map_err(|e| format!("无法创建数据目录 {}: {e}", data_dir.display()))?;
@@ -78,6 +81,7 @@ impl RuntimePaths {
         Ok(Self {
             backend,
             codelens,
+            rea,
             data_dir,
             config,
         })
@@ -390,11 +394,15 @@ impl Host for RealHost {
             .arg(&paths.config)
             .current_dir(&paths.data_dir)
             .env("NOOSPHERE_CODELENS_SCRIPT", &paths.codelens)
+            .env_remove("NOOSPHERE_REA_RUNTIME")
             .env("NOOSPHERE_BACKEND_INSTANCE", instance)
             .env("NOOSPHERE_BACKEND_TOKEN", crate::local_auth::token()?)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        if let Some(rea) = &paths.rea {
+            command.env("NOOSPHERE_REA_RUNTIME", rea);
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -688,6 +696,7 @@ mod tests {
             paths: Some(RuntimePaths {
                 backend: PathBuf::new(),
                 codelens: PathBuf::new(),
+                rea: None,
                 data_dir: PathBuf::new(),
                 config: PathBuf::new(),
             }),

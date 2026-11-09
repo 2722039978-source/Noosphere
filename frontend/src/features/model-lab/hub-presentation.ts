@@ -1,6 +1,7 @@
 import type { ModelConfig } from '@/lib/api';
 import type { ModelRevision } from '@/lib/model-engineering-types';
 import { resolveModelIdentity } from './model-identity';
+import { capabilityFor } from '@/lib/model-capabilities';
 
 export type DeploymentFilter = 'all' | 'local' | 'api';
 export function primaryHubModel(models: ModelConfig[], workspaceDefault = '') {
@@ -19,3 +20,8 @@ export function matchingRevision(model: ModelConfig, revisions: ModelRevision[])
   return revisions.find(revision => revision.gateway_model_id === model.id && revision.provider === model.provider && revision.model_name === model.model_name);
 }
 export function modelChatDestination(model: ModelConfig) { return `/chat?model=${encodeURIComponent(model.id)}`; }
+
+/** Discovery eligibility is confirmed by the server; a display label cannot grant local access. */
+export function canDiscoverModel(model: ModelConfig): boolean {
+  return model.enabled !== false && capabilityFor(model, 'native_evaluation')?.available === true;
+}

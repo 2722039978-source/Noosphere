@@ -58,6 +58,16 @@ export interface ModelConfig {
   enabled?: boolean | null;
   is_default?: boolean | null;
   api_key?: string | null;
+  capabilities?: ModelCapabilities | null;
+}
+
+export interface Capability {
+  supported: boolean; available: boolean; code: string; reason: string;
+  verification: 'not_checked' | 'requires_discovery' | 'not_applicable';
+}
+export interface ModelCapabilities {
+  schema_version: number; source: string;
+  chat: Capability; agent_tools: Capability; native_evaluation: Capability;
 }
 
 export interface ModelsResponse {
@@ -174,9 +184,51 @@ export interface KnowledgeMemory {
   valid_until?: string; supersedes?: string; supersedes_revision?: number; superseded_by?: string; inactive_reason?: string;
 }
 export interface ContextCitation {
-  id: string; kind: 'code' | 'memory'; title: string; excerpt: string; workspace_id: string;
+  id: string; kind: 'code' | 'memory' | 'artifact'; title: string; excerpt: string; workspace_id: string;
   project_id?: string; file?: string; start_line?: number; end_line?: number;
-  source_hash?: string; symbol?: string; memory_id?: string; revision?: number;
+  source_hash?: string; symbol?: string; memory_id?: string; revision?: number; artifact_id?: string;
+}
+
+export interface SourceLocation {
+  symbol?: string;
+  file: string;
+  start_line: number;
+  end_line: number;
+  source_hash?: string;
+}
+
+export interface SourceExcerpt extends SourceLocation {
+  matches_version: boolean;
+  excerpt?: string;
+}
+
+export interface ProjectSourceSearch {
+  results: (SourceLocation & { excerpt: string })[] | null;
+  partial: boolean;
+}
+
+export interface SourceTrace {
+  revision: string;
+  matches: SourceLocation[];
+  relations: {
+    kind: string;
+    source: SourceLocation;
+    target?: SourceLocation;
+    candidates?: SourceLocation[];
+    status: 'resolved' | 'candidate' | 'unresolved';
+    reason?: string;
+  }[];
+  warnings: string[];
+}
+
+export type ArtifactTool = 'inspect-pe-imports' | 'inspect-go-binary';
+export interface ArtifactRecord {
+  id: string;
+  tool: ArtifactTool;
+  path: string;
+  source_hash: string;
+  observed_at: string;
+  evidence: { normalized_result: Record<string, unknown>; limitations?: string[] };
 }
 export interface PreparedContext {
   workspace_id: string; project_id: string; context: string;
@@ -293,6 +345,16 @@ export const api = {
   codelensAnalyze: (projectPath: string, file: string) =>
     invoke("codelens_analyze", { projectPath, file }),
   codelensHealth: () => invoke("codelens_health"),
+  codelensTrace: (workspaceId: string, query: string) =>
+    invoke<SourceTrace>('codelens_trace', { workspaceId, query }),
+  codelensProjectSearch: (workspaceId: string, query: string) =>
+    invoke<ProjectSourceSearch>('codelens_project_search', { workspaceId, query }),
+  codelensSource: (workspaceId: string, location: SourceLocation) =>
+    invoke<SourceExcerpt>('codelens_source', { workspaceId, file: location.file, startLine: location.start_line, endLine: location.end_line, sourceHash: location.source_hash ?? null }),
+  codelensInspectArtifact: (workspaceId: string, path: string, tool: ArtifactTool) =>
+    invoke<ArtifactRecord>('codelens_inspect_artifact', { workspaceId, path, tool }),
+  codelensGetArtifact: (workspaceId: string, id: string) =>
+    invoke<ArtifactRecord>('codelens_get_artifact', { workspaceId, id }),
 
   // 流式对话: Channel 直接传递结构化 StreamChunk
   chatStream: (

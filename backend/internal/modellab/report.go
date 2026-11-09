@@ -36,6 +36,7 @@ type Failure struct {
 // Comparison keeps ability, performance, resources, failures and uncertainty
 // alongside each other; it does not produce a universal capability score.
 type Comparison struct {
+	EvaluationMode string                               `json:"evaluation_mode,omitempty"`
 	Version        string                               `json:"version"`
 	Source         string                               `json:"source"`
 	Status         string                               `json:"status"`
@@ -96,6 +97,11 @@ func Compare(e modelstore.Evaluation, r modelstore.Report, all []modelstore.Atte
 	if e.Manifest.Source == "offline_fixture" {
 		c.Limitations = append(c.Limitations, "Synthetic offline_fixture evidence is not live production proof.")
 	}
+	c.EvaluationMode = "compare"
+	if e.Manifest.EvaluationMode == "baseline" {
+		c.EvaluationMode = "baseline"
+		c.Limitations = append(c.Limitations, "Single-model baseline: both arms independently run the same frozen revision. Differences describe repeatability, not improvement over another model.")
+	}
 	if r.ManifestHash != e.ManifestHash || r.EvaluationID != e.ID {
 		return c, fmt.Errorf("%w: comparison manifest mismatch", modelstore.ErrInvalid)
 	}
@@ -134,7 +140,7 @@ func Compare(e modelstore.Evaluation, r modelstore.Report, all []modelstore.Atte
 		c.Completion.Rate = modelstore.Float(float64(r.Counts.Scored) / float64(r.Counts.Planned))
 	}
 	c.Loss = Wilson95(r.PairMatrix[1], r.Counts.PairedComplete)
-	if r.Counts.Scored != r.Counts.Planned || len(r.IneligibilityReasons) > 0 {
+	if r.Counts.Scored != r.Counts.Planned || (len(r.IneligibilityReasons) > 0 && !(len(r.IneligibilityReasons) == 1 && r.IneligibilityReasons[0] == "BASELINE_NOT_COMPARISON")) {
 		c.Status = "incomplete"
 	}
 	for category, counts := range r.Categories {

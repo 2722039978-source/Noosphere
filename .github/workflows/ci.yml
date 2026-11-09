@@ -13,10 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-# Public source excludes development tests. CI validates production builds and syntax.
 jobs:
   frontend:
-    name: Frontend type-check and build
+    name: Frontend build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -35,12 +34,11 @@ jobs:
         run: npm run build
 
   backend:
-    name: Go build and vet (Windows)
+    name: Core tests (Windows)
     runs-on: windows-latest
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: backend
         shell: pwsh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,9 +46,13 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      - name: Verify and run the public core tests
+        run: ./scripts/check-core.ps1
       - name: Build Go packages
+        working-directory: backend
         run: go build ./...
       - name: Run Go vet
+        working-directory: backend
         run: go vet ./...
 
   codelens:

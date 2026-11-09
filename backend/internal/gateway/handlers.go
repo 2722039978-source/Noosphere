@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -93,6 +94,9 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 	content, tokensIn, tokensOut, callErr := g.callLLMContext(ctx, model, body.Messages, body.SystemPrompt, body.Temperature, body.MaxTokens)
+	if ctx.Err() != nil {
+		callErr = ctx.Err()
+	}
 	var completionErr error
 	if execution != nil {
 		completionErr = execution.Finish(map[string]any{"content": content, "model_id": model.ID}, callErr)
@@ -100,13 +104,16 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 			committed, err := g.workspaceManager.Run(execution.ID)
 			if err != nil {
 				completionErr = err
-			} else if committed.Status != "completed" {
-				completionErr = fmt.Errorf("%w: 对话任务未完成或已取消", workspaces.ErrConflict)
+			} else if committed.Status == "cancelled" {
+				callErr = context.Canceled
+			} else if committed.Status != "completed" && callErr == nil {
+				completionErr = fmt.Errorf("对话任务未完成：%s", committed.Status)
 			}
 		}
 	}
+	logErr := callErr
 	if completionErr != nil {
-		callErr = completionErr
+		logErr = completionErr
 	}
 	latency := time.Since(start).Seconds() * 1000
 
@@ -115,7 +122,7 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 		ModelID:         model.ID,
 		Provider:        model.Provider,
 		Project:         body.Project,
-		Status:          streamLogStatus(callErr),
+		Status:          streamLogStatus(logErr),
 		RequestPreview:  g.preview(body.Messages),
 		ResponsePreview: previewText(content),
 		TokensIn:        tokensIn,
@@ -123,17 +130,25 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 		LatencyMs:       latency,
 		Timestamp:       time.Now().Format(time.RFC3339),
 	}
-	if callErr != nil {
-		logEntry.Error = callErr.Error()
+	if logErr != nil {
+		logEntry.Error = logErr.Error()
 	}
 	g.appendLog(logEntry)
 
 	if completionErr != nil {
-		selectionFailure(w, completionErr)
+		errors.WriteHTTP(w, r, errors.Wrap(completionErr, errors.ErrInternal, errors.CatGateway, "对话结果保存失败，请重试"))
 		return
 	}
 	if callErr != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": callErr.Error()})
+		responseErr := errors.Wrap(callErr, errors.ErrUnavailable, errors.CatGateway, "模型请求失败，请检查模型服务与连接配置")
+		responseErr.HTTPStatus = http.StatusServiceUnavailable
+		if stderrors.Is(callErr, context.Canceled) {
+			responseErr = errors.Wrap(callErr, errors.ErrConflict, errors.CatGateway, "对话任务已取消")
+		} else if stderrors.Is(callErr, context.DeadlineExceeded) {
+			responseErr = errors.Wrap(callErr, errors.ErrTimeout, errors.CatGateway, "模型请求超时，请重试")
+			responseErr.HTTPStatus = http.StatusGatewayTimeout
+		}
+		errors.WriteHTTP(w, r, responseErr)
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{

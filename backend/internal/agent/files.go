@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/noosphere/backend/internal/workspaces"
 )
 
 var extensions = map[string]bool{".go": true, ".py": true, ".ts": true, ".tsx": true, ".js": true, ".jsx": true, ".rs": true, ".java": true, ".cs": true, ".cpp": true, ".c": true, ".h": true, ".vue": true, ".svelte": true, ".html": true, ".css": true, ".md": true, ".txt": true, ".json": true, ".yaml": true, ".yml": true, ".toml": true, ".xml": true, ".sql": true, ".ps1": true, ".bat": true, ".sh": true}
@@ -84,6 +86,15 @@ func fileEvidence(name string, raw []byte, start, end int) (Evidence, error) {
 	return Evidence{Kind: "code", Title: name, File: name, StartLine: start, EndLine: end, SourceHash: fmt.Sprintf("%x", sha256.Sum256(raw)), Excerpt: clip(redact(content), 5000), ObservedAt: time.Now().UTC().Format(time.RFC3339)}, nil
 }
 func (r *Registry) scan(ctx context.Context, query string) Outcome {
+	return r.scanProject(ctx, query, 5, false)
+}
+
+func SearchProjectSource(ctx context.Context, ws workspaces.Workspace, query string) Outcome {
+	registry := Registry{workspace: ws}
+	return registry.scanProject(ctx, query, 20, true)
+}
+
+func (r *Registry) scanProject(ctx context.Context, query string, limit int, exactLines bool) Outcome {
 	if r.workspace.ProjectPath == "" {
 		return fail(fmt.Errorf("请先设置工作区项目目录"))
 	}
@@ -139,13 +150,19 @@ func (r *Registry) scan(ctx context.Context, query string) Outcome {
 		total += len(raw)
 		for i, line := range strings.Split(string(raw), "\n") {
 			if strings.Contains(strings.ToLower(line), needle) {
-				e, _ := fileEvidence(name, raw, max(1, i), i+2)
+				start, end := max(1, i), i+2
+				if exactLines {
+					start, end = i+1, i+1
+				}
+				e, _ := fileEvidence(name, raw, start, end)
 				e.Excerpt = clip(e.Excerpt, 1500)
 				out.Evidence = append(out.Evidence, e)
-				break
+				if !exactLines || len(out.Evidence) >= limit {
+					break
+				}
 			}
 		}
-		if len(out.Evidence) >= 5 {
+		if len(out.Evidence) >= limit {
 			partial = true
 			return fs.SkipAll
 		}
@@ -160,6 +177,7 @@ func (r *Registry) scan(ctx context.Context, query string) Outcome {
 		out.Output = fmt.Sprintf("Found %d matching source excerpts.", len(out.Evidence))
 	}
 	if partial {
+		out.Partial = true
 		out.Output += "\n[partial scan: result, file or size limit reached; some paths may be unavailable]"
 	}
 	return out

@@ -11,7 +11,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 type migration struct {
 	version int
@@ -20,7 +20,8 @@ type migration struct {
 
 func builtInMigrations() []migration {
 	b, _ := migrationFiles.ReadFile("migrations/001_initial.sql")
-	return []migration{{1, string(b)}}
+	c, _ := migrationFiles.ReadFile("migrations/002_custom_datasets.sql")
+	return []migration{{1, string(b)}, {2, string(c)}}
 }
 func applyMigrations(ctx context.Context, db *sql.DB, ms []migration) error {
 	for _, m := range ms {

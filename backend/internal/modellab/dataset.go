@@ -67,7 +67,10 @@ type datasetManifest struct {
 
 // CaseRef is an opaque capability binding an embedded dataset and case revision.
 // Callers cannot override signatures, assertions, or expected results.
-type CaseRef struct{ datasetHash, id, caseHash string }
+type CaseRef struct {
+	datasetHash, id, caseHash string
+	owner                     *Dataset
+}
 type Dataset struct {
 	revision   modelstore.DatasetRevision
 	cases      []CaseEvidence
@@ -192,7 +195,7 @@ func (d *Dataset) Revision() modelstore.DatasetRevision { return jsonCopy(d.revi
 func (d *Dataset) Cases() []CaseRef {
 	refs := make([]CaseRef, len(d.cases))
 	for i, e := range d.cases {
-		refs[i] = CaseRef{d.revision.ContentHash, e.ID, e.CaseHash}
+		refs[i] = CaseRef{datasetHash: d.revision.ContentHash, id: e.ID, caseHash: e.CaseHash, owner: d}
 	}
 	return refs
 }
@@ -211,6 +214,10 @@ func (d *Dataset) Evidence(ref CaseRef) (CaseEvidence, error) {
 	return CaseEvidence{}, fmt.Errorf("untrusted case reference")
 }
 func authoritative(ref CaseRef) (*Dataset, CaseEvidence, error) {
+	if ref.owner != nil && ref.owner.revision.SourceRevisionID != "" {
+		e, err := ref.owner.Evidence(ref)
+		return ref.owner, e, err
+	}
 	d, err := LoadDataset(DatasetID)
 	if err != nil {
 		return nil, CaseEvidence{}, err
@@ -260,7 +267,11 @@ func typedJSON(raw []byte, typ string) ([]byte, error) {
 	if err := json.Unmarshal(raw, value.Interface()); err != nil {
 		return nil, err
 	}
-	return json.Marshal(value.Elem().Interface())
+	canonical, err := json.Marshal(value.Elem().Interface())
+	if err == nil && len(canonical) > evalrunner.MaxIOBytes {
+		return nil, fmt.Errorf("canonical JSON exceeds runner bound")
+	}
+	return canonical, err
 }
 func validateFixture(e CaseEvidence, source string) error {
 	if len(source) == 0 || len(source) > evalrunner.MaxSourceBytes {

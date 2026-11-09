@@ -1,16 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookOpen, Brain, Orbit, Plus, Search, Sparkles } from "lucide-react";
 import { useBackend } from "@/hooks/useBackend";
-import type { SearchHit } from "@/lib/api";
+import { errMessage, type SearchHit } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/feedback";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { KnowledgePanel } from './KnowledgePanel';
+import './nebula-workspace.css';
 
 const TYPE_VARIANT: Record<string, "default" | "warn" | "info" | "secondary"> = {
   working: "warn",
@@ -34,102 +34,78 @@ export function NebulaPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
   const [searched, setSearched] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [storing, setStoring] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const alive = useRef(true);
+  const selection = useRef(0);
 
   useEffect(() => {
-    loadSessions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    alive.current = true;
+    void loadSessions();
+    return () => { alive.current = false; selection.current++; };
+  }, [loadSessions]);
+
+  const selectSession = (id: string) => {
+    selection.current++;
+    setActiveId(id); setSearchResults([]); setSearched(false);
+    setError(''); setNotice(''); setStoring(false); setSearching(false);
+  };
 
   const handleCreate = async () => {
-    const id = await createSession("session-" + Date.now());
-    setActiveId(id);
+    if (creating) return;
+    setCreating(true); setError(''); setNotice('');
+    try {
+      const id = await createSession("session-" + Date.now());
+      if (alive.current) { selectSession(id); setNotice('记忆会话已创建。'); }
+    } catch (e) { if (alive.current) setError(errMessage(e)); }
+    finally { if (alive.current) setCreating(false); }
   };
 
   const handleStore = async () => {
-    if (!activeId || !memoryInput.trim()) return;
-    console.log(`[nebula] store start: session=${activeId} len=${memoryInput.length}`);
-    const t0 = performance.now();
+    if (!activeId || !memoryInput.trim() || storing) return;
+    const epoch = selection.current;
+    const submitted = memoryInput;
+    setStoring(true); setError(''); setNotice('');
     try {
-      await storeMemory(activeId, memoryInput);
-      console.log(`[nebula] store ok: ${(performance.now() - t0).toFixed(0)}ms`);
+      await storeMemory(activeId, submitted);
+      if (!alive.current || epoch !== selection.current) return;
+      setMemoryInput(current => current === submitted ? '' : current);
+      setSearchResults([]); setSearched(false); setNotice('已存储到当前记忆会话。');
+      void loadSessions();
     } catch (e) {
-      console.error(`[nebula] store failed: session=${activeId}`, e);
-      return;
+      if (alive.current && epoch === selection.current) setError(errMessage(e));
+    } finally {
+      if (alive.current && epoch === selection.current) setStoring(false);
     }
-    setMemoryInput("");
-    setSearchResults([]);
-    setSearched(false);
-    loadSessions();
   };
 
   const handleSearch = async () => {
-    if (!activeId || !searchQuery.trim()) return;
-    console.log(`[nebula] search start: session=${activeId} query="${searchQuery}"`);
-    const t0 = performance.now();
+    if (!activeId || !searchQuery.trim() || searching) return;
+    const epoch = selection.current;
+    setSearching(true); setSearched(false); setError(''); setNotice('');
     try {
       const r = await searchMemories(activeId, searchQuery);
-      console.log(
-        `[nebula] search ok: ${r.results?.length ?? 0} hits in ${(performance.now() - t0).toFixed(0)}ms`,
-        r.results?.map((h) => ({ key: h.key, score: Number(h.score.toFixed(3)), type: h.record?.type }))
-      );
+      if (!alive.current || epoch !== selection.current) return;
       setSearchResults(r.results || []);
       setSearched(true);
     } catch (e) {
-      console.error(`[nebula] search failed: session=${activeId} query="${searchQuery}"`, e);
-      setSearchResults([]);
-      setSearched(true);
+      if (alive.current && epoch === selection.current) {
+        setError(errMessage(e)); setSearchResults([]);
+      }
+    } finally {
+      if (alive.current && epoch === selection.current) setSearching(false);
     }
   };
 
   const activeSession = sessions.find((s) => s.id === activeId);
 
   return (
-    <div className="ns-memory-layout">
-      {/* 记忆会话栏 */}
-      <aside className="ns-memory-sidebar">
-        <div className="flex items-center gap-2 px-5 pt-5 pb-2">
-          <BookOpen size={14} className="text-acc-nebula" />
-          <span className="text-xs font-medium text-text-3">记忆会话</span>
-        </div>
-        <div className="px-3 pb-3">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full justify-start gap-2"
-            onClick={handleCreate}
-          >
-            <Plus size={14} /> 新建会话
-          </Button>
-        </div>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col gap-1 px-3 pb-4">
-            {sessions.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => {
-                  setActiveId(s.id);
-                  setSearchResults([]);
-                  setSearched(false);
-                }}
-                className={cn(
-                  "flex cursor-pointer items-center justify-between rounded-none px-3 py-2 text-left text-[13px] transition-colors",
-                  activeId === s.id ? "bg-secondary text-text-1" : "text-text-2 hover:bg-secondary/50"
-                )}
-              >
-                <span className="truncate">{s.name}</span>
-                <span className="ml-2 shrink-0 text-xs text-text-3">{s.memory_count}</span>
-              </button>
-            ))}
-            {sessions.length === 0 && (
-              <p className="px-3 py-2 text-xs text-text-3">暂无会话</p>
-            )}
-          </div>
-        </ScrollArea>
-      </aside>
-
-      {/* 主区域 */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
-        <div className="ns-page-wrap">
+    <div className="ns-nebula-scroll" data-workspace-page="nebula">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="ns-page-wrap ns-nebula-page">
           <PageHeader
             icon={<Orbit size={20} />}
             accent="var(--acc-nebula)"
@@ -138,15 +114,27 @@ export function NebulaPage() {
           />
 
           <KnowledgePanel />
+          <section className="ns-nebula-history" aria-label="历史记忆会话">
           <div className="ns-task-path"><strong>历史记忆会话 · {activeSession?.name || '先选择或新建记忆会话'}</strong><span>→</span><span>存储内容</span><span>→</span><span>检索与查看记录</span></div>
+          <div className="ns-memory-history-layout">
+            <aside className="ns-memory-sidebar" aria-label="记忆会话列表">
+              <div className="flex items-center gap-2 px-5 pt-5 pb-3"><BookOpen size={14} className="text-acc-nebula" /><span className="text-xs font-medium text-text-3">记忆会话</span></div>
+              <div className="px-3 pb-3"><Button variant="outline" size="sm" disabled={creating} className="w-full justify-start gap-2" onClick={() => void handleCreate()}><Plus size={14} />{creating ? '创建中…' : '新建会话'}</Button></div>
+              <div className="ns-memory-session-list">
+                {sessions.map(s => <button key={s.id} aria-pressed={activeId === s.id} onClick={() => selectSession(s.id)} className={cn('flex cursor-pointer items-center justify-between px-3 py-2 text-left text-[13px]', activeId === s.id ? 'bg-secondary text-text-1' : 'text-text-2 hover:bg-secondary/50')}><span className="truncate">{s.name}</span><span className="ml-2 shrink-0 text-xs text-text-3">{s.memory_count}</span></button>)}
+                {!sessions.length && <p className="px-3 py-2 text-xs text-text-3">暂无会话</p>}
+              </div>
+            </aside>
+            <div className="ns-nebula-legacy-main">
           <Surface className="px-5 py-4">
             <h2 className="mb-4 text-[16px] font-semibold">记忆存储与检索</h2>
             <div className="flex gap-2.5">
               <Input
                 placeholder="输入要存储的记忆内容…"
+                aria-label="历史记忆内容"
                 value={memoryInput}
                 onChange={(e) => setMemoryInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleStore()}
+                onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void handleStore()}
                 className="flex-1"
               />
               <Button
@@ -154,17 +142,19 @@ export function NebulaPage() {
                 size="sm"
                 className="gap-1.5"
                 onClick={handleStore}
-                disabled={!activeId || !memoryInput.trim()}
+                disabled={storing || !activeId || !memoryInput.trim()}
               >
-                <Brain size={14} /> 存储
+                <Brain size={14} /> {storing ? '存储中…' : '存储'}
               </Button>
             </div>
             <div className="mt-3 flex gap-2.5 border-t border-border-subtle pt-3">
               <Input
                 placeholder={activeId ? "语义搜索记忆…" : "请先选择记忆会话"}
+                aria-label="搜索历史记忆"
                 value={searchQuery}
+                disabled={searching}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && void handleSearch()}
                 className="flex-1"
               />
               <Button
@@ -172,11 +162,13 @@ export function NebulaPage() {
                 size="sm"
                 className="gap-1.5"
                 onClick={handleSearch}
-                disabled={!activeId || !searchQuery.trim()}
+                disabled={searching || !activeId || !searchQuery.trim()}
               >
-                <Search size={14} /> 搜索
+                <Search size={14} /> {searching ? '搜索中…' : '搜索'}
               </Button>
             </div>
+            {error && <p role="alert" className="ns-form-error">{error}</p>}
+            {(notice || storing || searching) && <p role="status" className="ns-legacy-feedback">{storing ? '正在存储记忆…' : searching ? '正在检索记忆…' : notice}</p>}
           </Surface>
 
           <div className="flex flex-col gap-3">
@@ -241,6 +233,9 @@ export function NebulaPage() {
               </p>
             )}
           </div>
+            </div>
+          </div>
+          </section>
         </div>
       </div>
     </div>

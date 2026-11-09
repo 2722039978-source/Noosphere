@@ -127,22 +127,20 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
 
   if (isUser) {
     return (
-      <div {...anchorProps} className={cn("mx-4 border-b border-border-soft py-6 sm:mx-8", highlightClass)}>
-        <div className="grid min-w-0 gap-3 sm:grid-cols-[88px_minmax(0,1fr)]">
-          <div className="text-[10px] font-semibold tracking-[0.16em] text-text-3">YOU / 输入</div>
-          <div className="min-w-0 break-words text-[14px] leading-7 whitespace-pre-wrap text-text-1">
-            {message.content}
-          </div>
+      <div {...anchorProps} className={cn("ns-chat-message", highlightClass)}>
+        <div className="ns-chat-message-label"><span>你的消息</span></div>
+        <div className="ns-message-body whitespace-pre-wrap text-text-1">
+          {message.content}
         </div>
       </div>
     );
   }
 
   return (
-    <div {...anchorProps} className={cn("group mx-4 grid min-w-0 gap-3 border-b border-border-soft py-6 sm:mx-8 sm:grid-cols-[88px_minmax(0,1fr)]", highlightClass)}>
-      <div className="text-[10px] font-semibold tracking-[0.12em] text-text-3">NOOSPHERE<br /><span className="mt-1 inline-block font-normal">RESPONSE</span></div>
+    <div {...anchorProps} className={cn("group ns-chat-message", highlightClass)}>
       <div className="min-w-0">
-        <div className="mb-1 flex items-center gap-2">
+        <div className="ns-chat-message-label">
+          <span>Noosphere</span>
           {!!message.contextCount && (
             <Badge variant="info" className="text-xs">
               {message.contextCount} 条参考依据
@@ -156,7 +154,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
           )}
         </div>
 
-        <div className="ns-message-body min-w-0 break-words text-[14px] leading-7 text-text-1">
+        <div className="ns-message-body text-text-1">
           {message.content ? (
             <Markdown
               remarkPlugins={[remarkGfm]}
@@ -182,7 +180,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
           <div className="mt-3 flex gap-1">
             <button
               onClick={onRegenerate}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-text-3 hover:bg-secondary hover:text-text-1"
+              className="flex items-center gap-1 rounded-md py-1 pr-2 text-xs text-text-3 hover:text-text-1"
             >
               <RefreshCw size={11} />
               重新生成

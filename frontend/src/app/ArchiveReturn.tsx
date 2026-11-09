@@ -1,15 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { useLocation, type Location } from 'react-router-dom';
 import { WORKSPACE_MODULES } from './modules';
+import { modelSection } from './model-navigation';
 
 type Phase = 'departing' | 'loading' | 'arriving';
 type ReturnState = { phase: Phase; sourcePath: string };
 const ReturnContext = createContext<{ phase: Phase | 'idle'; sourcePath?: string; ready: () => void }>({ phase: 'idle', ready: () => {} });
 export const useArchiveReturn = () => useContext(ReturnContext);
 
-/** Only the optional legacy archive uses a covered return animation.
- * Overview and ordinary workspace navigation always render the current location immediately.
- */
+/** 保持档案过渡层，直到三维场景就绪。 */
 export function ArchiveReturn({ children }: { children: (location: Location) => ReactNode }) {
   const location = useLocation();
   const [displayed, setDisplayed] = useState(location);
@@ -17,12 +16,13 @@ export function ArchiveReturn({ children }: { children: (location: Location) => 
   const ready = useCallback(() => setTransition(current => current?.phase === 'loading' ? { ...current, phase: 'arriving' } : current), []);
   useLayoutEffect(() => {
     if (location === displayed) return;
-    const toHome = location.pathname === '/archive';
-    const fromWorkspace = /^\/(chat|gateway|codelens|nebula|devops|settings)(\/|$)/.test(displayed.pathname);
+    const toHome = location.pathname === '/home';
+    const sourcePath = modelSection(displayed.pathname) ? '/model-hub' : displayed.pathname;
+    const fromWorkspace = sourcePath === '/settings' || WORKSPACE_MODULES.some(item => item.to === sourcePath);
     if (toHome && fromWorkspace && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setTransition({ phase: 'departing', sourcePath: displayed.pathname });
+      setTransition({ phase: 'departing', sourcePath });
       const timer = setTimeout(() => {
-        setTransition({ phase: 'loading', sourcePath: displayed.pathname });
+        setTransition({ phase: 'loading', sourcePath });
         setDisplayed(location);
       }, 420);
       return () => clearTimeout(timer);

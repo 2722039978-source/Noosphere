@@ -1,0 +1,84 @@
+.ns-project-sidebar {
+  --project-inset: 16px;
+  width: 278px;
+  background: var(--bg-raised);
+  border-right: 1px solid var(--border-soft);
+  color: var(--text-1);
+}
+.ns-project-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px var(--project-inset) 20px;
+  border-bottom: 1px solid var(--border-soft);
+  text-decoration: none;
+}
+.ns-project-brand strong { font-size: 23px; font-weight: 650; letter-spacing: -.045em; line-height: 1.15; }
+.ns-project-brand > span { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; line-height: 1.5; }
+.ns-project-brand:hover > span, .ns-project-brand:focus-visible > span { color: var(--brand); }
+.ns-project-actions, .ns-project-footer, .ns-project-tools { display: flex; gap: 6px; }
+.ns-project-actions, .ns-project-footer { padding: 10px var(--project-inset); }
+.ns-project-actions > *, .ns-project-footer > * { flex: 1; }
+.ns-project-footer { border-top: 1px solid var(--border-soft); }
+.ns-project-sidebar .ns-project-tool {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.5;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.ns-project-sidebar .ns-project-tool:hover, .ns-project-sidebar .ns-project-tool[aria-current="page"] { background: var(--brand-dim); color: var(--text-1); }
+.ns-project-search { padding: 2px var(--project-inset) 14px; }
+.ns-project-search-icon { position: absolute; inset-inline-start: 11px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+.ns-project-search .ns-project-search-input { height: 38px; padding-inline: 34px; border-radius: 6px; font-size: 13px; }
+.ns-project-list-heading { padding: 8px var(--project-inset); color: var(--text-3); font-size: 12px; line-height: 1.5; }
+.ns-project-list { gap: 6px; padding: 0 8px 12px; }
+.ns-project-heading {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ns-project-heading svg { flex-shrink: 0; }
+.ns-project-heading > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-project-heading[aria-expanded="true"] .ns-project-chevron { transform: rotate(90deg); }
+.ns-project-heading:hover, .ns-project-group[data-active="true"] .ns-project-heading { color: var(--text-1); background: var(--brand-dim); }
+.ns-project-group[data-active="true"] .ns-project-heading > svg:nth-child(2) { color: var(--brand); }
+.ns-project-group-content { padding: 6px 0 3px 22px; }
+.ns-project-tools { gap: 3px; padding-bottom: 5px; }
+.ns-project-sidebar .ns-project-tools .ns-project-tool { gap: 6px; padding-inline: 8px; font-size: 12px; min-height: 34px; }
+.ns-project-session { border-radius: 5px; border-left: 2px solid transparent; }
+.ns-project-session:hover, .ns-project-session[data-active="true"] { background: var(--brand-dim); }
+.ns-project-session[data-active="true"] { border-left-color: var(--brand); }
+.ns-project-run-label { flex-shrink: 0; color: var(--brand); font-size: 10px; }
+.ns-project-no-chats { padding: 8px 10px; color: var(--text-3); font-size: 12px; }
+.ns-project-sidebar-drawer { display: flex; width: 100%; max-width: none; border-right: 0; }
+.ns-project-mobile-header { min-height: 43px; border-bottom: 1px solid var(--border-soft); }
+.ns-reference-shell[data-project-chat="true"] .ns-statusbar { padding: 6px 22px; border-top: 1px solid var(--border-soft); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .ns-return-stage[data-phase="idle"] .ns-reference-shell:not(:has(.ns-dossier-handoff)) .ns-project-page,
+  .ns-project-chat-transition,
+  .ns-project-group-content { animation: ns-panel-enter 190ms cubic-bezier(.2,.7,.3,1) both; }
+
+  .ns-project-brand, .ns-project-heading, .ns-project-tool, .ns-project-session > button:first-child,
+  .ns-project-page .ns-button, .ns-project-brand svg, .ns-project-chevron {
+    transition: background-color 150ms, color 150ms, transform 150ms;
+  }
+  .ns-project-brand:hover svg { transform: translate(2px, -2px); }
+  .ns-project-brand:active, .ns-project-heading:active, .ns-project-tool:active,
+  .ns-project-session > button:first-child:active, .ns-project-page .ns-button:not(:disabled):active { transform: translateY(1px) scale(.985); }
+}

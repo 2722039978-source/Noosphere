@@ -83,6 +83,9 @@ type Case struct {
 	FixtureHash     string `json:"fixture_hash,omitempty"`
 }
 type DatasetRevision struct {
+	SourceRevisionID   string `json:"source_revision_id,omitempty"`
+	SourceContentHash  string `json:"source_content_hash,omitempty"`
+	ScorerHash         string `json:"scorer_sha256,omitempty"`
 	ID                 string `json:"id"`
 	BenchmarkID        string `json:"benchmark_id"`
 	Version            string `json:"version"`
@@ -119,6 +122,7 @@ type EnvironmentSnapshot struct {
 	ToolchainVersion string              `json:"toolchain_version,omitempty"`
 }
 type Manifest struct {
+	EvaluationMode      string              `json:"evaluation_mode,omitempty"`
 	SchemaVersion       int                 `json:"schema_version"`
 	EncoderVersion      string              `json:"encoder_version"`
 	WorkspaceID         string              `json:"workspace_id"`

@@ -28,11 +28,16 @@ function WorkspaceKnowledge({ workspaceId }: { workspaceId: string }) {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const alive = useRef(true);
+  const loadGeneration = useRef(0);
   async function load() {
-    try { const result = await api.listKnowledge(workspaceId); if (alive.current) setItems(result.memories ?? []); }
-    catch (e) { if (alive.current) setError(errMessage(e)); }
-    finally { if (alive.current) setLoading(false); }
+    const generation = ++loadGeneration.current;
+    setLoading(true);
+    try { const result = await api.listKnowledge(workspaceId); if (alive.current && generation === loadGeneration.current) setItems(result.memories ?? []); }
+    catch (e) { if (alive.current && generation === loadGeneration.current) setError(errMessage(e)); }
+    finally { if (alive.current && generation === loadGeneration.current) setLoading(false); }
   }
   useEffect(() => { alive.current = true; void load(); return () => { alive.current = false; }; }, [workspaceId]);
   function reset() { setEditing(null); setSupersedes(''); setContent(''); setExpiry(''); setSource({ kind: 'note' }); }
@@ -51,24 +56,35 @@ function WorkspaceKnowledge({ workspaceId }: { workspaceId: string }) {
     setContent(item.content); setCategory(item.category); setSource(replace ? { kind: 'note' } : item.source);
     setExpiry(item.valid_until ? new Date(item.valid_until).toISOString().slice(0, 16) : ''); setError(''); setNotice('');
   }
-  return <Surface className="mb-6 p-5" aria-label="工作区长期记忆">
-    <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><h2 className="text-base font-semibold">项目长期记忆</h2><Button size="sm" variant="outline" disabled={busy} onClick={() => { setError(''); void load(); }}>刷新记忆</Button></div>
+  const visibleItems = items.filter(item => item.content.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()) && (categoryFilter === 'all' || item.category === categoryFilter) && (statusFilter === 'all' || item.status === statusFilter));
+  const filtered = Boolean(filter.trim()) || categoryFilter !== 'all' || statusFilter !== 'all';
+  return <Surface className="ns-knowledge-panel mb-6 p-5" aria-label="工作区长期记忆" aria-busy={busy || loading}>
+    <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><h2 className="text-base font-semibold">项目长期记忆</h2><Button size="sm" variant="outline" disabled={busy || loading} onClick={() => { setError(''); void load(); }}>{loading ? '正在读取…' : '刷新记忆'}</Button></div>
     <p className="mb-4 text-xs leading-6 text-text-3">整理当前工作区的约定、决策和已验证方案。待确认的内容不会用于回答；来源变化、过期或被替代后自动排除。下方历史记忆会话独立保留。</p>
     <form className="grid gap-3" onSubmit={event => { event.preventDefault(); void save({ ...editing, content, category, source, status: supersedes ? 'confirmed' : 'proposed', supersedes: supersedes || editing?.supersedes, supersedes_revision: supersedes ? supersedesRevision : editing?.supersedes_revision, valid_until: expiry ? new Date(expiry + ':00Z').toISOString() : '' }); }}>
-      <div className="flex flex-wrap gap-3">
+      <fieldset disabled={busy} className="ns-memory-editor grid min-w-0 gap-3"><legend className="sr-only">整理项目长期记忆</legend>
+      <div className="ns-memory-editor-fields flex flex-wrap gap-3">
         <label className="grid gap-1 text-xs text-text-3">分类<select aria-label="记忆分类" className={field} value={category} onChange={e => setCategory(e.target.value as KnowledgeMemory['category'])}>{Object.entries(categories).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className="grid gap-1 text-xs text-text-3">到期时间（UTC，可留空）<input aria-label="记忆到期时间" type="datetime-local" className={field} value={expiry} onChange={e => setExpiry(e.target.value)} /></label>
         {!editing && <label className="grid gap-1 text-xs text-text-3">来源<select aria-label="记忆来源类型" className={field} value={source.kind} onChange={e => setSource(e.target.value === 'file' ? { kind: 'file', file: '', start_line: 1, end_line: 1 } : { kind: 'note' })}><option value="note">手动整理</option><option value="file">项目文件</option></select></label>}
       </div>
       {source.kind === 'file' && <div className="flex flex-wrap gap-2"><Input aria-label="来源相对路径" placeholder="项目内路径，例如 src/main.go" value={source.file || ''} disabled={!!editing} onChange={e => setSource({ ...source, file: e.target.value })} /><input className={field} aria-label="来源起始行" type="number" min="1" value={source.start_line} onChange={e => setSource({ ...source, start_line: Number(e.target.value) })} /><input className={field} aria-label="来源结束行" type="number" min="1" value={source.end_line} onChange={e => setSource({ ...source, end_line: Number(e.target.value) })} /></div>}
       <label className="grid gap-1 text-xs text-text-3">{supersedes ? '替代旧记录：保存后确认新记录并停用旧记录' : editing ? '编辑记录：保存后需要重新确认' : '整理内容'}<textarea aria-label="长期记忆内容" className={`${field} min-h-24 resize-y leading-6`} maxLength={5000} required value={content} onChange={e => setContent(e.target.value)} placeholder="例如：配置保存使用原子替换，以避免中断导致文件损坏。" /></label>
-      <div className="flex gap-2"><Button type="submit" size="sm" disabled={busy || !content.trim()}>{supersedes ? '确认并替代旧记录' : '保存为待确认'}</Button>{(editing || supersedes) && <Button type="button" size="sm" variant="outline" onClick={reset}>取消编辑</Button>}</div>
+      <div className="flex gap-2"><Button type="submit" size="sm" disabled={busy || !content.trim()}>{busy ? '保存中…' : supersedes ? '确认并替代旧记录' : '保存为待确认'}</Button>{(editing || supersedes) && <Button type="button" size="sm" variant="outline" onClick={reset}>取消编辑</Button>}</div>
+      </fieldset>
     </form>
     {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
     {notice && <p role="status" className="mt-3 text-xs text-text-3">{notice}</p>}
-    <div className="mt-5 border-t border-border-subtle pt-4"><Input aria-label="筛选长期记忆" placeholder="筛选已整理的记忆…" value={filter} onChange={e => setFilter(e.target.value)} /></div>
+    <div className="ns-memory-filters mt-5 border-t border-border-subtle pt-4">
+      <Input aria-label="筛选长期记忆" placeholder="筛选已整理的记忆…" value={filter} onChange={e => setFilter(e.target.value)} />
+      <label className="ns-memory-filter-select"><span className="sr-only">筛选记忆分类</span><select aria-label="筛选记忆分类" className={field} value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}><option value="all">全部分类</option>{Object.entries(categories).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="ns-memory-filter-select"><span className="sr-only">筛选记忆状态</span><select aria-label="筛选记忆状态" className={field} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">全部状态</option>{Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      {filtered && <Button size="sm" variant="ghost" onClick={() => { setFilter(''); setCategoryFilter('all'); setStatusFilter('all'); }}>清除记忆筛选</Button>}
+    </div>
+    {!loading && items.length > 0 && <p role="status" className="ns-memory-result-count">显示 {visibleItems.length} / {items.length} 条记录{filtered ? ' · 已应用筛选' : ''}</p>}
     {loading ? <p className="py-4 text-xs text-text-3">正在读取记忆…</p> : !items.length && <p className="py-4 text-xs text-text-3">当前工作区还没有整理记忆。也可以从 AI 回答中保存待确认记录。</p>}
-    <div className="mt-3 grid gap-3">{items.filter(item => item.content.toLowerCase().includes(filter.toLowerCase())).map(item => <article key={item.id} className="border border-border-subtle p-3" data-memory-id={item.id}>
+    {!loading && items.length > 0 && !visibleItems.length && <p className="py-4 text-xs text-text-3">没有符合当前筛选条件的记忆。可清除筛选后查看全部记录。</p>}
+    <div className="mt-3 grid gap-3">{visibleItems.map(item => <article key={item.id} className="ns-knowledge-record border border-border-subtle p-3" data-memory-id={item.id}>
       <div className="flex flex-wrap gap-3 text-xs text-text-3"><span>{categories[item.category]}</span><strong>{statuses[item.status]}</strong><span>版本 {item.revision}</span>{item.inactive_reason && !['proposed', 'rejected', 'superseded'].includes(item.inactive_reason) && <span>{item.inactive_reason}</span>}</div>
       <p className="my-2 whitespace-pre-wrap break-words text-sm leading-6">{item.content}</p>
       <p className="break-all text-xs text-text-3">{item.source.kind === 'file' ? `${item.source.file} · L${item.source.start_line}–${item.source.end_line} · ${item.source.source_hash?.slice(0, 12)}` : item.source.kind === 'chat' ? `会话 ${item.source.session_id} / 消息 ${item.source.message_id}（需人工核实）` : '手动整理'}{item.valid_until && ` · 到期 ${new Date(item.valid_until).toLocaleString()}`}{item.superseded_by && ` · 替代记录 ${item.superseded_by}`}</p>

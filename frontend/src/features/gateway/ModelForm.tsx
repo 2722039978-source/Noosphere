@@ -27,7 +27,7 @@ export function ModelForm({ onSaved, onCancel, initial }: { onSaved: () => void;
     if (inFlight.current) return;
     inFlight.current = true; setSaving(true); setError('');
     try {
-      await addModel({ ...form, is_default: Boolean(initial?.is_default), id: form.id.trim(), name: form.name.trim(), provider: form.provider.trim(), base_url: form.base_url.trim(), model_name: form.model_name.trim() });
+      await addModel({ ...form, capabilities: undefined, is_default: Boolean(initial?.is_default), id: form.id.trim(), name: form.name.trim(), provider: form.provider.trim(), base_url: form.base_url.trim(), model_name: form.model_name.trim() });
       if (form.is_default && !initial?.is_default) {
         try { await api.selectModel({scope:'global',workspace_id:useWorkspaceStore.getState().activeId,session_id:'',model_id:form.id.trim()}); }
         catch (error) { throw new Error(`配置已保存，设为全局默认未完成：${errMessage(error)}`); }

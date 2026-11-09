@@ -72,7 +72,7 @@ export function HomePage() {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
     const path = link?.getAttribute('href')?.replace(/^#/, '');
-    if (path && /^\/(chat|gateway|codelens|nebula|devops|settings)$/.test(path)) { event.preventDefault(); event.stopPropagation(); enter(path); }
+    if (path && (path === '/settings' || WORKSPACE_MODULES.some(item => item.to === path))) { event.preventDefault(); event.stopPropagation(); enter(path); }
   };
   useEffect(() => {
     const media = matchMedia('(min-width: 900px) and (prefers-reduced-motion: no-preference)');

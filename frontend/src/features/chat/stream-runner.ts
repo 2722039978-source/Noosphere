@@ -107,11 +107,14 @@ export function createStreamRunner(options: RunnerOptions) {
           if (run.ended) return;
           run.phase = "waiting";
           options.active({ ...input, phase: "waiting" });
-          run.deadline = setTimeout(() => {
-            if (run.ended) return;
-            finish(run, "failed", "模型响应超时，请重试。");
-            void cancelTransport(run).catch(() => {});
-          }, options.timeoutMs ?? 130_000);
+          // Agent 的执行期限由后台任务管理，排队和多轮请求继续读取任务状态。
+          if (!input.agentMode) {
+            run.deadline = setTimeout(() => {
+              if (run.ended) return;
+              finish(run, "failed", "模型响应超时，请重试。");
+              void cancelTransport(run).catch(() => {});
+            }, options.timeoutMs ?? 130_000);
+          }
           run.acknowledged = options.start(input, messages, (event) => receive(run, event));
           await run.acknowledged;
         } catch (error) {

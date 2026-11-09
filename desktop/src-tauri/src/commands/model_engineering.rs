@@ -30,23 +30,61 @@ pub struct RequestedOptions {
     retry_limit: Option<i64>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatasetDocument {
+    schema_version: u32,
+    benchmark_id: String,
+    version: String,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    license: Option<String>,
+    scoring_rule: String,
+    cases: Vec<DatasetCase>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatasetCase {
+    id: String,
+    category: String,
+    task: String,
+    function: String,
+    input_type: String,
+    output_type: String,
+    faulty_source: String,
+    assertions: Vec<DatasetAssertion>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatasetAssertion { input: Value, expected: Value }
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ModelEngineeringRequest {
     Discover { gateway_model_id: String },
     RegisterModel { gateway_model_id: String, discovered_identity_hash: String },
     ListModels { cursor: Option<String>, limit: Option<u32> },
-    ListDatasets,
+    ListDatasets { workspace_id: Option<String>, include_archived: Option<bool> },
+    CreateDataset { workspace_id: String, document: Option<DatasetDocument>, document_json: Option<String> },
+    GetDataset { workspace_id: String, id: String },
+    ArchiveDataset { workspace_id: String, id: String, archived: bool },
     CreateProfile { requested: RequestedOptions },
     ListProfiles { cursor: Option<String>, limit: Option<u32> },
     ListPolicies,
     Environment,
-    CreateEvaluation { workspace_id: String, stable_revision_id: String, candidate_revision_id: String, profile_id: String, dataset_id: Option<String>, workflow_id: Option<String>, idempotency_key: String },
+    PrepareEvaluation { workspace_id: String, stable_revision_id: String, candidate_revision_id: String, profile_id: String, dataset_id: String, workflow_id: String, evaluation_mode: Option<String> },
+    CreateEvaluation { workspace_id: String, stable_revision_id: String, candidate_revision_id: String, profile_id: String, dataset_id: Option<String>, workflow_id: Option<String>, evaluation_mode: Option<String>, idempotency_key: String },
     ListEvaluations { workspace_id: String, cursor: Option<String>, limit: Option<u32> },
     GetEvaluation { workspace_id: String, id: String, cursor: Option<String>, limit: Option<u32> },
     EvaluationCommand { workspace_id: String, id: String, command: String, expected_revision: i64, case_id: Option<String>, arm: Option<String>, idempotency_key: String },
     GetReport { workspace_id: String, id: String },
-    GetCase { workspace_id: String, evaluation_id: String, case_id: String, cursor: Option<String>, limit: Option<u32> },
+    GetCase { workspace_id: String, evaluation_id: String, case_id: String, cursor: Option<String>, limit: Option<u32>, report_id: Option<String> },
     CreateRelease { workspace_id: String, mode: String, workflow_id: String, report_id: String, policy_id: Option<String>, task_type_filter: Option<String>, idempotency_key: String },
     ListReleases { workspace_id: String, cursor: Option<String>, limit: Option<u32> },
     GetRelease { workspace_id: String, id: String },
@@ -94,6 +132,11 @@ fn post(path: String, body: Value, key: Option<String>) -> RequestSpec { Request
 fn build_request(request: ModelEngineeringRequest) -> Result<RequestSpec, ApiError> {
     use ModelEngineeringRequest::*;
     let spec = match request {
+        PrepareEvaluation {workspace_id,stable_revision_id,candidate_revision_id,profile_id,dataset_id,workflow_id,evaluation_mode} => {
+            for id in [&workspace_id,&stable_revision_id,&candidate_revision_id,&profile_id,&dataset_id,&workflow_id] {valid_id(id)?;}
+            if let Some(ref mode)=evaluation_mode {pick(mode,&["baseline","compare"])?;}
+            post(format!("/api/workspaces/{workspace_id}/evaluations/preparation"),json!({"stable_revision_id":stable_revision_id,"candidate_revision_id":candidate_revision_id,"profile_id":profile_id,"dataset_id":dataset_id,"workflow_id":workflow_id,"evaluation_mode":evaluation_mode.unwrap_or_default()}),None)
+        },
         Discover { gateway_model_id } => {valid_id(&gateway_model_id)?;post("/api/model-lab/discovery".into(), json!({"gateway_model_id":gateway_model_id}), None)},
         RegisterModel { gateway_model_id, discovered_identity_hash } => {
             valid_id(&gateway_model_id)?;
@@ -101,15 +144,46 @@ fn build_request(request: ModelEngineeringRequest) -> Result<RequestSpec, ApiErr
             post("/api/model-lab/models".into(), json!({"gateway_model_id":gateway_model_id,"discovered_identity_hash":discovered_identity_hash}), None)
         }
         ListModels { cursor, limit } => get(page("/api/model-lab/models".into(), cursor, limit)?),
-        ListDatasets => get("/api/model-lab/datasets".into()),
+        ListDatasets { workspace_id, include_archived } => {
+            match workspace_id {
+                Some(ws) => { valid_id(&ws)?; get(format!("/api/workspaces/{ws}/datasets{}", if include_archived == Some(true) {"?include_archived=true"} else {""})) },
+                None if include_archived.unwrap_or(false) => return Err(ApiError::new("workspace required for archived datasets")),
+                None => get("/api/model-lab/datasets".into()),
+            }
+        }
+        CreateDataset { workspace_id, document, document_json } => {
+            valid_id(&workspace_id)?;
+            let doc = match (document, document_json) {
+                (Some(doc), None) => doc,
+                (None, Some(raw)) => {
+                    if raw.len() > 64*1024 { return Err(ApiError::new("dataset document exceeds 64 KiB")); }
+                    serde_json::from_str::<DatasetDocument>(&raw).map_err(|error| ApiError::new(format!("invalid dataset document: {error}")))?
+                },
+                _ => return Err(ApiError::new("supply exactly one dataset document representation")),
+            };
+            if doc.schema_version != 1 || doc.scoring_rule != "exact" || !(1..=50).contains(&doc.cases.len()) || doc.cases.iter().any(|case| !(1..=100).contains(&case.assertions.len())) {
+                return Err(ApiError::new("unsupported dataset schema, scoring rule, or case/assertion count"));
+            }
+            post(format!("/api/workspaces/{workspace_id}/datasets"), json!(doc), None)
+        }
+        GetDataset { workspace_id, id } => {
+            valid_id(&workspace_id)?; valid_id(&id)?;
+            get(format!("/api/workspaces/{workspace_id}/datasets/{id}"))
+        }
+        ArchiveDataset { workspace_id, id, archived } => {
+            valid_id(&workspace_id)?; valid_id(&id)?;
+            post(format!("/api/workspaces/{workspace_id}/datasets/{id}/archive"), json!({"archived":archived}), None)
+        }
         CreateProfile { requested } => post("/api/model-lab/profiles".into(), json!({"requested":requested}), None),
         ListProfiles { cursor, limit } => get(page("/api/model-lab/profiles".into(), cursor, limit)?),
         ListPolicies => get("/api/model-ops/policies?mode=simulation".into()),
         Environment => get("/api/model-lab/environment".into()),
-        CreateEvaluation { workspace_id, stable_revision_id, candidate_revision_id, profile_id, dataset_id, workflow_id, idempotency_key } => {
+        CreateEvaluation { workspace_id, stable_revision_id, candidate_revision_id, profile_id, dataset_id, workflow_id, evaluation_mode, idempotency_key } => {
             for id in [&workspace_id,&stable_revision_id,&candidate_revision_id,&profile_id] { valid_id(id)?; }
             if let Some(id)=&dataset_id {valid_id(id)?;} if let Some(id)=&workflow_id {valid_id(id)?;}
-            post(format!("/api/workspaces/{workspace_id}/evaluations"),json!({"stable_revision_id":stable_revision_id,"candidate_revision_id":candidate_revision_id,"profile_id":profile_id,"dataset_id":dataset_id,"workflow_id":workflow_id}),Some(checked_key(idempotency_key)?))
+            let mut body=json!({"stable_revision_id":stable_revision_id,"candidate_revision_id":candidate_revision_id,"profile_id":profile_id,"dataset_id":dataset_id,"workflow_id":workflow_id});
+            if let Some(mode)=evaluation_mode { pick(&mode,&["baseline","compare"])?; body["evaluation_mode"]=json!(mode); }
+            post(format!("/api/workspaces/{workspace_id}/evaluations"),body,Some(checked_key(idempotency_key)?))
         }
         ListEvaluations { workspace_id, cursor, limit } => {valid_id(&workspace_id)?;get(page(format!("/api/workspaces/{workspace_id}/evaluations"),cursor,limit)?)}
         GetEvaluation { workspace_id, id, cursor, limit } => {valid_id(&workspace_id)?;valid_id(&id)?;get(page(format!("/api/workspaces/{workspace_id}/evaluations/{id}"),cursor,limit)?)}
@@ -121,7 +195,13 @@ fn build_request(request: ModelEngineeringRequest) -> Result<RequestSpec, ApiErr
             post(format!("/api/workspaces/{workspace_id}/evaluations/{id}/commands"),json!({"command":command,"expected_revision":expected_revision,"case_id":case_id,"arm":arm}),Some(checked_key(idempotency_key)?))
         }
         GetReport { workspace_id, id } => {valid_id(&workspace_id)?;valid_id(&id)?;get(format!("/api/workspaces/{workspace_id}/reports/{id}"))}
-        GetCase { workspace_id, evaluation_id, case_id, cursor, limit } => {for id in [&workspace_id,&evaluation_id,&case_id] {valid_id(id)?;}get(page(format!("/api/workspaces/{workspace_id}/evaluations/{evaluation_id}/cases/{case_id}"),cursor,limit)?)}
+        GetCase { workspace_id, evaluation_id, case_id, cursor, limit, report_id } => {
+            for id in [&workspace_id,&evaluation_id,&case_id] {valid_id(id)?;}
+            if report_id.is_some() && cursor.is_some() {return Err(ApiError::new("frozen report selection is not paginated"));}
+            let mut path=page(format!("/api/workspaces/{workspace_id}/evaluations/{evaluation_id}/cases/{case_id}"),cursor,limit)?;
+            if let Some(id)=report_id {valid_id(&id)?;path.push_str(if path.contains('?') {"&report_id="} else {"?report_id="});path.push_str(&id);}
+            get(path)
+        }
         CreateRelease { workspace_id, mode, workflow_id, report_id, policy_id, task_type_filter, idempotency_key } => {
             for id in [&workspace_id,&workflow_id,&report_id] {valid_id(id)?;}
             pick(&mode,&["simulation"])?;
@@ -176,7 +256,8 @@ fn decode_response(status: u16, body: &str) -> Result<Value, ApiError> {
 
 fn send(base: &str, authorization: &str, spec: RequestSpec) -> Result<Value, ApiError> {
     let url=format!("{base}{}",spec.path);
-    let agent=ureq::AgentBuilder::new().timeout(Duration::from_secs(20)).redirects(0).try_proxy_from_env(false).build();
+    let timeout=if spec.path.ends_with("/evaluations/preparation") {50} else {20};
+    let agent=ureq::AgentBuilder::new().timeout(Duration::from_secs(timeout)).redirects(0).try_proxy_from_env(false).build();
     let mut request=match spec.method {Method::Get=>agent.get(&url),Method::Post=>agent.post(&url)}
         .set("Authorization",authorization);
     if let Some(key)=&spec.key {request=request.set("Idempotency-Key",key);}
@@ -201,6 +282,84 @@ pub async fn model_engineering(request: ModelEngineeringRequest) -> Result<Value
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn case_report_selection_is_fixed_scoped_and_rejects_injected_queries() {
+        let spec=build_request(serde_json::from_value(json!({"operation":"get_case","workspace_id":"local","evaluation_id":"eval","case_id":"case-one","report_id":"report-old","limit":100})).unwrap()).unwrap();
+        assert_eq!(spec.path,"/api/workspaces/local/evaluations/eval/cases/case-one?limit=100&report_id=report-old");
+        for extra in [json!({"report_id":"../bad"}),json!({"report_id":"report&limit=1"}),json!({"report_id":"report-old","cursor":"older"})] {
+            let mut request=json!({"operation":"get_case","workspace_id":"local","evaluation_id":"eval","case_id":"case-one"});
+            for (key,value) in extra.as_object().unwrap() { request[key]=value.clone(); }
+            assert!(serde_json::from_value(request).map_err(|e|ApiError::new(e.to_string())).and_then(build_request).is_err());
+        }
+    }
+
+    #[test]
+    fn workspace_datasets_keep_routes_scope_and_lossless_int64_documents() {
+        let document=r#"{"schema_version":1,"benchmark_id":"my-go","version":"1.0.0","title":"My tasks","scoring_rule":"exact","cases":[{"id":"integer-edge","category":"logic","task":"Preserve input","function":"Solve","input_type":"int64","output_type":"int64","faulty_source":"package main\nfunc Solve(input int64) int64 { return 0 }","assertions":[{"input":9223372036854775807,"expected":-9223372036854775808}]}]}"#;
+        let request:ModelEngineeringRequest=serde_json::from_value(json!({"operation":"create_dataset","workspace_id":"local","document_json":document})).unwrap();
+        let spec=build_request(request).unwrap();
+        assert_eq!(spec.method,Method::Post);
+        assert_eq!(spec.path,"/api/workspaces/local/datasets");
+        let body=spec.body.unwrap();
+        assert_eq!(body["cases"][0]["assertions"][0]["input"].as_i64(),Some(i64::MAX));
+        assert_eq!(body["cases"][0]["assertions"][0]["expected"].as_i64(),Some(i64::MIN));
+        for (operation,path) in [("get_dataset","/api/workspaces/local/datasets/custom.abc.def"),("archive_dataset","/api/workspaces/local/datasets/custom.abc.def/archive")] {
+            let mut value=json!({"operation":operation,"workspace_id":"local","id":"custom.abc.def"});
+            if operation=="archive_dataset" {value["archived"]=json!(true);}
+            let spec=build_request(serde_json::from_value(value).unwrap()).unwrap();
+            assert_eq!(spec.path,path);
+        }
+        let spec=build_request(serde_json::from_value(json!({"operation":"list_datasets","workspace_id":"local","include_archived":true})).unwrap()).unwrap();
+        assert_eq!(spec.path,"/api/workspaces/local/datasets?include_archived=true");
+        let legacy=build_request(serde_json::from_value(json!({"operation":"list_datasets"})).unwrap()).unwrap();
+        assert_eq!(legacy.path,"/api/model-lab/datasets");
+    }
+
+    #[test]
+    fn dataset_transport_rejects_paths_scripts_ambiguous_and_oversized_documents() {
+        for value in [
+            json!({"operation":"get_dataset","workspace_id":"a/b","id":"custom.x.y"}),
+            json!({"operation":"archive_dataset","workspace_id":"local","id":"../other","archived":true}),
+            json!({"operation":"create_dataset","workspace_id":"local"}),
+            json!({"operation":"create_dataset","workspace_id":"local","document":{},"document_json":"{}"}),
+            json!({"operation":"create_dataset","workspace_id":"local","document_json":"{\"script\":\"powershell\"}"}),
+            json!({"operation":"create_dataset","workspace_id":"local","document_json":" ".repeat(64*1024+1)}),
+        ] {
+            let result=serde_json::from_value::<ModelEngineeringRequest>(value).map_err(|e|ApiError::new(e.to_string())).and_then(build_request);
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn preparation_is_read_only_scoped_and_rejects_injected_paths() {
+        let request=json!({"operation":"prepare_evaluation","workspace_id":"local","stable_revision_id":"model-a","candidate_revision_id":"model-a","profile_id":"profile-a","dataset_id":"dataset-a","workflow_id":"codelens.codetask.go.v1","evaluation_mode":"baseline"});
+        let spec=build_request(serde_json::from_value(request.clone()).unwrap()).unwrap();
+        assert_eq!(spec.method,Method::Post);
+        assert_eq!(spec.path,"/api/workspaces/local/evaluations/preparation");
+        assert!(spec.key.is_none());
+        assert_eq!(spec.body.unwrap()["evaluation_mode"],"baseline");
+        for (key,value) in [("workspace_id","../other"),("dataset_id","d?x=1"),("evaluation_mode","pretend"),("url","http://evil"),("idempotency_key","write-key")] {
+            let mut invalid=request.clone(); invalid[key]=json!(value);
+            assert!(serde_json::from_value::<ModelEngineeringRequest>(invalid).map_err(|e|ApiError::new(e.to_string())).and_then(build_request).is_err());
+        }
+    }
+
+    #[test]
+    fn evaluation_mode_is_explicit_validated_and_forwarded() {
+        for mode in ["baseline", "compare"] {
+            let body=json!({"operation":"create_evaluation","workspace_id":"local","stable_revision_id":"model-a","candidate_revision_id":"model-a","profile_id":"profile-a","evaluation_mode":mode,"idempotency_key":"first-run"});
+            let request:ModelEngineeringRequest=serde_json::from_value(body).unwrap();
+            let spec=build_request(request).unwrap();
+            assert_eq!(spec.path,"/api/workspaces/local/evaluations");
+            assert_eq!(spec.key.as_deref(),Some("first-run"));
+            assert_eq!(spec.body.unwrap()["evaluation_mode"],mode);
+        }
+        let invalid=json!({"operation":"create_evaluation","workspace_id":"local","stable_revision_id":"model-a","candidate_revision_id":"model-a","profile_id":"profile-a","evaluation_mode":"pretend","idempotency_key":"first-run"});
+        let rejected=serde_json::from_value::<ModelEngineeringRequest>(invalid)
+            .map_err(|e|ApiError::new(e.to_string())).and_then(build_request);
+        assert!(rejected.is_err());
+    }
 
     #[test]
     fn fixed_operations_reject_path_injection_and_unknown_fields() {

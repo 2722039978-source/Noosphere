@@ -1,0 +1,21 @@
+.ns-devops-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.ns-devops-page > .ns-surface { padding: 22px 24px; }
+.ns-devops-page > .ns-surface > h2 { letter-spacing: -.02em; }
+.ns-devops-monitor { min-width: 0; }
+.ns-sampling-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.ns-sampling-summary { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; min-width: 0; }
+.ns-sampling-summary h2 { font-size: 14px; font-weight: 600; }
+.ns-sampling-summary span { color: var(--text-3); font-size: 12px; }
+.ns-sampling-summary [data-paused="true"] { color: #99733e; }
+.ns-sampling-actions { display: flex; align-items: center; gap: 8px; }
+.ns-sampling-actions button { gap: 7px; }
+.ns-sampling-note { color: var(--text-2); font-size: 12px; line-height: 1.7; margin: -2px 0 14px; }
+.ns-devops-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.ns-devops-metrics .ns-metric-card { padding: 19px; min-width: 0; }
+.ns-devops-page .ns-metric-card::before { background: #aa885a; }
+.ns-metric-progress { display: block; width: 100%; height: 3px; margin-top: 15px; border: 0; border-radius: 0; background: var(--secondary); accent-color: #8b8c80; }
+.ns-metric-progress::-webkit-progress-bar { background: var(--secondary); }
+.ns-metric-progress::-webkit-progress-value { background: #8b8c80; }
+.ns-metric-progress::-moz-progress-bar { background: #8b8c80; }
+@media (max-width: 900px) { .ns-devops-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 639px) { .ns-devops-page > .ns-surface { padding: 18px; } .ns-sampling-actions { width: 100%; } .ns-sampling-summary { gap: 10px; } .ns-devops-metrics { gap: 12px; } .ns-devops-metrics .ns-metric-card { padding: 15px; } }

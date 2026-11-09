@@ -33,7 +33,7 @@ export function createAgentTransport(client: Client, callbacks: { update?(id: st
           if (latest.workspace_id !== workspaceId || !Array.isArray(events.events)) throw new Error('Agent 任务归属或事件格式不匹配');
           if (events.events.length) {
             after = Math.max(after, ...events.events.map(event => event.seq));
-            onUpdate({ agentProgress: events.events[events.events.length - 1]?.message || latest.phase });
+            onUpdate({ agentProgress: events.events[events.events.length - 1]?.message || (latest.status === 'queued' ? 'Agent 正在等待执行。' : 'Agent 正在执行任务。') });
           }
           if (latest.status !== 'queued' && latest.status !== 'running') {
             entries.delete(id); entry.stopped = true;
