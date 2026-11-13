@@ -2,14 +2,20 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/noosphere/backend/internal/gateway/providers"
 	"github.com/noosphere/backend/internal/workspaces"
 	"gopkg.in/yaml.v3"
 )
@@ -168,4 +174,136 @@ func TestPublicModelSelectionRejectsSwitchDuringActiveTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	requirePublicSessionModel(t, g, workspace.ID, "active", "", "explicit")
+}
+
+func TestPublicModelSelectionProviderRouting(t *testing.T) {
+	type providerRequest struct {
+		Model  string
+		Stream bool
+	}
+	var mu sync.Mutex
+	var calls []providerRequest
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("意外的本地请求：%s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var call providerRequest
+		if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		calls = append(calls, call)
+		mu.Unlock()
+		content := "OK"
+		switch call.Model {
+		case "unauthorized":
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		case "not-found":
+			w.WriteHeader(http.StatusNotFound)
+			return
+		case "empty":
+			content = ""
+		case "slow":
+			<-r.Context().Done()
+			return
+		}
+		if call.Stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"choices":[{"message":{"content":%q}}]}`, content)
+	}))
+	defer upstream.Close()
+
+	g, manager, _ := publicSelectionGateway(t)
+	g.sem = make(chan struct{}, 1)
+	g.providers = make(map[string]providers.LLMProvider)
+	g.config.DefaultModel = ""
+	for i := range g.config.Models {
+		g.config.Models[i].BaseURL = upstream.URL + "/v1"
+		g.config.Models[i].IsDefault = false
+	}
+	for _, id := range []string{"unauthorized", "not-found", "empty", "slow"} {
+		g.config.Models = append(g.config.Models, ModelConfig{
+			ID: id, Provider: "openai_compatible", BaseURL: upstream.URL + "/v1", ModelName: id, Enabled: true,
+		})
+	}
+
+	selectModel := func(ctx context.Context, modelID string) *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{"scope":"session","workspace_id":"local","session_id":"routing","model_id":%q}`, modelID)
+		w := httptest.NewRecorder()
+		g.HandleSelectModel(w, httptest.NewRequest(http.MethodPost, "/api/gateway/selection", strings.NewReader(body)).WithContext(ctx))
+		return w
+	}
+	chat := func(modelID string, stream bool) {
+		t.Helper()
+		body := fmt.Sprintf(`{"workspace_id":"local","session_id":"routing","model_id":%q,"messages":[{"role":"user","content":"Hello"}]}`, modelID)
+		req := httptest.NewRequest(http.MethodPost, "/api/gateway/chat", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		if stream {
+			g.HandleChatStream(w, req)
+		} else {
+			g.HandleChat(w, req)
+		}
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "OK") || strings.Contains(w.Body.String(), `"error"`) {
+			t.Fatalf("对话失败：%d %s", w.Code, w.Body.String())
+		}
+	}
+
+	chat("", false)
+	requirePublicSessionModel(t, g, "local", "routing", "", "explicit")
+	if w := selectModel(context.Background(), "global"); w.Code != http.StatusOK {
+		t.Fatalf("切换会话模型失败：%d %s", w.Code, w.Body.String())
+	}
+	chat("global", true)
+	runs, err := manager.Runs("local")
+	if err != nil || len(runs) != 2 {
+		t.Fatalf("读取对话任务失败：%+v %v", runs, err)
+	}
+	completed := make(map[string]bool)
+	for _, run := range runs {
+		if run.Status == "completed" && run.SessionID == "routing" {
+			completed[run.ModelID] = true
+		}
+	}
+	if !completed["explicit"] || !completed["global"] {
+		t.Fatalf("对话任务未记录切换前后的模型 ID：%+v", runs)
+	}
+
+	for _, failure := range []struct{ modelID, message string }{
+		{"unauthorized", "HTTP 401"},
+		{"not-found", "HTTP 404"},
+		{"empty", "模型连接验证失败"},
+		{"slow", "模型连接验证超时"},
+	} {
+		t.Run(failure.modelID, func(t *testing.T) {
+			ctx := context.Background()
+			if failure.modelID == "slow" {
+				deadline, cancel := context.WithTimeout(ctx, 2*time.Second)
+				defer cancel()
+				ctx = deadline
+			}
+			w := selectModel(ctx, failure.modelID)
+			if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), failure.message) {
+				t.Fatalf("意外的连接验证结果：%d %s", w.Code, w.Body.String())
+			}
+			requirePublicSessionModel(t, g, "local", "routing", "", "global")
+		})
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []providerRequest{
+		{Model: "explicit"}, {Model: "global"}, {Model: "global", Stream: true},
+		{Model: "unauthorized"}, {Model: "not-found"}, {Model: "empty"}, {Model: "slow"},
+	}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("本地推理服务收到 %+v，预期 %+v", calls, want)
+	}
 }
