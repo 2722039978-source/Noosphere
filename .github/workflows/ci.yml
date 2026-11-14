@@ -78,6 +78,12 @@ jobs:
             New-ItemProperty -LiteralPath $Policy -Name $Application -Value $Arguments -PropertyType String -Force | Out-Null
           }
           Add-Content -LiteralPath $env:GITHUB_ENV -Value "NOOSPHERE_TEST_WEBVIEW_PORT=$Port"
+      # WebView2 may create the default app profile during portable smoke on elevated runners.
+      # Start the installer test first so its fresh-profile check can stay strict.
+      - name: Verify installed app, uninstall, and reinstall
+        run: |
+          $Version = (Get-Content VERSION -Raw).Trim()
+          ./scripts/verify-installer.ps1 -Installer "artifacts/$Version/Noosphere-$Version-windows-x64-setup.exe"
       - name: Run Go, Python, Rust, frontend and packaged native tests
         run: |
           $Version = (Get-Content VERSION -Raw).Trim()
@@ -86,10 +92,6 @@ jobs:
           $Executable = @(Get-ChildItem -LiteralPath $Root -Recurse -Filter 'Noosphere.exe' -File)
           if ($Executable.Count -ne 1) { throw 'Expected exactly one portable desktop executable.' }
           ./scripts/test.ps1 -Rust -Browser -PackagedRoot $Executable[0].Directory.FullName
-      - name: Verify installed app, uninstall, and reinstall
-        run: |
-          $Version = (Get-Content VERSION -Raw).Trim()
-          ./scripts/verify-installer.ps1 -Installer "artifacts/$Version/Noosphere-$Version-windows-x64-setup.exe"
       - name: Remove WebView2 test policy
         if: always() && env.NOOSPHERE_TEST_WEBVIEW_PORT != ''
         run: |
