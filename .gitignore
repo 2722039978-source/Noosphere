@@ -61,11 +61,7 @@ desktop/src-tauri/logs/
 
 # Local reference checkout and personal planning exports
 /RhineLabUI/
-/docs/*
-!/docs/screenshots/
-/docs/screenshots/*
-!/docs/screenshots/model-hub.png
-!/docs/screenshots/model-lab.png
+/docs/
 
 # Local model weights, databases, credentials and verification output
 /model/

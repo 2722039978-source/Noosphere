@@ -96,18 +96,17 @@ Model Lab 围绕“模型版本、任务集、推理参数、运行环境”组�
 3. 运行单版本基线，结合逐题结果、失败类型和有效样本阅读报告。
 4. 导出 HTML 报告、SVG 图卡或 JSON 实验包。需要验证候选发布时打开 Release Center。
 
-## 截图
+## 目录与本地文件
 
-Model Hub：模型连接、版本与状态。截图使用独立的示例数据。
+| 路径 | 用途 |
+| --- | --- |
+| `frontend/` | React 界面、页面、静态资源和前端构建配置。 |
+| `backend/` | Go 服务、模型网关、评测与工作区，以及 Python CodeLens。 |
+| `desktop/` | Tauri 桌面壳、进程管理、权限配置与打包入口。 |
+| `scripts/` | 开发启动、环境预检、便携包构建与验证。 |
+| `.github/` | CI 工作流与 Issue 模板。 |
 
-![Model Hub](docs/screenshots/model-hub.png)
-
-<details>
-<summary>查看 Model Lab</summary>
-
-![Model Lab：模型版本、任务集与推理配置](docs/screenshots/model-lab.png)
-
-</details>
+本地生成的 `release/`、工具链与工作树 `.local/`、模型 `model/`、验收和历史归档 `test/` 由 `.gitignore` 排除。发布便携包通过 GitHub Releases 提供。
 
 ## 下载
 
