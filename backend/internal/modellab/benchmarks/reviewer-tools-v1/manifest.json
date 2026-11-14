@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "id": "reviewer-tools-v1",
+  "version": "1.0.0",
+  "title": "原生工具协议 · 两项安全工具",
+  "source": "Noosphere original deterministic fixtures, authored 2026-11-14; no external benchmark data",
+  "license": "CC0-1.0",
+  "scorer_sha256": "3c0f513831d4f4349a1d942021462cb569773998802e091337f36b906d1e052f",
+  "prompt_sha256": "0ae2cfbac199985e2008718bc467a3ed590177ce875b24fc71451fddd7f2c844",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "inventory_lookup",
+        "description": "Read the fixed demonstration stock. This read-only tool has no external side effects.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "sku": {
+              "type": "string",
+              "enum": [
+                "PENCIL",
+                "ERASER"
+              ]
+            }
+          },
+          "required": [
+            "sku"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "convert_length",
+        "description": "Convert a nonnegative length from centimeters to meters using value / 100. No external side effects.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "from": {
+              "type": "string",
+              "enum": [
+                "cm"
+              ]
+            },
+            "to": {
+              "type": "string",
+              "enum": [
+                "m"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "from",
+            "to"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "native-inventory",
+      "language": "zh",
+      "task": "请查询商品 PENCIL 的库存。使用原生工具调用，不要猜测数量。收到工具反馈后，仅输出包含 sku 和 available 两个字段的 JSON 对象。",
+      "call": {
+        "name": "inventory_lookup",
+        "arguments": "{\"sku\":\"PENCIL\"}"
+      },
+      "expected_output": {
+        "sku": "PENCIL",
+        "available": 12
+      }
+    },
+    {
+      "id": "native-conversion",
+      "language": "en",
+      "task": "Use the provided native tool to convert 350 cm to meters. After receiving the tool result, return only a JSON object with one numeric field named meters.",
+      "call": {
+        "name": "convert_length",
+        "arguments": "{\"value\":350,\"from\":\"cm\",\"to\":\"m\"}"
+      },
+      "expected_output": {
+        "meters": 3.5
+      }
+    }
+  ]
+}

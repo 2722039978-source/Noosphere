@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/noosphere/backend/internal/evalrunner"
@@ -38,6 +39,20 @@ func responseMetrics(m modelstore.Metrics, response *providers.EvaluationRespons
 	m.PromptNS = reportedMetric(response.PromptEvalDurationNS, "ns")
 	m.DecodeNS = reportedMetric(response.EvalDurationNS, "ns")
 	m.Tokens = reportedMetric(response.EvalCount, "tokens")
+	if response.FirstTokenNS != nil {
+		m.FirstTokenNS = new(observedMetric(float64(*response.FirstTokenNS), "ns", "host_monotonic_stream_delta"))
+	}
+	if response.FirstAnswerNS != nil {
+		m.FirstAnswerNS = new(observedMetric(float64(*response.FirstAnswerNS), "ns", "host_monotonic_answer_delta"))
+	}
+	if sample := response.ProcessUsage; sample != nil {
+		if sample.WorkingSetSamples > 0 {
+			m.PeakWorkingSet = new(observedMetric(float64(sample.PeakWorkingSetBytes), "bytes", sample.Source))
+		}
+		if sample.DedicatedGPUSamples > 0 {
+			m.PeakDedicatedGPU = new(observedMetric(float64(sample.PeakDedicatedGPUBytes), "bytes", sample.Source))
+		}
+	}
 	if response.MetricSource != "" {
 		for _, metric := range []*modelstore.Metric{&m.LoadNS, &m.PromptNS, &m.DecodeNS, &m.Tokens} {
 			if metric.Value != nil {
@@ -144,9 +159,16 @@ func (s *Service) Execute(ctx context.Context, evaluationID, runID string, emit 
 		}
 		return err
 	}
-	scorer, err := NewScorer(r.config.Runner)
-	if err != nil {
-		return err
+	eventLabel := "CodeTaskBench"
+	if dataset.isDeclarative() {
+		eventLabel = "Local text benchmark"
+	}
+	var scorer *Scorer
+	if !dataset.isDeclarative() {
+		scorer, err = NewScorer(r.config.Runner)
+		if err != nil {
+			return err
+		}
 	}
 	all, err := s.store.ListAttempts(ctx, e.ID)
 	if err != nil {
@@ -205,7 +227,7 @@ func (s *Service) Execute(ctx context.Context, evaluationID, runID string, emit 
 				}
 			}
 			if emit != nil {
-				emit("evaluating", "CodeTaskBench case", map[string]any{"evaluation_id": e.ID, "case_id": c.ID, "arm": arm, "attempt_no": a.AttemptNo, "planned": len(e.Manifest.Dataset.Cases) * 2, "completed": countCompleted(latest)})
+				emit("evaluating", eventLabel+" case", map[string]any{"evaluation_id": e.ID, "case_id": c.ID, "arm": arm, "attempt_no": a.AttemptNo, "planned": len(e.Manifest.Dataset.Cases) * 2, "completed": countCompleted(latest)})
 			}
 			var outcome modelstore.AttemptOutcome
 			if previous.OutputArtifact != "" && previous.Result.InferenceCompleted && !previous.Result.Truncated {
@@ -259,7 +281,7 @@ func (s *Service) Execute(ctx context.Context, evaluationID, runID string, emit 
 	}
 	finished = true
 	if emit != nil {
-		emit("evaluated", "CodeTaskBench evidence saved", map[string]any{"evaluation_id": e.ID, "report_id": report.ID, "planned": report.Counts.Planned, "scored": report.Counts.Scored, "infra": report.Counts.Infra})
+		emit("evaluated", eventLabel+" evidence saved", map[string]any{"evaluation_id": e.ID, "report_id": report.ID, "planned": report.Counts.Planned, "scored": report.Counts.Scored, "infra": report.Counts.Infra})
 	}
 	return nil
 }
@@ -318,7 +340,7 @@ func fatalInference(err error) bool {
 func (s *Service) runArm(ctx context.Context, e modelstore.Evaluation, m modelstore.ModelRevision, in frozenInput, a modelstore.Attempt, scorer *Scorer, ref CaseRef) (out modelstore.AttemptOutcome, returned error) {
 	r := s.runtime
 	out = modelstore.AttemptOutcome{State: "running", Verdict: "not_scored", Metrics: emptyMetrics()}
-	persistent := m.Provider == "openai_compatible"
+	persistent := m.Provider == "openai_compatible" || m.Provider == "openvino"
 	if persistent {
 		out.Metrics.LoadingProtocol = "persistent_local_v1"
 		out.Metrics.WarmupCost = unknownMetric("ns", "externally managed resident model; owned warmup is not applicable")
@@ -364,10 +386,20 @@ func (s *Service) runArm(ctx context.Context, e modelstore.Evaluation, m modelst
 	if err != nil {
 		return fail(err)
 	}
-	req := providers.EvaluationRequest{ModelName: m.ModelName, ExpectedDigest: m.Digest, ExpectedMetadataHash: m.MetadataHash, ExpectedEngineVersion: m.EngineVersion, ExpectedSourceFingerprint: m.EndpointFingerprint, AttemptID: a.ID, Kind: "evaluation", Messages: []providers.Message{{Role: "user", Content: in.Context.Prompt}}, Options: options, Timeout: timeout}
-	req.Options.KeepAlive = "0s"
+	req := providers.EvaluationRequest{ModelName: m.ModelName, ExpectedDigest: m.Digest, ExpectedMetadataHash: m.MetadataHash, ExpectedEngineVersion: m.EngineVersion, ExpectedSourceFingerprint: m.EndpointFingerprint, AttemptID: a.ID, Kind: "evaluation", Messages: evaluationMessages(in), Options: options, Timeout: timeout}
+	configureNativeToolRequest(&req, in)
+	req.VerifyContextBudget = in.Case.Reviewer != nil || in.Case.NativeTools != nil
+	if persistent {
+		req.Options.KeepAlive = ""
+	} else {
+		req.Options.KeepAlive = "0s"
+	}
+	req.ObserveStream = e.Manifest.WorkflowID == "local.review.v1" && strings.HasPrefix(m.EngineVersion, "llama.cpp/")
 	if err = persist(phase("planned_formal", &req, nil, nil, nil, time.Now()), ""); err != nil {
 		return fail(err)
+	}
+	if in.Case.NativeTools != nil && m.Provider != "openai_compatible" {
+		return nativeToolUnmeasured(out, identityError("UNSUPPORTED_CAPABILITY", "The current identity-bound evaluation adapter has no native tool protocol; this capability remains unmeasured."))
 	}
 	session, release, err := r.begin(ctx)
 	if err != nil {
@@ -474,14 +506,24 @@ func (s *Service) runArm(ctx context.Context, e modelstore.Evaluation, m modelst
 		out.Metrics.WarmVerified = true
 	}
 	start = time.Now()
-	response, inferErr := r.infer(session, m.GatewayModelID, req)
+	formalContext := session
+	if in.Case.NativeTools != nil {
+		var cancel context.CancelFunc
+		formalTimeout, _ := providers.EvaluationTimeout(timeout)
+		formalContext, cancel = context.WithTimeout(session, formalTimeout)
+		defer cancel()
+	}
+	response, inferErr := r.infer(formalContext, m.GatewayModelID, req)
 	inferErr = sessionError(session, inferErr)
+	if in.Case.NativeTools != nil && inferErr == nil {
+		response, inferErr = s.nativeToolFeedback(formalContext, m.GatewayModelID, req, in.Case, response, persist)
+	}
 	out.Result.InferenceCompleted = response != nil && inferErr == nil && !response.Truncated && response.DoneReason != "length"
 	out.Metrics = responseMetrics(out.Metrics, response)
 	if response != nil {
 		out.Result.Truncated = response.Truncated || response.DoneReason == "length"
 		if response.Output != "" {
-			out.OutputArtifact, err = s.publishSource(context.WithoutCancel(ctx), response.Output)
+			out.OutputArtifact, err = s.publishCaseOutput(context.WithoutCancel(ctx), ref, response.Output)
 			if err != nil {
 				return fail(err)
 			}
@@ -491,6 +533,9 @@ func (s *Service) runArm(ctx context.Context, e modelstore.Evaluation, m modelst
 		return fail(err)
 	}
 	if inferErr != nil {
+		if in.Case.NativeTools != nil && nativeToolUnsupported(inferErr) {
+			return nativeToolUnmeasured(out, inferErr)
+		}
 		return fail(inferErr)
 	}
 	if response == nil {
@@ -510,7 +555,7 @@ func (s *Service) runArm(ctx context.Context, e modelstore.Evaluation, m modelst
 		out.Result.ErrorStage = "output"
 		out.Result.ErrorReason = "provider marked output truncated"
 		if out.OutputArtifact == "" {
-			out.OutputArtifact, err = s.publishSource(context.WithoutCancel(ctx), response.Output)
+			out.OutputArtifact, err = s.publishCaseOutput(context.WithoutCancel(ctx), ref, response.Output)
 		}
 		return out, err
 	}
@@ -525,10 +570,31 @@ func sessionError(ctx context.Context, err error) error {
 	return err
 }
 func (s *Service) score(ctx context.Context, scorer *Scorer, ref CaseRef, source string, out modelstore.AttemptOutcome) (modelstore.AttemptOutcome, error) {
-	result, scoreErr := scorer.Score(ctx, ref, source)
+	var result ScoreResult
+	var evidence any
+	var scoreErr error
+	if ref.owner != nil && ref.owner.isTools() {
+		toolResult, err := scoreNativeTools(ctx, ref, source)
+		scoreErr = err
+		evidence = toolResult
+		result = ScoreResult{ScorerVersion: toolResult.ScorerVersion, Status: toolResult.Status, ErrorStage: toolResult.ErrorStage, ErrorCode: toolResult.ErrorCode, Reason: toolResult.Reason}
+	} else if ref.owner != nil && ref.owner.isReviewer() {
+		reviewerResult, err := scoreReviewer(ctx, ref, source)
+		scoreErr = err
+		evidence = reviewerResult
+		result = ScoreResult{ScorerVersion: reviewerResult.ScorerVersion, Status: reviewerResult.Status, ErrorStage: reviewerResult.ErrorStage, ErrorCode: reviewerResult.ErrorCode, Reason: reviewerResult.Reason}
+	} else if ref.owner != nil && ref.owner.isText() {
+		textResult, err := scoreText(ctx, ref, source)
+		scoreErr = err
+		evidence = textResult
+		result = ScoreResult{ScorerVersion: textResult.ScorerVersion, Status: textResult.Status, ErrorStage: textResult.ErrorStage, ErrorCode: textResult.ErrorCode, Reason: textResult.Reason}
+	} else {
+		result, scoreErr = scorer.Score(ctx, ref, source)
+		evidence = result
+	}
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.runtime.config.Budget.CleanupTimeout)
 	defer cancel()
-	id, err := s.publish(persist, result)
+	id, err := s.publish(persist, evidence)
 	if err != nil {
 		return out, err
 	}
@@ -538,7 +604,7 @@ func (s *Service) score(ctx context.Context, scorer *Scorer, ref CaseRef, source
 	out.Result.ErrorReason = result.Reason
 	out.ErrorCode = result.ErrorCode
 	if out.OutputArtifact == "" {
-		out.OutputArtifact, err = s.publishSource(persist, source)
+		out.OutputArtifact, err = s.publishCaseOutput(persist, ref, source)
 		if err != nil {
 			return out, err
 		}
@@ -570,8 +636,14 @@ func (s *Service) score(ctx context.Context, scorer *Scorer, ref CaseRef, source
 
 func (s *Service) preflightFrozen(ctx context.Context, e modelstore.Evaluation, d *Dataset) error {
 	r := s.runtime
-	if e.Manifest.Source != s.source() || len(e.Manifest.Dataset.Cases) != len(d.Cases()) || e.Manifest.Dataset.ScorerVersion != ScorerVersion || e.Manifest.Dataset.RunnerVersion != d.Revision().RunnerVersion || e.Manifest.Dataset.PromptTemplateHash != d.Revision().PromptTemplateHash || e.Manifest.Dataset.ScorerHash != d.Revision().ScorerHash {
+	if err := r.requireDatasetRuntime(d); err != nil {
+		return err
+	}
+	if e.Manifest.Source != s.source() || e.Manifest.WorkflowID != d.workflowID() || len(e.Manifest.Dataset.Cases) != len(d.Cases()) || e.Manifest.Dataset.ScorerVersion != d.Revision().ScorerVersion || e.Manifest.Dataset.RunnerVersion != d.Revision().RunnerVersion || e.Manifest.Dataset.PromptTemplateHash != d.Revision().PromptTemplateHash || e.Manifest.Dataset.ScorerHash != d.Revision().ScorerHash {
 		return identityError("INSUFFICIENT_EVIDENCE", "installed benchmark/scorer/runner differs from frozen evaluation")
+	}
+	if d.isDeclarative() && (e.Manifest.Dataset.SourceRevisionID != d.revision.ID || e.Manifest.Dataset.SourceContentHash != d.revision.ContentHash) {
+		return identityError("INSUFFICIENT_EVIDENCE", "frozen text source revision mismatch")
 	}
 	current, err := r.config.CollectEnvironment(ctx)
 	if err != nil {
@@ -585,6 +657,9 @@ func (s *Service) preflightFrozen(ctx context.Context, e modelstore.Evaluation, 
 		return identityError("INSUFFICIENT_EVIDENCE", "environment changed; create a new evaluation")
 	}
 	if err = r.config.Budget.validate(e.Manifest.Profile); err != nil {
+		return err
+	}
+	if err = validateReviewerProfile(d, e.Manifest.Profile); err != nil {
 		return err
 	}
 	for _, model := range []modelstore.ModelRevision{e.Manifest.Stable, e.Manifest.Candidate} {

@@ -415,6 +415,9 @@ func (p *OllamaProvider) Discover(parent context.Context) (ModelDiscovery, error
 }
 
 func validateEvaluationRequest(req EvaluationRequest) error {
+	if err := validateEvaluationTools(req); err != nil {
+		return err
+	}
 	if !validModelName(req.ModelName) || normalizeDigest(req.ExpectedDigest) == "" || normalizeDigest(req.ExpectedMetadataHash) == "" || req.ExpectedEngineVersion == "" || len(req.ExpectedEngineVersion) > 256 {
 		return evaluationError("INVALID_REQUEST", "model name and complete expected identity are required")
 	}
@@ -505,6 +508,9 @@ func sameExpected(id ModelIdentity, req EvaluationRequest) bool {
 }
 
 func (p *OllamaProvider) Evaluate(parent context.Context, req EvaluationRequest) (*EvaluationResponse, error) {
+	if len(req.Tools) > 0 || len(req.ToolMessages) > 0 {
+		return nil, evaluationError("UNSUPPORTED_CAPABILITY", "identity-bound native tool evaluation is not implemented by this adapter")
+	}
 	timeout, err := EvaluationTimeout(req.Timeout)
 	if err != nil {
 		return nil, err

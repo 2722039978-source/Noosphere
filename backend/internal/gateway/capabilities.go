@@ -68,7 +68,7 @@ func unavailable(code, reason string) Capability {
 }
 
 func connectionCapabilities(model ModelConfig) ModelCapabilities {
-	out := ModelCapabilities{SchemaVersion: 1, Source: "gateway-adapter-policy-v1", Chat: unavailable("ADAPTER_UNAVAILABLE", "此连接没有可用的对话适配器。"), AgentTools: unavailable("TOOLS_UNSUPPORTED", "此协议尚未接入结构化 Agent 工具；可按对话能力使用。"), NativeEvaluation: unavailable("NATIVE_UNSUPPORTED", "原生测评目前只适配本机 Ollama 与可核验的本机 llama.cpp。")}
+	out := ModelCapabilities{SchemaVersion: 1, Source: "gateway-adapter-policy-v1", Chat: unavailable("ADAPTER_UNAVAILABLE", "此连接没有可用的对话适配器。"), AgentTools: unavailable("TOOLS_UNSUPPORTED", "此协议尚未接入结构化 Agent 工具；可按对话能力使用。"), NativeEvaluation: unavailable("NATIVE_UNSUPPORTED", "原生测评支持本机 Ollama、可核验的 llama.cpp 与 OpenVINO GenAI 适配器。")}
 	factory, fallback := chatProviderFactory(model.Provider)
 	if factory == nil {
 		return out
@@ -85,18 +85,26 @@ func connectionCapabilities(model ModelConfig) ModelCapabilities {
 		out.Chat.Code = "CHAT_COMPATIBLE_FALLBACK"
 		out.Chat.Reason = "未知协议沿用现有 OpenAI 兼容对话回退；建议明确选择协议，连接尚未验证。"
 	}
+	if model.Provider == "openvino" {
+		if _, err := sourceFingerprint(&model); err != nil {
+			out.Chat = unavailable("LOCAL_ENDPOINT_REQUIRED", "OpenVINO 适配器只接受本机回环服务地址；请使用本机 OpenVINO 预设。")
+		}
+	}
 	if toolProviderAllowed(model.Provider) {
 		if _, ok := p.(providers.ToolProvider); ok {
 			out.AgentTools = Capability{Supported: true, Code: "TOOLS_ADAPTER_SUPPORTED", Reason: "已接入结构化工具协议；具体模型能否正确选择和调用工具需实际验证。", Verification: "not_checked"}
 		}
 	}
-	if model.Provider == "ollama" || model.Provider == "openai_compatible" {
+	if model.Provider == "ollama" || model.Provider == "openai_compatible" || model.Provider == "openvino" {
 		if _, err := sourceFingerprint(&model); err != nil {
 			out.NativeEvaluation = unavailable("LOCAL_ENDPOINT_REQUIRED", "原生测评要求本机回环地址，且地址不能携带凭据、查询、片段或不受支持的路径；远程兼容服务可用于其他已支持能力。")
 		} else if _, ok := p.(providers.EvaluationProvider); ok {
 			reason := "可进入本机 Ollama 身份发现；仍需验证模型 digest、引擎、执行器和资源条件。"
 			if model.Provider == "openai_compatible" {
 				reason = "可尝试本机 llama.cpp 身份核验；需运行时元数据和可读取的本地 GGUF，普通兼容服务不能据此直接测评。"
+			}
+			if model.Provider == "openvino" {
+				reason = "可发现本机 OpenVINO GenAI；须使用项目附带的适配器，并核验 IR、分词器、引擎版本和实际 CPU / GPU 配置。"
 			}
 			out.NativeEvaluation = Capability{Supported: true, Code: "NATIVE_DISCOVERY_REQUIRED", Reason: reason, Verification: "requires_discovery"}
 		}

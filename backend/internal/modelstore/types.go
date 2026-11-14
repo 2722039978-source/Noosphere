@@ -172,18 +172,22 @@ type Result struct {
 	ScorerVersion      string   `json:"scorer_version,omitempty"`
 }
 type Metrics struct {
-	WallNS          Metric `json:"wall_ns"`
-	LoadNS          Metric `json:"load_ns"`
-	PromptNS        Metric `json:"prompt_ns"`
-	DecodeNS        Metric `json:"decode_ns"`
-	Tokens          Metric `json:"tokens"`
-	CPU             Metric `json:"cpu"`
-	RAM             Metric `json:"ram"`
-	AvailableVRAM   Metric `json:"available_vram"`
-	LoadingProtocol string `json:"loading_protocol,omitempty"`
-	WarmVerified    bool   `json:"warm_verified"`
-	WarmupArtifact  string `json:"warmup_artifact,omitempty"`
-	WarmupCost      Metric `json:"warmup_cost"`
+	WallNS           Metric  `json:"wall_ns"`
+	LoadNS           Metric  `json:"load_ns"`
+	PromptNS         Metric  `json:"prompt_ns"`
+	DecodeNS         Metric  `json:"decode_ns"`
+	Tokens           Metric  `json:"tokens"`
+	CPU              Metric  `json:"cpu"`
+	RAM              Metric  `json:"ram"`
+	AvailableVRAM    Metric  `json:"available_vram"`
+	LoadingProtocol  string  `json:"loading_protocol,omitempty"`
+	WarmVerified     bool    `json:"warm_verified"`
+	WarmupArtifact   string  `json:"warmup_artifact,omitempty"`
+	WarmupCost       Metric  `json:"warmup_cost"`
+	FirstTokenNS     *Metric `json:"first_token_ns,omitempty"`
+	FirstAnswerNS    *Metric `json:"first_answer_ns,omitempty"`
+	PeakWorkingSet   *Metric `json:"peak_working_set_bytes,omitempty"`
+	PeakDedicatedGPU *Metric `json:"peak_dedicated_gpu_bytes,omitempty"`
 }
 type Attempt struct {
 	ID               string  `json:"id"`

@@ -11,8 +11,13 @@ import { evidenceLabel, readComparison, STATUS } from './presentation';
 import { ComparisonTable } from './ComparisonTable';
 import { ReportCasePanel } from './ReportCasePanel';
 import { ReportOverview } from './ReportOverview';
-import { buildReportInsights, changeLabel, pairedCaseEvidence, verdictLabel, type PairedCaseEvidence } from './report-insights';
+import { buildReportInsights, changeLabel, pairedCaseEvidence, verdictLabel } from './report-insights';
 import { FirstEvaluationPath } from './FirstEvaluationPath';
+import { CapabilityProfile } from './CapabilityProfile';
+import { ExperimentReplayPanel } from './ExperimentReplayPanel';
+import { collectReportEvidence } from './collect-report-evidence';
+import { MeasuredPerformance } from './MeasuredPerformance';
+import { buildExperimentBundle } from './experiment-bundle';
 import './report-reading.css';
 
 export function EvaluationReportPage() {
@@ -51,35 +56,34 @@ export function EvaluationReportPage() {
   };
   const report = data?.report, analysis = readComparison(report?.analysis);
   const baseline = analysis?.evaluation_mode === 'baseline' || evaluation?.manifest.evaluation_mode === 'baseline';
-  const customTasks = !!(evaluation?.manifest.dataset.source_revision_id || evaluation?.manifest.dataset.source_content_hash);
+  const customTasks = !!evaluation && !['local-text-v1', 'codetask-go-v1'].includes(evaluation.manifest.dataset.benchmark_id);
+  const textTasks = evaluation?.manifest.workflow_id === 'local.text.v1';
   const insights = useMemo(() => report ? buildReportInsights(report, analysis, evaluation) : null, [report, analysis, evaluation]);
   const cases = insights?.cases.filter(row => filter === 'all' || filter === 'issues' && row.change !== 'both_pass' || filter === 'different' && (row.change === 'improved' || row.change === 'regressed') || row.change === filter) || [];
   const chooseFilter = (value: string) => { setFilter(value); setCaseID(''); };
-  const exportReport = async () => {
+  const exportReport = async (format: 'html' | 'svg' | 'json' = 'html') => {
     if (!report || !data || !insights || exportController.current) return;
     const controller = new AbortController(), generation = epoch.current;
     exportController.current = controller; setExportProgress({ completed: 0, total: insights.cases.length }); setExportNotice('');
-    const collected: PairedCaseEvidence[] = new Array(insights.cases.length); let index = 0, completed = 0;
     const current = () => !controller.signal.aborted && epoch.current === generation;
-    const worker = async () => {
-      while (current()) {
-        const position = index++; if (position >= insights.cases.length) return;
-        const row = insights.cases[position];
-        try {
-          const detail = await modelEngineering({ operation: 'get_case', workspace_id: workspace, evaluation_id: report.evaluation_id, case_id: row.id, report_id: report.id, limit: 100 });
-          collected[position] = pairedCaseEvidence(row, detail);
-        } catch { collected[position] = pairedCaseEvidence(row, null, '本案例的详细证据读取失败，请在应用中重试。'); }
-        if (current()) setExportProgress({ completed: ++completed, total: insights.cases.length });
-      }
-    };
     try {
-      await Promise.all([worker(), worker()]); if (!current()) return;
-      const { renderExperimentHTML } = await import('./report-export'); if (!current()) return;
-      const html = renderExperimentHTML({ report, reportHash: data.report_hash, evaluation, insights, cases: collected, exportedAt: new Date().toISOString() });
-      const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
-      const link = document.createElement('a'); link.href = url; link.download = `noosphere-experiment-${report.id.replace(/[^A-Za-z0-9_.-]/g, '_')}.html`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      const raw = format === 'svg' ? [] : await collectReportEvidence(insights.cases.map(c => c.id), { workspace, evaluationID: report.evaluation_id, reportID: report.id }, modelEngineering, controller.signal, completed => { if (current()) setExportProgress({ completed, total: insights.cases.length }); });
+      if (!current()) return;
+      const collected = raw.map((item, index) => pairedCaseEvidence(insights.cases[index], item.detail, item.issue));
+      const input = { report, reportHash: data.report_hash, evaluation, insights, cases: collected, exportedAt: new Date().toISOString() };
+      let content = '', mime = '';
+      if (format === 'json') {
+        if (!evaluation) throw new Error('冻结的实验清单不可读取，不能导出复跑资料。');
+        content = JSON.stringify(await buildExperimentBundle(evaluation, report, data.report_hash, raw, input.exportedAt), null, 2); mime = 'application/json';
+      } else {
+        const { renderExperimentHTML, renderExperimentSVG } = await import('./report-export');
+        content = format === 'svg' ? renderExperimentSVG(input) : renderExperimentHTML(input); mime = format === 'svg' ? 'image/svg+xml' : 'text/html';
+      }
+      if (!current()) return;
+      const url = URL.createObjectURL(new Blob([content], { type: `${mime};charset=utf-8` }));
+      const link = document.createElement('a'); link.href = url; link.download = `noosphere-experiment-${report.id.replace(/[^A-Za-z0-9_.-]/g, '_')}.${format}`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
       const missing = collected.filter(c => c.issue || c.stable.notice || c.candidate.notice).length;
-      setExportNotice(`已导出 ${collected.length} 个案例的实验报告，可离线打开和打印。${missing ? `其中 ${missing} 个案例的详细证据缺失或不完整，文件中已标明。` : '版本、参数、结论与案例已包含；缺失或显示截断处会在文件中标明。'}`);
+      setExportNotice(format === 'svg' ? '已导出分享图卡（SVG），包含任务分类、分母、未评分、条件与报告引用；原始输出见 HTML 或实验包。' : `已导出 ${collected.length} 个案例的${format === 'json' ? '实验包（JSON），含冻结清单、选中尝试、证据文本及内容哈希，可在下方导入核对' : '实验报告，可离线打开和打印'}。${missing ? `其中 ${missing} 个案例的详细证据缺失或不完整，文件中已标明。` : '缺失、脱敏或显示截断处会在文件中标明。'}`);
     } catch (e) { if (current()) setError(e); }
     finally { if (exportController.current === controller) { exportController.current = null; if (epoch.current === generation) setExportProgress(null); } }
   };
@@ -88,9 +92,11 @@ export function EvaluationReportPage() {
     {!id && <><FirstEvaluationPath stage="report" /><Link className="self-start text-xs text-text-2 underline underline-offset-4" to="/release-center">查看模拟发布记录</Link></>}
     <LabError error={error} onRetry={() => setRefresh(value => value + 1)} />{loading ? <LoadingState label="正在读取持久化报告…" /> : report && data ? <>
       <Surface className="ns-lab-panel"><div className="ns-lab-section"><h2>{baseline ? '单模型基线报告' : '比较报告'}</h2><Link to={`/model-lab?evaluation=${encodeURIComponent(report.evaluation_id)}`}>返回原测评 →</Link></div>
-        {insights && <ReportOverview insights={insights} />}
+        {insights && <><ReportOverview insights={insights} /><CapabilityProfile insights={insights} /></>}
+        {analysis?.source === 'offline_real' && <MeasuredPerformance analysis={analysis} baseline={baseline} planned={evaluation?.manifest.dataset.cases.length ?? Math.floor(report.counts.planned / 2)} />}
         {baseline && <p className="ns-lab-muted">同一版本的两轮结果用于了解任务表现与重复性，不代表相较其他模型胜出。</p>}
-        <div className="ns-report-tools"><Button variant="outline" disabled={!!exportProgress || !insights || !evaluation} onClick={() => void exportReport()}>导出实验报告（HTML）</Button>{exportProgress && <div className="ns-report-progress" role="status">正在收集案例证据 {exportProgress.completed}/{exportProgress.total}<Button variant="ghost" size="sm" onClick={() => { exportController.current?.abort(); exportController.current = null; setExportProgress(null); setExportNotice('已取消导出，原始报告保持不变。'); }}>取消导出</Button></div>}</div>
+        <div className="ns-report-tools"><div className="ns-lab-actions"><Button variant="outline" disabled={!!exportProgress || !insights || !evaluation} onClick={() => void exportReport('html')}>导出实验报告（HTML）</Button><Button variant="outline" disabled={!!exportProgress || !insights || !evaluation} onClick={() => void exportReport('svg')}>导出分享图卡（SVG）</Button><Button variant="outline" disabled={!!exportProgress || !insights || !evaluation} onClick={() => void exportReport('json')}>导出实验包（JSON）</Button></div>{exportProgress && <div className="ns-report-progress" role="status">正在收集案例证据 {exportProgress.completed}/{exportProgress.total}<Button variant="ghost" size="sm" onClick={() => { exportController.current?.abort(); exportController.current = null; setExportProgress(null); setExportNotice('已取消导出，原始报告保持不变。'); }}>取消导出</Button></div>}</div>
+        <p className="ns-lab-muted">分享图卡保留未知与样本分母；实验包最多 12 MiB、单条证据最多 65,536 字符，截断与脱敏会明示。分享前请检查任务和模型输出中的个人内容。</p>
         {exportNotice && <p role="status" className="ns-lab-notice">{exportNotice}</p>}
         <details className="ns-report-technical"><summary>核对模型版本、参数与证据</summary>
         <FirstEvaluationPath stage="report" />
@@ -109,7 +115,8 @@ export function EvaluationReportPage() {
           <JsonView value={report} title="原始不可变报告（含版本、选中与被替代尝试）" />
         </details>
         {customTasks && <p className="ns-lab-notice">这是你定义的任务回归报告。当前演示发布策略仅适用于内置任务集，自定义任务需要单独设计发布标准；你仍可从上方使用模型。</p>}
-        {!baseline && !customTasks && <p className="ns-lab-muted"><Link to={`/release-center?report=${encodeURIComponent(report.id)}`}>创建模拟发布 →</Link> · 模拟发布与日常模型使用分别操作。</p>}
+        {!baseline && !customTasks && !textTasks && <p className="ns-lab-muted"><Link to={`/release-center?report=${encodeURIComponent(report.id)}`}>创建模拟发布 →</Link> · 模拟发布与日常模型使用分别操作。</p>}
+        {textTasks && <p className="ns-lab-muted">文本任务用于本地模型评测与报告；当前 Go 演示发布策略不适用于这组任务。</p>}
       </Surface>
       <Surface className="ns-lab-panel"><div className="ns-lab-section"><h2>任务与失败案例</h2><Button size="sm" variant="outline" aria-pressed={filter === 'issues'} onClick={() => chooseFilter(filter === 'issues' ? 'all' : 'issues')}>{filter === 'issues' ? '显示全部案例' : '只看未通过案例'}</Button></div>
         <p className="ns-lab-muted">按本报告的两边评分逐题核对。基础设施失败与未执行结果不计为候选模型退化。</p>
@@ -121,5 +128,6 @@ export function EvaluationReportPage() {
     </> : !id ? <Surface className="ns-lab-panel"><h2>历史测评报告</h2>{!history.length ? <EmptyState title="尚无测评报告" description="完成或部分完成的测评会保存报告；运行中任务可在 Model Lab 重开。" action={<Link to="/model-lab">前往 Model Lab</Link>} /> : history.map(e => <article className="ns-lab-record" key={e.id}><div className="ns-lab-section"><h3>{e.manifest.stable.model_name} → {e.manifest.candidate.model_name}</h3><Button size="sm" variant="outline" onClick={() => void openReport(e.id)}>重开报告或任务</Button></div><p>{STATUS[e.status]} · {evidenceLabel(e.manifest.source)} · {e.started_at}</p><p className="ns-lab-hash">{e.id}</p></article>)}
       {cursor && <Button variant="outline" onClick={async () => { const generation = epoch.current; try { const r = await modelEngineering({ operation: 'list_evaluations', workspace_id: workspace, cursor, limit: 20 }); if (epoch.current === generation) { setHistory(old => [...old, ...r.evaluations]); setCursor(r.next_cursor); } } catch (e) { if (epoch.current === generation) setError(e); } }}>加载更早报告</Button>}
     </Surface> : <p>报告不可用。<Link to="/evaluation-reports">返回报告历史</Link></p>}
+    <ExperimentReplayPanel key={workspace} workspace={workspace} />
   </LabShell>;
 }

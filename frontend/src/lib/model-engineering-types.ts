@@ -1,4 +1,5 @@
 import type { HardwareInventory } from './hardware-types';
+import type { LiveCanaryRequest, LiveCanaryResponses } from './live-canary-types';
 /** T8's fixed native IPC contract. Dates and hashes are server supplied strings. */
 export type EvidenceSource = 'offline_real' | 'offline_fixture' | 'simulation_replay' | 'simulation_injected' | 'shadow_live' | 'canary_live';
 export type RuleStatus = 'pass' | 'fail' | 'insufficient' | 'not_applicable';
@@ -33,12 +34,14 @@ export interface DatasetRevision {
   runner_version?: string; codelens_version?: string; prompt_template_hash?: string; context_hash?: string;
   order_seed: number; license?: string; source?: string; cases: Case[];
   kind?: 'builtin' | 'workspace_custom'; title?: string; description?: string; workspace_id?: string;
-  archived?: boolean; created_at?: string; workflow_id?: string; scoring_rule?: 'exact'; scorer_sha256?: string;
+  archived?: boolean; created_at?: string; workflow_id?: string; scoring_rule?: 'exact' | 'deterministic_text_v1' | 'deterministic_reviewer_v1' | 'deterministic_tools_v1'; scorer_sha256?: string;
+  suite?: { task_type: string; categories: string[]; case_count: number; limitations: string[]; minimum_context?: number; recommended_max_output?: number; max_output?: number; capability_coverage?: Array<{ category: string; mode: 'deterministic' | 'proxy' | 'unmeasured' | 'manual'; reason: string }> };
   source_revision_id?: string; source_content_hash?: string;
 }
 export type GoTaskType = 'bool' | 'string' | 'int' | 'int64' | 'float64' | '[]bool' | '[]string' | '[]int' | '[]int64' | '[]float64';
 export interface DatasetAssertion { input: unknown; expected: unknown }
 export interface DatasetTask {
+	 rules?: Array<{ id: string; kind: string; description: string }>; expected_output?: unknown; reviewer?: unknown; native_tools?: unknown;
   id: string; category: string; task: string; function: string; input_type: GoTaskType; output_type: GoTaskType;
   faulty_source: string; assertions: DatasetAssertion[];
 }
@@ -142,6 +145,7 @@ type Page = { cursor?: string; limit?: number };
 type Scope = { workspace_id: string };
 type Key = { idempotency_key: string };
 export type ModelEngineeringRequest =
+  | LiveCanaryRequest
   | ({ operation: 'prepare_evaluation'; evaluation_mode: 'baseline' | 'compare'; stable_revision_id: string; candidate_revision_id: string; profile_id: string; dataset_id: string; workflow_id: string } & Scope)
   | { operation: 'discover'; gateway_model_id: string }
   | { operation: 'register_model'; gateway_model_id: string; discovered_identity_hash: string }
@@ -165,7 +169,7 @@ export type ModelEngineeringRequest =
   | ({ operation: 'simulate_release'; id: string; scenario: 'replay_stage' | 'inject_oom' | 'inject_failure'; expected_revision: number; seed?: number; virtual_seconds?: number } & Scope & Key)
   | ({ operation: 'release_events'; id: string; after?: number; limit?: number } & Scope);
 
-export interface ModelEngineeringResponses {
+export interface ModelEngineeringResponses extends LiveCanaryResponses {
   prepare_evaluation: EvaluationPreparation;
   discover: ModelDiscovery; register_model: ModelRevision; list_models: { models: ModelRevision[]; next_cursor: string };
   list_datasets: { datasets: DatasetRevision[] }; create_profile: InferenceProfile;
@@ -173,7 +177,7 @@ export interface ModelEngineeringResponses {
   get_dataset: { revision: DatasetRevision; document: DatasetDocument; document_json?: string };
   archive_dataset: { revision: DatasetRevision };
   list_profiles: { profiles: InferenceProfile[]; next_cursor: string };
-  list_policies: { policies: ReleasePolicy[] }; environment: { environment: EnvironmentSnapshot; preflight: { available: boolean; code?: string; reason?: string; budget?: { max_context: number; max_output: number; inference_timeout_ns: number; cleanup_timeout_ns: number } } };
+  list_policies: { policies: ReleasePolicy[] }; environment: { environment: EnvironmentSnapshot; preflight: { available: boolean; code?: string; reason?: string; workflows?: Record<string, { available: boolean; code?: string; reason?: string }>; budget?: { max_context: number; max_output: number; inference_timeout_ns: number; cleanup_timeout_ns: number } } };
   create_evaluation: EvaluationReference; list_evaluations: { evaluations: Evaluation[]; next_cursor: string };
   get_evaluation: { evaluation: Evaluation; attempts: AttemptSummary[]; progress: Counts; latest_report_id: string; next_cursor: string };
   evaluation_command: EvaluationReference;

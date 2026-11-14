@@ -64,9 +64,26 @@ pub struct DatasetCase {
 #[serde(deny_unknown_fields)]
 pub struct DatasetAssertion { input: Value, expected: Value }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LiveCanaryPolicy {
+    window_seconds: u32, minimum_samples_per_arm: u32, minimum_feedback_per_arm: u32,
+    maximum_error_rate: f64, maximum_bad_feedback_rate: f64, maximum_latency_ratio: f64,
+    auto_pause_consecutive_errors: u32,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ModelEngineeringRequest {
+    ListLiveCanaries { workspace_id: String, cursor: Option<String>, limit: Option<u32> },
+    CreateLiveCanary { workspace_id: String, title: String, stable_revision_id: String, candidate_revision_id: String, profile_id: String, target_bps: u32, policy: LiveCanaryPolicy, idempotency_key: String },
+    GetLiveCanary { workspace_id: String, id: String },
+    LiveCanaryCommand { workspace_id: String, id: String, command: String, expected_revision: i64, idempotency_key: String },
+    LiveCanaryRequest { workspace_id: String, id: String, prompt: String, idempotency_key: String },
+    ListLiveCanaryRequests { workspace_id: String, id: String, cursor: Option<String>, limit: Option<u32> },
+    GetLiveCanaryRequest { workspace_id: String, id: String, request_id: String },
+    LiveCanaryFeedback { workspace_id: String, id: String, request_id: String, rating: String, note: String, idempotency_key: String },
+    LiveCanaryEvents { workspace_id: String, id: String, after: Option<u64>, limit: Option<u32> },
     Discover { gateway_model_id: String },
     RegisterModel { gateway_model_id: String, discovered_identity_hash: String },
     ListModels { cursor: Option<String>, limit: Option<u32> },
@@ -132,6 +149,35 @@ fn post(path: String, body: Value, key: Option<String>) -> RequestSpec { Request
 fn build_request(request: ModelEngineeringRequest) -> Result<RequestSpec, ApiError> {
     use ModelEngineeringRequest::*;
     let spec = match request {
+        ListLiveCanaries {workspace_id,cursor,limit} => { valid_id(&workspace_id)?;get(page(format!("/api/workspaces/{workspace_id}/live-canaries"),cursor,limit)?) },
+        CreateLiveCanary {workspace_id,title,stable_revision_id,candidate_revision_id,profile_id,target_bps,policy,idempotency_key} => {
+            for id in [&workspace_id,&stable_revision_id,&candidate_revision_id,&profile_id]{valid_id(id)?;}
+            if title.trim().is_empty()||title.len()>200||stable_revision_id==candidate_revision_id||![500,2500,5000].contains(&target_bps)
+                ||!(60..=86400).contains(&policy.window_seconds)||!(2..=500).contains(&policy.minimum_samples_per_arm)
+                ||policy.minimum_feedback_per_arm<1||policy.minimum_feedback_per_arm>policy.minimum_samples_per_arm
+                ||!(0.0..=0.5).contains(&policy.maximum_error_rate)||!(0.0..=0.5).contains(&policy.maximum_bad_feedback_rate)
+                ||!(1.0..=10.0).contains(&policy.maximum_latency_ratio)||!(1..=10).contains(&policy.auto_pause_consecutive_errors){return Err(ApiError::new("invalid live canary policy or identities"));}
+            post(format!("/api/workspaces/{workspace_id}/live-canaries"),json!({"title":title,"stable_revision_id":stable_revision_id,"candidate_revision_id":candidate_revision_id,"profile_id":profile_id,"target_bps":target_bps,"policy":policy}),Some(checked_key(idempotency_key)?))
+        },
+        GetLiveCanary {workspace_id,id} => {valid_id(&workspace_id)?;valid_id(&id)?;get(format!("/api/workspaces/{workspace_id}/live-canaries/{id}"))},
+        LiveCanaryCommand {workspace_id,id,command,expected_revision,idempotency_key} => {
+            valid_id(&workspace_id)?;valid_id(&id)?;pick(&command,&["start","pause","resume","advance","rollback"])?;if expected_revision<1{return Err(ApiError::new("invalid live revision"));}
+            post(format!("/api/workspaces/{workspace_id}/live-canaries/{id}/commands"),json!({"command":command,"expected_revision":expected_revision}),Some(checked_key(idempotency_key)?))
+        },
+        LiveCanaryRequest {workspace_id,id,prompt,idempotency_key} => {
+            valid_id(&workspace_id)?;valid_id(&id)?;if prompt.trim().is_empty()||prompt.len()>16384{return Err(ApiError::new("live prompt must be 1–16384 UTF-8 bytes"));}
+            post(format!("/api/workspaces/{workspace_id}/live-canaries/{id}/requests"),json!({"prompt":prompt}),Some(checked_key(idempotency_key)?))
+        },
+        ListLiveCanaryRequests {workspace_id,id,cursor,limit} => {valid_id(&workspace_id)?;valid_id(&id)?;if limit.is_some_and(|v|v>20){return Err(ApiError::new("live evidence page limit is 20"));}get(page(format!("/api/workspaces/{workspace_id}/live-canaries/{id}/requests"),cursor,limit)?)},
+        GetLiveCanaryRequest {workspace_id,id,request_id} => {for value in [&workspace_id,&id,&request_id]{valid_id(value)?;}get(format!("/api/workspaces/{workspace_id}/live-canaries/{id}/requests/{request_id}"))},
+        LiveCanaryFeedback {workspace_id,id,request_id,rating,note,idempotency_key} => {
+            for value in [&workspace_id,&id,&request_id]{valid_id(value)?;}pick(&rating,&["good","bad"])?;if note.len()>2000{return Err(ApiError::new("feedback note exceeds 2000 bytes"));}
+            post(format!("/api/workspaces/{workspace_id}/live-canaries/{id}/feedback"),json!({"request_id":request_id,"rating":rating,"note":note}),Some(checked_key(idempotency_key)?))
+        },
+        LiveCanaryEvents {workspace_id,id,after,limit} => {
+            valid_id(&workspace_id)?;valid_id(&id)?;if limit.is_some_and(|v|!(1..=100).contains(&v)){return Err(ApiError::new("invalid live events page limit"));}
+            get(format!("/api/workspaces/{workspace_id}/live-canaries/{id}/events?after={}&limit={}",after.unwrap_or(0),limit.unwrap_or(20)))
+        },
         PrepareEvaluation {workspace_id,stable_revision_id,candidate_revision_id,profile_id,dataset_id,workflow_id,evaluation_mode} => {
             for id in [&workspace_id,&stable_revision_id,&candidate_revision_id,&profile_id,&dataset_id,&workflow_id] {valid_id(id)?;}
             if let Some(ref mode)=evaluation_mode {pick(mode,&["baseline","compare"])?;}
@@ -256,7 +302,7 @@ fn decode_response(status: u16, body: &str) -> Result<Value, ApiError> {
 
 fn send(base: &str, authorization: &str, spec: RequestSpec) -> Result<Value, ApiError> {
     let url=format!("{base}{}",spec.path);
-    let timeout=if spec.path.ends_with("/evaluations/preparation") {50} else {20};
+    let timeout=if spec.path.contains("/live-canaries/") && spec.method==Method::Post {140} else if spec.path.ends_with("/evaluations/preparation") {50} else {20};
     let agent=ureq::AgentBuilder::new().timeout(Duration::from_secs(timeout)).redirects(0).try_proxy_from_env(false).build();
     let mut request=match spec.method {Method::Get=>agent.get(&url),Method::Post=>agent.post(&url)}
         .set("Authorization",authorization);
@@ -282,6 +328,46 @@ pub async fn model_engineering(request: ModelEngineeringRequest) -> Result<Value
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_canary_transport_has_fixed_scoped_routes_and_keeps_intent() {
+        let command=json!({"operation":"live_canary_command","workspace_id":"local","id":"live-a","command":"rollback","expected_revision":4,"idempotency_key":"same-key"});
+        let spec=build_request(serde_json::from_value(command).unwrap()).unwrap();
+        assert_eq!(spec.path,"/api/workspaces/local/live-canaries/live-a/commands");
+        assert_eq!(spec.key.as_deref(),Some("same-key"));
+        assert_eq!(spec.body.unwrap(),json!({"command":"rollback","expected_revision":4}));
+        let request=json!({"operation":"live_canary_request","workspace_id":"local","id":"live-a","prompt":"实际用户输入","idempotency_key":"request-key"});
+        let spec=build_request(serde_json::from_value(request).unwrap()).unwrap();
+        assert_eq!(spec.path,"/api/workspaces/local/live-canaries/live-a/requests");
+        assert_eq!(spec.body.unwrap(),json!({"prompt":"实际用户输入"}));
+        let feedback=json!({"operation":"live_canary_feedback","workspace_id":"local","id":"live-a","request_id":"request-1","rating":"good","note":"人工确认","idempotency_key":"feedback-key"});
+        let spec=build_request(serde_json::from_value(feedback).unwrap()).unwrap();
+        assert_eq!(spec.path,"/api/workspaces/local/live-canaries/live-a/feedback");
+        assert_eq!(spec.body.unwrap()["request_id"],"request-1");
+        for (operation,path) in [("get_live_canary","/api/workspaces/local/live-canaries/live-a"),("list_live_canary_requests","/api/workspaces/local/live-canaries/live-a/requests"),("live_canary_events","/api/workspaces/local/live-canaries/live-a/events?after=0&limit=20")] {
+            let spec=build_request(serde_json::from_value(json!({"operation":operation,"workspace_id":"local","id":"live-a"})).unwrap()).unwrap();
+            assert_eq!(spec.method,Method::Get);assert_eq!(spec.path,path);assert!(spec.key.is_none());
+        }
+    }
+
+    #[test]
+    fn live_canary_transport_rejects_unsafe_overrides_bounds_and_virtual_time() {
+        let request=json!({"operation":"live_canary_request","workspace_id":"local","id":"live-a","prompt":"真实请求","idempotency_key":"request-key"});
+        for (key,value) in [("workspace_id",json!("a/b")),("id",json!("live?x=1")),("model_id",json!("override")),("url",json!("http://evil")),("prompt",json!("中".repeat(5462))),("prompt",json!(" ")),("idempotency_key",json!(""))] {
+            let mut invalid=request.clone();invalid[key]=value;
+            assert!(serde_json::from_value::<ModelEngineeringRequest>(invalid).map_err(|e|ApiError::new(e.to_string())).and_then(build_request).is_err());
+        }
+        for invalid in [json!({"operation":"live_canary_command","workspace_id":"local","id":"live-a","command":"advance","expected_revision":1,"idempotency_key":"key","virtual_seconds":86400}),json!({"operation":"list_live_canary_requests","workspace_id":"local","id":"live-a","limit":21}),json!({"operation":"live_canary_feedback","workspace_id":"local","id":"live-a","request_id":"request-1","rating":"5","note":"","idempotency_key":"key"})] {
+            assert!(serde_json::from_value::<ModelEngineeringRequest>(invalid).map_err(|e|ApiError::new(e.to_string())).and_then(build_request).is_err());
+        }
+        let create=json!({"operation":"create_live_canary","workspace_id":"local","title":"真实灰度","stable_revision_id":"model-a","candidate_revision_id":"model-b","profile_id":"profile-a","target_bps":500,"policy":{"window_seconds":60,"minimum_samples_per_arm":2,"minimum_feedback_per_arm":1,"maximum_error_rate":0.1,"maximum_bad_feedback_rate":0.2,"maximum_latency_ratio":1.5,"auto_pause_consecutive_errors":2},"idempotency_key":"create-key"});
+        assert!(build_request(serde_json::from_value(create.clone()).unwrap()).is_ok());
+        for (key,value) in [("target_bps",json!(10000)),("candidate_revision_id",json!("model-a"))] {
+            let mut invalid=create.clone();invalid[key]=value;assert!(build_request(serde_json::from_value(invalid).unwrap()).is_err());
+        }
+        let mut short_window=create;short_window["policy"]["window_seconds"]=json!(0);
+        assert!(build_request(serde_json::from_value(short_window).unwrap()).is_err());
+    }
 
     #[test]
     fn case_report_selection_is_fixed_scoped_and_rejects_injected_queries() {

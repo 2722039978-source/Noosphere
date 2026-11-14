@@ -1,0 +1,350 @@
+{
+  "schema_version": 1,
+  "id": "local-text-v1",
+  "version": "1.0.0",
+  "title": "本地文本测评 v1 · 中文指令与 JSON",
+  "description": "16 道原创、公开、确定答案任务：8 道中文约束指令与 8 道 JSON 结构及内容转换。每题两条确定规则；不使用模型裁判，不执行模型输出。",
+  "source": "Noosphere original local reviewer tasks, authored 2026-11-14; dedicated to the public domain under CC0-1.0.",
+  "license": "CC0-1.0",
+  "workflow_id": "local.text.v1",
+  "scorer_version": "host-text-v1.0.0",
+  "scorer_sha256": "96c327e72e48653448179743e615358fbfe82a3009e2f63c5df782cb4a3814e4",
+  "prompt_version": "local-text-prompt-v1.0.0",
+  "prompt_sha256": "87f15469be34100bc91a8b2d5c02a3862dc9fd0238612c984b5caa0ee3117409",
+  "cases": [
+    {
+      "id": "cn-filter-sort",
+      "category": "chinese_instruction",
+      "task": "从数列 9、2、7、4、2 中选出所有偶数，去重后按从小到大排列。只输出数字，用英文逗号分隔，不留空格。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "text_format",
+          "description": "输出须为非空 UTF-8 文本且不超过 65536 字节；仅允许规范 CRLF 换行并忽略首尾空格、制表符与换行。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_text",
+          "description": "严格按题目给定的筛选、顺序、文字与分隔符输出唯一答案，不得增加说明、代码围栏或任何内部空白。"
+        }
+      ],
+      "expected_output": "2,4"
+    },
+    {
+      "id": "cn-reverse-words",
+      "category": "chinese_instruction",
+      "task": "将词语列表“微风、青山、星河”按词语逆序排列，保持每个词内部字符不变。只输出三个词，以英文竖线 | 分隔。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "text_format",
+          "description": "输出须为非空 UTF-8 文本且不超过 65536 字节；仅允许规范 CRLF 换行并忽略首尾空格、制表符与换行。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_text",
+          "description": "严格按题目给定的筛选、顺序、文字与分隔符输出唯一答案，不得增加说明、代码围栏或任何内部空白。"
+        }
+      ],
+      "expected_output": "星河|青山|微风"
+    },
+    {
+      "id": "cn-extract-fields",
+      "category": "chinese_instruction",
+      "task": "资料：姓名=林岚；年龄=27；城市=苏州；职业=教师。只提取姓名和城市，输出恰好两行；第一行格式为“姓名：值”，第二行为“城市：值”，使用中文冒号。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "text_format",
+          "description": "输出须为非空 UTF-8 文本且不超过 65536 字节；仅允许规范 CRLF 换行并忽略首尾空格、制表符与换行。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_text",
+          "description": "严格按题目给定的筛选、顺序、文字与分隔符输出唯一答案，不得增加说明、代码围栏或任何内部空白。"
+        }
+      ],
+      "expected_output": "姓名：林岚\n城市：苏州"
+    },
+    {
+      "id": "cn-label-rules",
+      "category": "chinese_instruction",
+      "task": "记录：甲有票且已预约；乙有票但未预约；丙有票且已预约。只有“有票且已预约”的记录标记“是”，其余标记“否”。按甲、乙、丙顺序输出“名称=标记”，中间用中文分号连接。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "text_format",
+          "description": "输出须为非空 UTF-8 文本且不超过 65536 字节；仅允许规范 CRLF 换行并忽略首尾空格、制表符与换行。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_text",
+          "description": "严格按题目给定的筛选、顺序、文字与分隔符输出唯一答案，不得增加说明、代码围栏或任何内部空白。"
+        }
+      ],
+      "expected_output": "甲=是；乙=否；丙=是"
+    },
+    {
+      "id": "cn-replace-token",
+      "category": "chinese_instruction",
+      "task": "原文：小猫走过山谷，小猫看见河流。把原文中每处“小猫”替换为“山猫”，其余字符和标点保持不变。只输出替换后的原文。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "text_format",
+          "description": "输出须为非空 UTF-8 文本且不超过 65536 字节；仅允许规范 CRLF 换行并忽略首尾空格、制表符与换行。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_text",
+          "description": "严格按题目给定的筛选、顺序、文字与分隔符输出唯一答案，不得增加说明、代码围栏或任何内部空白。"
+        }
+      ],
+      "expected_output": "山猫走过山谷，山猫看见河流。"
+    },
+    {
+      "id": "cn-count-colors",
+      "category": "chinese_instruction",
+      "task": "统计序列“红、蓝、红、绿、蓝、红”中各颜色出现次数。按红、蓝、绿的固定顺序，只输出“颜色=次数”，中间用英文逗号连接，不留空格。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "text_format",
+          "description": "输出须为非空 UTF-8 文本且不超过 65536 字节；仅允许规范 CRLF 换行并忽略首尾空格、制表符与换行。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_text",
+          "description": "严格按题目给定的筛选、顺序、文字与分隔符输出唯一答案，不得增加说明、代码围栏或任何内部空白。"
+        }
+      ],
+      "expected_output": "红=3,蓝=2,绿=1"
+    },
+    {
+      "id": "cn-conditional",
+      "category": "chinese_instruction",
+      "task": "判断是否发货：仅当“已付款”且“库存大于 0”时输出“发货”，否则输出“暂缓”。当前状态：已付款，库存为 0。只输出判断结果两个汉字。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "text_format",
+          "description": "输出须为非空 UTF-8 文本且不超过 65536 字节；仅允许规范 CRLF 换行并忽略首尾空格、制表符与换行。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_text",
+          "description": "严格按题目给定的筛选、顺序、文字与分隔符输出唯一答案，不得增加说明、代码围栏或任何内部空白。"
+        }
+      ],
+      "expected_output": "暂缓"
+    },
+    {
+      "id": "cn-two-line-table",
+      "category": "chinese_instruction",
+      "task": "数据：铅笔 4 支，橡皮 2 块。输出恰好三行纯文本表格，第一行是“项目|数量”，第二行写铅笔，第三行写橡皮。只保留项目和数字数量，以英文竖线分隔，不加单位或空格。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "text_format",
+          "description": "输出须为非空 UTF-8 文本且不超过 65536 字节；仅允许规范 CRLF 换行并忽略首尾空格、制表符与换行。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_text",
+          "description": "严格按题目给定的筛选、顺序、文字与分隔符输出唯一答案，不得增加说明、代码围栏或任何内部空白。"
+        }
+      ],
+      "expected_output": "项目|数量\n铅笔|4\n橡皮|2"
+    },
+    {
+      "id": "json-inventory",
+      "category": "structured_json",
+      "task": "将记录转成 JSON 对象：商品是笔记本，数量为 3，尚未付款。对象必须且只能包含 item（字符串）、quantity（数字）、paid（布尔值）三个字段。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "strict_json",
+          "description": "仅输出一个完整合法 JSON 值，不得有重复键、代码围栏或前后说明；最多 64 层嵌套、65536 字节，每个数字最多 128 字符，指数在 -308..308 内。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_json",
+          "description": "字段名称、字段集合、数据类型、数值、文字和数组顺序须与任务计算结果一致；对象键顺序和数学等值数字写法不影响判定。"
+        }
+      ],
+      "expected_output": {
+        "item": "笔记本",
+        "quantity": 3,
+        "paid": false
+      }
+    },
+    {
+      "id": "json-filter-sort",
+      "category": "structured_json",
+      "task": "商品表：梨的价格为 5，苹果为 8，柚子为 4。保留价格不超过 5 的商品，按价格从低到高输出 JSON 数组。每个元素必须且只能包含 name（商品名字符串）和 price（数字）。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "strict_json",
+          "description": "仅输出一个完整合法 JSON 值，不得有重复键、代码围栏或前后说明；最多 64 层嵌套、65536 字节，每个数字最多 128 字符，指数在 -308..308 内。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_json",
+          "description": "字段名称、字段集合、数据类型、数值、文字和数组顺序须与任务计算结果一致；对象键顺序和数学等值数字写法不影响判定。"
+        }
+      ],
+      "expected_output": [
+        {
+          "name": "柚子",
+          "price": 4
+        },
+        {
+          "name": "梨",
+          "price": 5
+        }
+      ]
+    },
+    {
+      "id": "json-nested-order",
+      "category": "structured_json",
+      "task": "客户周禾是会员，购买 2 件单价 18 的商品，标签依次为自取、易碎。输出 JSON 对象且只能含 customer、order、tags。customer 只能含 name（字符串）和 vip（布尔值）；order 只能含 count（数字）和 total（计算总价，数字）；tags 为保持给定顺序的字符串数组。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "strict_json",
+          "description": "仅输出一个完整合法 JSON 值，不得有重复键、代码围栏或前后说明；最多 64 层嵌套、65536 字节，每个数字最多 128 字符，指数在 -308..308 内。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_json",
+          "description": "字段名称、字段集合、数据类型、数值、文字和数组顺序须与任务计算结果一致；对象键顺序和数学等值数字写法不影响判定。"
+        }
+      ],
+      "expected_output": {
+        "customer": {
+          "name": "周禾",
+          "vip": true
+        },
+        "order": {
+          "count": 2,
+          "total": 36
+        },
+        "tags": [
+          "自取",
+          "易碎"
+        ]
+      }
+    },
+    {
+      "id": "json-empty-results",
+      "category": "structured_json",
+      "task": "从整数列表 [1,3,5] 中筛选偶数。输出 JSON 对象，只能包含 matches（筛选结果数组，保持原顺序）和 count（结果数量，数字）。没有匹配时使用空数组，不能使用 null。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "strict_json",
+          "description": "仅输出一个完整合法 JSON 值，不得有重复键、代码围栏或前后说明；最多 64 层嵌套、65536 字节，每个数字最多 128 字符，指数在 -308..308 内。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_json",
+          "description": "字段名称、字段集合、数据类型、数值、文字和数组顺序须与任务计算结果一致；对象键顺序和数学等值数字写法不影响判定。"
+        }
+      ],
+      "expected_output": {
+        "matches": [],
+        "count": 0
+      }
+    },
+    {
+      "id": "json-missing-contact",
+      "category": "structured_json",
+      "task": "联系人姓名为陆遥，未提供邮箱，未订阅通知。输出 JSON 对象，只能包含 name（字符串）、email（缺失时必须用 JSON null）和 subscribed（布尔值）。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "strict_json",
+          "description": "仅输出一个完整合法 JSON 值，不得有重复键、代码围栏或前后说明；最多 64 层嵌套、65536 字节，每个数字最多 128 字符，指数在 -308..308 内。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_json",
+          "description": "字段名称、字段集合、数据类型、数值、文字和数组顺序须与任务计算结果一致；对象键顺序和数学等值数字写法不影响判定。"
+        }
+      ],
+      "expected_output": {
+        "name": "陆遥",
+        "email": null,
+        "subscribed": false
+      }
+    },
+    {
+      "id": "json-preserve-types",
+      "category": "structured_json",
+      "task": "代码原文是 0042，计数为四十二，状态已启用。输出 JSON 对象，只能包含 code（保留前导零的字符串）、count（数字）和 active（布尔值）。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "strict_json",
+          "description": "仅输出一个完整合法 JSON 值，不得有重复键、代码围栏或前后说明；最多 64 层嵌套、65536 字节，每个数字最多 128 字符，指数在 -308..308 内。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_json",
+          "description": "字段名称、字段集合、数据类型、数值、文字和数组顺序须与任务计算结果一致；对象键顺序和数学等值数字写法不影响判定。"
+        }
+      ],
+      "expected_output": {
+        "code": "0042",
+        "count": 42,
+        "active": true
+      }
+    },
+    {
+      "id": "json-escape-message",
+      "category": "structured_json",
+      "task": "输出 JSON 对象且只能包含 message 和 path 两个字符串字段。message 的实际内容应为两行：第一行是 他说：\"你好\"，第二行是 再见；两行之间必须有一个换行字符。path 的实际内容是 C:\\notes（冒号后为一个反斜杠）。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "strict_json",
+          "description": "仅输出一个完整合法 JSON 值，不得有重复键、代码围栏或前后说明；最多 64 层嵌套、65536 字节，每个数字最多 128 字符，指数在 -308..308 内。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_json",
+          "description": "字段名称、字段集合、数据类型、数值、文字和数组顺序须与任务计算结果一致；对象键顺序和数学等值数字写法不影响判定。"
+        }
+      ],
+      "expected_output": {
+        "message": "他说：\"你好\"\n再见",
+        "path": "C:\\notes"
+      }
+    },
+    {
+      "id": "json-aggregate",
+      "category": "structured_json",
+      "task": "订单有 book 3 件、每件 4 元，pen 5 件、每件 1 元。输出 JSON 对象且只能包含 total（总价，数字）和 by_type（对象）；by_type 只能包含 book、pen 两个字段，值分别为各类别件数。",
+      "rules": [
+        {
+          "id": "format",
+          "kind": "strict_json",
+          "description": "仅输出一个完整合法 JSON 值，不得有重复键、代码围栏或前后说明；最多 64 层嵌套、65536 字节，每个数字最多 128 字符，指数在 -308..308 内。"
+        },
+        {
+          "id": "content",
+          "kind": "exact_json",
+          "description": "字段名称、字段集合、数据类型、数值、文字和数组顺序须与任务计算结果一致；对象键顺序和数学等值数字写法不影响判定。"
+        }
+      ],
+      "expected_output": {
+        "total": 17,
+        "by_type": {
+          "book": 3,
+          "pen": 5
+        }
+      }
+    }
+  ]
+}

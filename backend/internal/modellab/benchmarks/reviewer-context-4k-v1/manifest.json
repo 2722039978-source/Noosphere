@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "source": "Original Noosphere reviewer fixtures authored 2026-11-14; public-domain dedication CC0-1.0. Repository examples and records are fictional and harmless.",
+  "license": "CC0-1.0",
+  "recommended_max_output": 256,
+  "scorer_version": "host-reviewer-v1.0.0",
+  "scorer_sha256": "10c65a3cbf87a0ef1503b56fdf2e17d552d0268785c9b438a71f0458fe06dc8f",
+  "prompt_version": "local-reviewer-prompt-v1.0.0",
+  "prompt_sha256": "6699119ee5db746819a4596458e6778d5a0d6c4042670a6cef77276c564a0142",
+  "id": "reviewer-context-4k-v1",
+  "minimum_context": 4096,
+  "title": "上下文检索 v1 · 4k 配置档",
+  "description": "3 个固定记录位置，320 条记录。4k 表示最低配置容量，不宣称精确输入 token 数。",
+  "cases": [
+    {
+      "id": "retrieval-4k-start",
+      "category": "context_retrieval_4k",
+      "task": "查找固定记录 R001。只返回 key 与 token 两个字符串字段的 JSON 对象。",
+      "reviewer": {
+        "method": "exact_json",
+        "language": "zh",
+        "retrieval": {
+          "rows": 220,
+          "target": 1
+        }
+      },
+      "expected_output": {
+        "key": "R001",
+        "token": "78666456f3"
+      }
+    },
+    {
+      "id": "retrieval-4k-middle",
+      "category": "context_retrieval_4k",
+      "task": "查找固定记录 R110。只返回 key 与 token 两个字符串字段的 JSON 对象。",
+      "reviewer": {
+        "method": "exact_json",
+        "language": "zh",
+        "retrieval": {
+          "rows": 220,
+          "target": 110
+        }
+      },
+      "expected_output": {
+        "key": "R110",
+        "token": "da59326e08"
+      }
+    },
+    {
+      "id": "retrieval-4k-end",
+      "category": "context_retrieval_4k",
+      "task": "查找固定记录 R220。只返回 key 与 token 两个字符串字段的 JSON 对象。",
+      "reviewer": {
+        "method": "exact_json",
+        "language": "zh",
+        "retrieval": {
+          "rows": 220,
+          "target": 220
+        }
+      },
+      "expected_output": {
+        "key": "R220",
+        "token": "70a2ef8915"
+      }
+    }
+  ]
+}

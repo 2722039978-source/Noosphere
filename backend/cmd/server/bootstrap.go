@@ -20,6 +20,7 @@ import (
 	"github.com/noosphere/backend/internal/errors"
 	"github.com/noosphere/backend/internal/gateway"
 	"github.com/noosphere/backend/internal/knowledge"
+	"github.com/noosphere/backend/internal/livecanary"
 	"github.com/noosphere/backend/internal/modellab"
 	"github.com/noosphere/backend/internal/modelops"
 	"github.com/noosphere/backend/internal/modelstore"
@@ -41,6 +42,7 @@ type App struct {
 	Actions       *agent.Actions
 	ModelLab      *modellab.Service
 	ModelOps      *modelops.Service
+	LiveCanary    *livecanary.Service
 	ModelStore    *modelstore.Store
 	startupCtx    context.Context
 	startupCancel context.CancelFunc

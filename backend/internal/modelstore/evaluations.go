@@ -15,6 +15,11 @@ func validateAttempt(a Attempt, m Manifest) error {
 			return fmt.Errorf("%w: negative metric", ErrInvalid)
 		}
 	}
+	for _, metric := range []*Metric{a.Metrics.FirstTokenNS, a.Metrics.FirstAnswerNS, a.Metrics.PeakWorkingSet, a.Metrics.PeakDedicatedGPU} {
+		if metric != nil && metric.Value != nil && *metric.Value < 0 {
+			return fmt.Errorf("%w: negative observed metric", ErrInvalid)
+		}
+	}
 	for _, stamp := range []string{a.StartedAt, a.FinishedAt} {
 		if stamp != "" {
 			if _, err := time.Parse(time.RFC3339Nano, stamp); err != nil {

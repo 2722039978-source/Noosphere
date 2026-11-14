@@ -1,3 +1,9 @@
 # These raw bytes are embedded and bound by the benchmark manifest SHA-256.
 scorer.go text eol=lf
+text_scorer.go text eol=lf
+text_context.go text eol=lf
+reviewer_scorer.go text eol=lf
+reviewer_context.go text eol=lf
+native_tools_scorer.go text eol=lf
+native_tools_context.go text eol=lf
 benchmarks/** text eol=lf

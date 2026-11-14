@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/2722039978-source/Noosphere/actions/workflows/ci.yml/badge.svg)](https://github.com/2722039978-source/Noosphere/actions/workflows/ci.yml)
 
-打开最近使用的项目与会话，让 Agent 通过 CodeLens 查找源码依据，使用 REA 查看可执行文件信息。在 Model Hub 接入模型，在 Model Lab 保存版本、运行 Go 任务测评，并从报告查看结果、失败案例与性能数据。点击侧栏顶部的 Noosphere 标识可以进入三维动效主页。
+打开最近使用的项目与会话，让 Agent 通过 CodeLens 查找源码依据，使用 REA 查看可执行文件信息。在 Model Hub 接入模型，在 Model Lab 运行可复现的本机测评并分享报告。Release Center 提供模拟与工作区专用的真实灰度入口。点击侧栏顶部的 Noosphere 标识可以进入三维动效主页。
 
 ## 功能分区
 
@@ -56,11 +56,11 @@ Nebula 用于保存与检索本机资料，并将可用的项目知识接回对�
 Model Hub 集中管理本机模型服务和远程 API 连接，让“可以聊天”“可以调用工具”“可以原生测评”分别可见。
 
 - **连接管理**：添加、编辑和测试模型配置，查看模型版本与连接状态。
-- **多 Provider 对话**：Gateway 提供 Ollama、OpenAI-compatible、OpenAI、DeepSeek、Anthropic / Claude、Gemini 等适配。
+- **多 Provider 对话**：Gateway 提供 Ollama、OpenAI-compatible、OpenAI、DeepSeek、Anthropic / Claude、Gemini 和 OpenVINO 等适配。
 - **能力分开展示**：分别展示对话、Agent 工具与原生测评能力及验证状态，避免把连接成功误认为所有功能均可用。
 - **衔接测评**：对满足条件的本机模型发现并登记版本，继续进入 Model Lab。
 
-结构化 Agent 工具目前适配 DeepSeek、OpenAI、OpenAI-compatible 和 Ollama；具体模型仍需实际验证。原生测评适配本机 Ollama 与满足身份核验要求的本机 llama.cpp，不是所有 API 连接都能进入同一测评流程。
+结构化 Agent 工具目前适配 DeepSeek、OpenAI、OpenAI-compatible 和 Ollama，具体模型仍需实际验证。原生测评核验本机 Ollama、llama.cpp 和 OpenVINO 的模型版本与配置。Windows 可选的 OpenVINO 安装与设备选择见 [OpenVINO 使用说明](scripts/openvino/USAGE.txt)。
 
 ### Model Lab：可追溯的本机模型测评
 
@@ -68,18 +68,17 @@ Model Lab 围绕“模型版本、任务集、推理参数、运行环境”组�
 
 - **版本与参数记录**：登记模型版本并保存推理配置，让报告对应到具体实验条件。
 - **运行前准备检查**：检查模型服务、资源预算、CodeLens 和 Go / WASI 执行环境等条件，呈现无法启动的原因。
-- **基线与双版本比较**：同一版本可以独立执行两轮观察重复性，也可以比较两个版本在同一任务条件下的表现。
+- **单模型基线**：同一版本独立执行两轮，复查任务表现与重复性。
 - **受限 Go 任务执行**：当前工作流为 `codelens.codetask.go.v1`，模型输出经过提取、校验与 Go 编译后，在 wazero / WASI 中运行，再与预期结果比较。
-- **任务集档案**：使用内置 Go 任务，或创建、导入自定义 JSON 任务集。保存为不可变版本，编辑生成新版本，历史报告继续引用原来的任务与断言。
-- **报告与 HTML 导出**：查看通过情况、逐题变化、失败案例、模型输出和性能数据；导出包含实验条件及证据引用的 HTML 阅读副本。
+- **内置与自定义任务**：中文指令和 JSON、成对中英文、约束对话、固定仓库问答、4k/8k 检索、良性拒答边界、原生工具调用及 Go 修复按套件分开。可另建带固定断言的 Go 任务版本。
+- **能力画像和实验包**：查看逐题输出、分类分母、缺失原因及实际推理指标。可导出 HTML、SVG 分享图卡和 JSON 实验包，核对本机模型、参数与任务版本后复跑。
+- **硬件建议**：按模型权重、设备容量、上下文和 KV 缓存估算，能读取当前工作区同一版本的实测记录。支持的本机 llama.cpp 文本测评还记录首 Token 和 Windows 进程的资源采样峰值。
 
 自定义任务集当前支持每集 1–50 个案例、每例 1–100 组断言，总 JSON 请求不超过 64 KiB，函数签名与评分方式也有限制。结果只描述相应任务和环境下的表现，不构成通用模型排名；缺失的指标会保留未知状态。分享报告前请检查其中的代码、路径与输出。
 
-### Release Center：发布流程模拟
+### Release Center：模拟与真实灰度
 
-Release Center 使用测评与策略证据组织阶段推进，提供暂停、恢复、拒绝和回滚等流程记录。
-
-**当前是持久化的发布模拟**：不会因为模拟通过而自动替换会话模型，也不代表线上部署或真实流量切换。现有 `simulation-demo-v1` 策略针对内置任务，自定义任务需要另行制定发布标准。
+模拟入口使用持久化演练数据。真实灰度由用户在指定工作区启用专用会话，在稳定版本与候选版本之间分流实际模型请求。风险门禁读取墙钟窗口、请求结果、延迟和人工质量反馈，支持自动暂停与回滚。事件保存每次决定的观测与哈希。普通对话和 Agent 沿用各自的模型选择。
 
 ## 推荐使用流程
 
@@ -90,16 +89,28 @@ Release Center 使用测评与策略证据组织阶段推进，提供暂停、�
 3. 回到 AI 对话，基于项目上下文提问；需要调查时使用 Agent，并查看任务记录与引用。
 4. 对文件、测试或服务操作先检查提案，再逐项确认；将值得保留的项目约定整理为已确认记忆。
 
-### 再比较本机模型表现
+### 再测量本机模型表现
 
 1. 在 Model Hub 接入满足原生测评条件的本机模型，登记模型版本。
 2. 在 Model Lab 选择版本、任务集与推理配置，先完成准备检查。
-3. 运行单版本基线或双版本测评，结合逐题结果、失败类型和有效样本阅读报告。
-4. 按需导出 HTML 报告；如要了解策略与阶段推进，可继续使用 Release Center 的模拟流程。
+3. 运行单版本基线，结合逐题结果、失败类型和有效样本阅读报告。
+4. 导出 HTML 报告、SVG 图卡或 JSON 实验包。需要验证候选发布时打开 Release Center。
+
+## 目录与本地文件
+
+| 路径 | 用途 |
+| --- | --- |
+| `frontend/` | React 界面、页面、静态资源和前端构建配置。 |
+| `backend/` | Go 服务、模型网关、评测与工作区，以及 Python CodeLens。 |
+| `desktop/` | Tauri 桌面壳、进程管理、权限配置与打包入口。 |
+| `scripts/` | 开发启动、环境预检、便携包构建与验证。 |
+| `.github/` | CI 工作流与 Issue 模板。 |
+
+本地生成的 `release/`、工具链与工作树 `.local/`、模型 `model/`、验收和历史归档 `test/` 由 `.gitignore` 排除。发布便携包通过 GitHub Releases 提供。
 
 ## 下载
 
-- [Windows x64 便携版 v0.5.0（2026-11-03）](https://github.com/2722039978-source/Noosphere/releases/tag/v0.5.0-20261103)：下载页面提供 ZIP 和 SHA-256 校验文件。
+- [Windows x64 便携版 v0.6.0（2026-11-14）](https://github.com/2722039978-source/Noosphere/releases/tag/v0.6.0-20261114)：下载页面提供 ZIP、SHA-256 校验文件和本次更新说明。
 - [全部发布版本](https://github.com/2722039978-source/Noosphere/releases)。最新源码可按下方步骤构建。
 
 解压完整便携包后运行其中的 `Noosphere.exe`，保留同目录资源。使用 CodeLens 前安装 Python 3.10+，运行包内的 `setup.bat` 安装依赖。
@@ -141,7 +152,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/check-core.ps1
 | CodeLens | 项目索引、静态来源追踪、Python 服务桥接与 REA 接入 | [Go 接入层](backend/internal/codelens)、[Python 分析服务](backend/python/codelens) |
 | Nebula 与 Knowledge | 记忆存储、文本 / 向量检索、项目知识与引用有效性检查 | [nebula](backend/internal/nebula)、[knowledge](backend/internal/knowledge) |
 | DevOps 与硬件采集 | 系统指标、诊断工具、主机环境与硬件信息 | [devops](backend/internal/devops)、[hostinfo](backend/internal/hostinfo) |
-| 模型工程 | 版本和实验存储、任务集、测评调度、Go / WASI 执行及发布模拟 | [modellab](backend/internal/modellab)、[modelstore](backend/internal/modelstore)、[evalrunner](backend/internal/evalrunner)、[modelops](backend/internal/modelops) |
+| 模型工程 | 版本、任务集、测评、沙箱执行、模拟发布和工作区真实灰度 | [modellab](backend/internal/modellab)、[modelstore](backend/internal/modelstore)、[evalrunner](backend/internal/evalrunner)、[modelops](backend/internal/modelops)、[livecanary](backend/internal/livecanary) |
 | 构建与检查 | 环境预检、开发启动、便携包构建、快捷方式与核心测试 | [scripts](scripts)、[CI](.github/workflows/ci.yml) |
 
 前端模块入口定义在 [modules.ts](frontend/src/app/modules.ts)，页面映射见 [routes.tsx](frontend/src/app/routes.tsx)。这里的模块化指代码与职责划分，不表示每个模块都是可独立安装的插件。
@@ -153,6 +164,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/check-core.ps1
 - **数据目录可查看**：实际目录以设置页显示为准；绝对路径环境变量 `NOOSPHERE_DATA_DIR` 可指定独立数据目录。
 - **凭证与导出要分开保管**：模型凭证通过界面管理，不要写入公开示例或 Issue。报告和备份可能包含私人项目内容。
 - **验证范围有限**：公开 CI 包含前端构建、Windows 核心测试与 Go 构建 / vet、Python 语法检查；本机模型、具体硬件与原生窗口交互仍需在对应环境验证。
+- **任务产物留在本机**：历史文档、工作记录、开发缓存和验收输出可统一放在 Git 忽略的 `test/`。公开源码及便携版保留启动所需文件。
 
 完整的模型适配、任务格式、指标解释、Agent 限制和第三方资源说明见 [LIMITATIONS.md](LIMITATIONS.md)。
 

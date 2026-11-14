@@ -107,10 +107,14 @@ func (s *Service) runtimeReady() (*evaluationRuntime, error) {
 	if r.closed {
 		return nil, identityError("APP_RESTARTED", "evaluation runtime shutting down")
 	}
-	if r.config.Runner == nil {
-		return nil, identityError("INSUFFICIENT_EVIDENCE", "trusted Go/WASI runner unavailable")
-	}
 	return r, nil
+}
+
+func (r *evaluationRuntime) requireDatasetRuntime(d *Dataset) error {
+	if !d.isDeclarative() && r.config.Runner == nil {
+		return identityError("INSUFFICIENT_EVIDENCE", "trusted Go/WASI runner unavailable")
+	}
+	return nil
 }
 func (s *Service) operation(ctx context.Context) (context.Context, func(), error) {
 	r, err := s.runtimeReady()
@@ -156,19 +160,40 @@ func (s *Service) publishSource(ctx context.Context, source string) (string, err
 	a, err := s.store.PublishArtifact(ctx, []byte(source), modelstore.ArtifactMetadata{MediaType: "text/x-go", Provenance: s.source()})
 	return a.ID, err
 }
+
+func (s *Service) publishCaseOutput(ctx context.Context, ref CaseRef, output string) (string, error) {
+	if ref.owner != nil && ref.owner.isDeclarative() {
+		a, err := s.store.PublishArtifact(ctx, []byte(output), modelstore.ArtifactMetadata{MediaType: "text/plain; charset=utf-8", Provenance: s.source()})
+		return a.ID, err
+	}
+	return s.publishSource(ctx, output)
+}
 func normalizeSpec(spec EvaluationSpec) EvaluationSpec {
 	if spec.EvaluationMode == "compare" {
 		spec.EvaluationMode = ""
 	}
 	if spec.DatasetID == "" {
 		spec.DatasetID = DatasetID
-	} else if installed, err := LoadDataset(DatasetID); err == nil && spec.DatasetID == installed.Revision().ID {
-		// The catalogue exposes the immutable revision ID, while execution
-		// resolves the installed benchmark. Accept only that exact revision.
-		spec.DatasetID = installed.Revision().BenchmarkID
+	} else {
+		for _, id := range builtinIDs() {
+			if installed, err := LoadDataset(id); err == nil && spec.DatasetID == installed.Revision().ID {
+				// The catalogue exposes the immutable revision ID.
+				spec.DatasetID = installed.Revision().BenchmarkID
+				break
+			}
+		}
 	}
 	if spec.WorkflowID == "" {
-		spec.WorkflowID = "codelens.codetask.go.v1"
+		spec.WorkflowID = DatasetWorkflowID
+		if spec.DatasetID == TextDatasetID {
+			spec.WorkflowID = TextWorkflowID
+		}
+		if reviewerID(spec.DatasetID) != "" {
+			spec.WorkflowID = ReviewerWorkflowID
+		}
+		if nativeToolsID(spec.DatasetID) {
+			spec.WorkflowID = NativeToolsWorkflowID
+		}
 	}
 	return spec
 }
@@ -176,6 +201,9 @@ func sameSpec(e modelstore.Evaluation, spec EvaluationSpec) bool {
 	datasetID := e.Manifest.Dataset.BenchmarkID
 	if e.Manifest.Dataset.SourceRevisionID != "" {
 		datasetID = e.Manifest.Dataset.SourceRevisionID
+		if e.Manifest.Dataset.BenchmarkID == TextDatasetID || e.Manifest.Dataset.BenchmarkID == DatasetID || reviewerID(e.Manifest.Dataset.BenchmarkID) != "" || nativeToolsID(e.Manifest.Dataset.BenchmarkID) {
+			datasetID = e.Manifest.Dataset.BenchmarkID
+		}
 	}
 	return e.Manifest.EvaluationMode == spec.EvaluationMode && e.Manifest.Stable.ID == spec.StableRevisionID && e.Manifest.Candidate.ID == spec.CandidateRevisionID && e.Manifest.Profile.ID == spec.ProfileID && datasetID == spec.DatasetID && e.Manifest.WorkflowID == spec.WorkflowID
 }
@@ -194,7 +222,7 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 		return empty, err
 	}
 	spec = normalizeSpec(spec)
-	if len(spec.IdempotencyKey) > 128 || spec.WorkflowID != DatasetWorkflowID {
+	if len(spec.IdempotencyKey) > 128 || !supportedWorkflow(spec.WorkflowID) {
 		return empty, modelstore.ErrInvalid
 	}
 	if _, err = r.config.Workspaces.Workspace(workspaceID); err != nil {
@@ -213,6 +241,12 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 	}
 	dataset, err := s.resolveDataset(ctx, workspaceID, spec.DatasetID, false)
 	if err != nil {
+		return empty, err
+	}
+	if spec.WorkflowID != dataset.workflowID() {
+		return empty, modelstore.ErrInvalid
+	}
+	if err := r.requireDatasetRuntime(dataset); err != nil {
 		return empty, err
 	}
 	if !r.fixture {
@@ -243,11 +277,14 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 	if err = r.config.Budget.validate(profile); err != nil {
 		return empty, err
 	}
+	if err = validateReviewerProfile(dataset, profile); err != nil {
+		return empty, err
+	}
 	env, err := r.config.CollectEnvironment(ctx)
 	if err != nil {
 		return empty, err
 	}
-	if s.source() == "offline_real" && strings.TrimSpace(env.ToolchainVersion) == "" {
+	if !dataset.isDeclarative() && s.source() == "offline_real" && strings.TrimSpace(env.ToolchainVersion) == "" {
 		return empty, identityError("INSUFFICIENT_EVIDENCE", "trusted Go toolchain version was not collected")
 	}
 	env, err = freezeEnvironment(env)
@@ -255,6 +292,15 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 		return empty, err
 	}
 	build := r.build
+	if dataset.isText() {
+		build = buildTextContext
+	}
+	if dataset.isReviewer() {
+		build = buildReviewerContext
+	}
+	if dataset.isTools() {
+		build = buildNativeToolsContext
+	}
 	var builder *ContextBuilder
 	if build == nil {
 		if r.config.ContextAdapter == nil || r.config.ContextAdapter() == nil {
@@ -268,6 +314,12 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 		build = builder.BuildContext
 	}
 	revision := dataset.Revision()
+	if revision.BenchmarkID == DatasetID && revision.SourceRevisionID == "" {
+		// Add source identity to new runs only. The installed Go definition
+		// and historical manifests retain their original bytes and hashes.
+		revision.SourceRevisionID = revision.ID
+		revision.SourceContentHash = revision.ContentHash
+	}
 	contexts := []string{}
 	for i, ref := range dataset.Cases() {
 		e, err := dataset.Evidence(ref)
@@ -286,7 +338,7 @@ func (s *Service) CreateEvaluation(ctx context.Context, workspaceID string, spec
 		if err != nil {
 			return empty, err
 		}
-		fixtureID, err := s.publishSource(ctx, e.Faulty)
+		fixtureID, err := s.publishCaseOutput(ctx, ref, e.Faulty)
 		if err != nil {
 			return empty, err
 		}
@@ -323,7 +375,11 @@ func (s *Service) dispatch(ctx context.Context, e modelstore.Evaluation) (models
 	input, _ := json.Marshal(struct {
 		EvaluationID string `json:"evaluation_id"`
 	}{e.ID})
-	run, err := s.runtime.config.Workspaces.SubmitReferenced(e.Manifest.WorkspaceID, "evaluation", "CodeTaskBench paired evaluation", workspaces.TaskReference{ID: e.ID, Generation: e.LeaseGeneration}, input)
+	title := "CodeTaskBench paired evaluation"
+	if e.Manifest.WorkflowID == TextWorkflowID || e.Manifest.WorkflowID == ReviewerWorkflowID || e.Manifest.WorkflowID == NativeToolsWorkflowID {
+		title = "本地文本测评 · 中文指令与 JSON"
+	}
+	run, err := s.runtime.config.Workspaces.SubmitReferenced(e.Manifest.WorkspaceID, "evaluation", title, workspaces.TaskReference{ID: e.ID, Generation: e.LeaseGeneration}, input)
 	if err != nil {
 		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.runtime.config.Budget.CleanupTimeout)
 		defer cancel()
@@ -378,6 +434,25 @@ func (s *Service) verifyModel(ctx context.Context, m modelstore.ModelRevision) e
 	return identityError("MODEL_DRIFT", "registered model identity changed or is unavailable")
 }
 func validateFrozen(d *Dataset, ref CaseRef, c FrozenContext) error {
+	if d.isDeclarative() {
+		build := buildTextContext
+		if d.isReviewer() {
+			build = buildReviewerContext
+		}
+		if d.isTools() {
+			build = buildNativeToolsContext
+		}
+		trusted, err := build(context.Background(), d, ref)
+		if err != nil {
+			return err
+		}
+		left, _ := json.Marshal(c)
+		right, _ := json.Marshal(trusted)
+		if !bytes.Equal(left, right) {
+			return identityError("INSUFFICIENT_EVIDENCE", "frozen text prompt or source identity mismatch")
+		}
+		return nil
+	}
 	e, err := d.Evidence(ref)
 	if err != nil {
 		return err
@@ -414,11 +489,11 @@ func (s *Service) readInput(ctx context.Context, d *Dataset, c modelstore.Case) 
 	if err != nil {
 		return in, err
 	}
-	expected, _ := json.Marshal(e.Assertions)
+	expected := caseExpected(e)
 	audit, _ := json.Marshal(in.Case)
 	trustedAudit, _ := json.Marshal(e)
 	// Audit DTOs never replace authoritative dataset assertions.
-	if in.SchemaVersion != 1 || in.LoadingProtocol != LoadingProtocol || in.FaultySource != e.Faulty || !bytes.Equal(fixture, []byte(e.Faulty)) || c.FixtureHash != e.FixtureHash || c.Expected != string(expected) || in.Case.ID != c.ID || in.Case.CaseHash != "" || !bytes.Equal(audit, trustedAudit) {
+	if in.SchemaVersion != 1 || in.LoadingProtocol != LoadingProtocol || in.FaultySource != e.Faulty || !bytes.Equal(fixture, []byte(e.Faulty)) || c.FixtureHash != e.FixtureHash || c.Expected != expected || in.Case.ID != c.ID || in.Case.CaseHash != "" || !bytes.Equal(audit, trustedAudit) {
 		return in, identityError("INSUFFICIENT_EVIDENCE", "frozen input differs from installed benchmark")
 	}
 	if in.Budget != s.runtime.config.Budget {
@@ -452,6 +527,14 @@ func errorCode(err error) string {
 func safeReason(err error) string {
 	if err == nil {
 		return ""
+	}
+	switch errorCode(err) {
+	case "CONTEXT_LIMIT":
+		return "CONTEXT_LIMIT: 实际模板输入与输出预算超出上下文容量，未计正确性。"
+	case "CONTEXT_TRUNCATED":
+		return "CONTEXT_TRUNCATED: 引擎报告的输入少于独立分词记录，疑似输入被截断，未计正确性。"
+	case "CONTEXT_UNVERIFIED":
+		return "CONTEXT_UNVERIFIED: 当前引擎未能核验实际模板分词预算，未发送未经核验的推理。"
 	}
 	return fmt.Sprintf("%s: evaluation phase failed; retained evidence contains bounded diagnostics", errorCode(err))
 }

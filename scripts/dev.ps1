@@ -26,7 +26,7 @@ Initialize-NoosphereResources $ProjectRoot -ReaRuntime (Initialize-NoosphereRea 
 $PortProbe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 1420)
 try { $PortProbe.Start() } catch { throw 'Port 1420 is in use. Stop the existing frontend server before running dev.ps1.' } finally { $PortProbe.Stop() }
 
-$DevLogs = Join-Path $ProjectRoot '.local/dev-logs'
+$DevLogs = Join-Path $ProjectRoot 'test/runtime/dev-logs'
 New-Item -ItemType Directory -Path $DevLogs -Force | Out-Null
 $RunName = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
 $ViteProcess = $null

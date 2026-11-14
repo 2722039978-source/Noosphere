@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"math"
 	"net/http"
@@ -140,6 +141,9 @@ func (p *LocalCompatibleProvider) Evaluate(parent context.Context, req Evaluatio
 	if err = validateEvaluationRequest(req); err != nil {
 		return nil, err
 	}
+	if err = validateEvaluationTools(req); err != nil {
+		return nil, err
+	}
 	if req.Kind == "warmup" {
 		return nil, evaluationError("UNSUPPORTED_CAPABILITY", "externally managed llama.cpp does not support owned warmup or unload")
 	}
@@ -161,6 +165,10 @@ func (p *LocalCompatibleProvider) Evaluate(parent context.Context, req Evaluatio
 		return nil, evaluationError("BUDGET_EXCEEDED", "requested context exceeds the configured llama.cpp capacity")
 	}
 	body := map[string]any{"model": req.ModelName, "messages": req.Messages, "stream": false, "cache_prompt": false}
+	if len(req.Tools) > 0 {
+		body["messages"], body["tools"], body["tool_choice"] = req.ToolMessages, req.Tools, req.ToolChoice
+		body["parallel_tool_calls"] = false
+	}
 	o := req.Options
 	if o.Temperature != nil {
 		body["temperature"] = *o.Temperature
@@ -183,24 +191,64 @@ func (p *LocalCompatibleProvider) Evaluate(parent context.Context, req Evaluatio
 	if o.Think != nil {
 		body["chat_template_kwargs"] = map[string]any{"enable_thinking": *o.Think}
 	}
+	var contextBudget *ContextBudgetEvidence
+	if req.VerifyContextBudget {
+		contextBudget, err = p.verifyLlamaContext(ctx, c, origin, req, body, capacity)
+		if err != nil {
+			return &EvaluationResponse{IdentityBefore: before.Models[0], RequestedOptions: o, ContextBudget: contextBudget}, err
+		}
+	}
 	start := time.Now()
-	result, raw, err := native.nativeJSONPath(ctx, c, origin, "/v1/chat/completions", body)
+	var result map[string]any
+	var raw json.RawMessage
+	var firstToken, firstAnswer *int64
+	var usage *ProcessUsage
+	if req.ObserveStream && len(req.Tools) == 0 {
+		result, raw, firstToken, firstAnswer, usage, err = p.readLlamaStream(ctx, c, origin, req.ModelName, body, start)
+	} else {
+		result, raw, err = native.nativeJSONPath(ctx, c, origin, "/v1/chat/completions", body)
+	}
 	if err != nil {
+		var rejection *EvaluationError
+		if len(req.Tools) > 0 && errors.As(err, &rejection) && (rejection.HTTPStatus == 400 || rejection.HTTPStatus == 422 || rejection.HTTPStatus == 501) {
+			return nil, &EvaluationError{Code: "UNSUPPORTED_CAPABILITY", Message: "native tool request was rejected; tool protocol support is unconfirmed", HTTPStatus: rejection.HTTPStatus}
+		}
 		return nil, err
 	}
-	out := &EvaluationResponse{MetricSource: "llamacpp_native", IdentityBefore: before.Models[0], RequestedOptions: o, RawResponse: raw, WallDuration: time.Since(start), Limitations: before.Models[0].Limitations}
+	out := &EvaluationResponse{MetricSource: "llamacpp_native", IdentityBefore: before.Models[0], RequestedOptions: o, RawResponse: raw, WallDuration: time.Since(start), FirstTokenNS: firstToken, FirstAnswerNS: firstAnswer, ProcessUsage: usage, Limitations: before.Models[0].Limitations}
+	out.ContextBudget = contextBudget
 	var outputErr error
 	choices, ok := result["choices"].([]any)
 	if !ok || len(choices) != 1 {
 		outputErr = evaluationError("INVALID_OUTPUT", "llama.cpp must return one terminal answer")
 	} else if choice, ok := choices[0].(map[string]any); ok {
-		message := obj(choice, "message")
-		out.Output = p.redact(str(message, "content"))
-		out.Thinking = p.redact(str(message, "reasoning_content"))
+		message, messageOK := choice["message"].(map[string]any)
+		content, contentPresent := message["content"]
+		text, textOK := content.(string)
+		// A terminal response may have an empty/null final answer after using
+		// its token budget on reasoning. That is model output for the host
+		// scorer, not a failed transport. Missing/ill-typed protocol fields
+		// still return errors, so the worker cannot score corrupt responses.
+		contentOK := contentPresent && (textOK || content == nil)
+		thinking, thinkingPresent := message["reasoning_content"]
+		thought, thinkingOK := thinking.(string)
+		out.Output = p.redact(text)
+		out.Thinking = p.redact(thought)
 		out.DoneReason = str(choice, "finish_reason")
 		out.Truncated = out.DoneReason == "length"
-		if strings.TrimSpace(out.Output) == "" || (out.DoneReason != "stop" && out.DoneReason != "length") || (message["tool_calls"] != nil && lenValue(message["tool_calls"]) > 0) {
-			outputErr = evaluationError("INVALID_OUTPUT", "llama.cpp returned no terminal text answer")
+		if len(req.Tools) > 0 {
+			out.ToolCalls, outputErr = parseEvaluationToolCalls(message["tool_calls"])
+			// OpenAI tool turns may omit content entirely; final text turns may not.
+			if !contentPresent && len(out.ToolCalls) > 0 {
+				contentOK = true
+			}
+			if out.DoneReason == "tool_calls" && len(out.ToolCalls) == 0 || len(out.ToolCalls) > 0 && out.DoneReason != "tool_calls" && out.DoneReason != "length" {
+				outputErr = evaluationError("INVALID_OUTPUT", "tool calls and terminal reason disagree")
+			}
+		}
+		validDone := out.DoneReason == "stop" || out.DoneReason == "length" || len(req.Tools) > 0 && out.DoneReason == "tool_calls"
+		if !messageOK || !contentOK || thinkingPresent && thinking != nil && !thinkingOK || !validDone || len(req.Tools) == 0 && (message["tool_calls"] != nil && lenValue(message["tool_calls"]) > 0) {
+			outputErr = evaluationError("INVALID_OUTPUT", "llama.cpp returned an invalid terminal text protocol")
 		}
 	} else {
 		outputErr = evaluationError("INVALID_OUTPUT", "invalid llama.cpp answer")
@@ -233,6 +281,9 @@ func (p *LocalCompatibleProvider) Evaluate(parent context.Context, req Evaluatio
 		}
 		n := int64(v)
 		*metric.dest = &n
+	}
+	if contextErr := checkReportedPrompt(out.ContextBudget, out.PromptEvalCount); contextErr != nil && outputErr == nil {
+		outputErr = contextErr
 	}
 	after, _, err := p.localDiscovery(ctx, c, origin)
 	if err != nil {

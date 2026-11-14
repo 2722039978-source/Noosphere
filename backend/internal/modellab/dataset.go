@@ -36,19 +36,23 @@ type Assertion struct {
 	Expected json.RawMessage `json:"expected"`
 }
 type CaseEvidence struct {
-	ID            string      `json:"id"`
-	Version       string      `json:"version"`
-	Category      string      `json:"category"`
-	Task          string      `json:"task"`
-	Function      string      `json:"function"`
-	InputType     string      `json:"input_type"`
-	OutputType    string      `json:"output_type"`
-	FixtureHash   string      `json:"fixture_sha256"`
-	ReferenceHash string      `json:"reference_sha256"`
-	Assertions    []Assertion `json:"assertions"`
-	Faulty        string      `json:"-"`
-	Reference     string      `json:"-"`
-	CaseHash      string      `json:"-"`
+	NativeTools    *NativeToolCase `json:"native_tools,omitempty"`
+	Reviewer       *ReviewerCase   `json:"reviewer,omitempty"`
+	Rules          []TextRule      `json:"rules,omitempty"`
+	ExpectedOutput json.RawMessage `json:"expected_output,omitempty"`
+	ID             string          `json:"id"`
+	Version        string          `json:"version"`
+	Category       string          `json:"category"`
+	Task           string          `json:"task"`
+	Function       string          `json:"function"`
+	InputType      string          `json:"input_type"`
+	OutputType     string          `json:"output_type"`
+	FixtureHash    string          `json:"fixture_sha256"`
+	ReferenceHash  string          `json:"reference_sha256"`
+	Assertions     []Assertion     `json:"assertions"`
+	Faulty         string          `json:"-"`
+	Reference      string          `json:"-"`
+	CaseHash       string          `json:"-"`
 }
 type datasetManifest struct {
 	ID            string `json:"id"`
@@ -72,6 +76,7 @@ type CaseRef struct {
 	owner                     *Dataset
 }
 type Dataset struct {
+	reviewer   *reviewerManifest
 	revision   modelstore.DatasetRevision
 	cases      []CaseEvidence
 	scorerHash string
@@ -99,6 +104,15 @@ func strictJSON(raw []byte, out any) error {
 var caseIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,63}$`)
 
 func LoadDataset(id string) (*Dataset, error) {
+	if nativeToolsID(id) {
+		return loadNativeToolsDataset()
+	}
+	if reviewerID(id) != "" {
+		return loadReviewerDataset(id)
+	}
+	if id == TextDatasetID {
+		return loadTextDataset()
+	}
 	if id != DatasetID {
 		return nil, fmt.Errorf("unknown built-in dataset %q", id)
 	}
@@ -208,12 +222,40 @@ func (d *Dataset) Evidence(ref CaseRef) (CaseEvidence, error) {
 		if e.ID == ref.id && e.CaseHash == ref.caseHash {
 			copy := e
 			copy.Assertions = jsonCopy(e.Assertions)
+			copy.Rules = jsonCopy(e.Rules)
+			copy.ExpectedOutput = append(json.RawMessage(nil), e.ExpectedOutput...)
+			copy.Reviewer = jsonCopy(e.Reviewer)
+			copy.NativeTools = jsonCopy(e.NativeTools)
 			return copy, nil
 		}
 	}
 	return CaseEvidence{}, fmt.Errorf("untrusted case reference")
 }
 func authoritative(ref CaseRef) (*Dataset, CaseEvidence, error) {
+	if ref.owner != nil && ref.owner.isTools() {
+		d, err := loadNativeToolsDataset()
+		if err != nil {
+			return nil, CaseEvidence{}, err
+		}
+		e, err := d.Evidence(ref)
+		return d, e, err
+	}
+	if ref.owner != nil && ref.owner.isReviewer() {
+		d, err := LoadDataset(ref.owner.revision.BenchmarkID)
+		if err != nil {
+			return nil, CaseEvidence{}, err
+		}
+		e, err := d.Evidence(ref)
+		return d, e, err
+	}
+	if ref.owner != nil && ref.owner.isText() {
+		d, err := LoadDataset(TextDatasetID)
+		if err != nil {
+			return nil, CaseEvidence{}, err
+		}
+		e, err := d.Evidence(ref)
+		return d, e, err
+	}
 	if ref.owner != nil && ref.owner.revision.SourceRevisionID != "" {
 		e, err := ref.owner.Evidence(ref)
 		return ref.owner, e, err

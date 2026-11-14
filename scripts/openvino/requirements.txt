@@ -1,0 +1,4 @@
+# ABI versions must match. Install only into the project-local virtual environment.
+openvino==2026.4.1
+openvino-tokenizers==2026.4.1.0
+openvino-genai==2026.4.1.0

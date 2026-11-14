@@ -160,11 +160,11 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, manager *workspaces.Manager
 		if e := modelhttp.Query(r); e != nil {
 			return e
 		}
-		d, e := LoadDataset(DatasetID)
+		d, e := s.ListDatasets(r.Context(), "", false)
 		if e != nil {
 			return e
 		}
-		modelhttp.JSON(w, 200, map[string]any{"datasets": []modelstore.DatasetRevision{d.Revision()}})
+		modelhttp.JSON(w, 200, map[string]any{"datasets": d})
 		return nil
 	})
 	route("POST /api/model-lab/profiles", func(w http.ResponseWriter, r *http.Request) error {
@@ -227,14 +227,26 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux, manager *workspaces.Manager
 		// CreateEvaluation, including deployments with lower local limits.
 		// Read-only hardware inspection remains useful on machines without Go.
 		// This does not relax the collector error used by evaluation admission.
-		pre := map[string]any{"available": ready == nil && environmentAvailable, "budget": s.runtime.config.Budget}
-		if ready != nil {
+		textReady := ready == nil && environmentAvailable
+		goReady := textReady && s.runtime.config.Runner != nil && (s.runtime.fixture || env.ToolchainVersion != "")
+		pre := map[string]any{"available": goReady, "budget": s.runtime.config.Budget}
+		if ready != nil || s.runtime.config.Runner == nil || environmentAvailable && !goReady {
 			pre["code"] = "RUNNER_UNAVAILABLE"
 			pre["reason"] = "Trusted Go/WASI runner unavailable; configure model_lab.go_binary with the absolute path to a trusted Go executable and restart Noosphere."
 		} else if !environmentAvailable {
 			pre["code"] = "ENVIRONMENT_UNAVAILABLE"
 			pre["reason"] = environmentError.Error()
 		}
+		goPreflight := map[string]any{"available": goReady}
+		textPreflight := map[string]any{"available": textReady}
+		if !goReady {
+			goPreflight["code"], goPreflight["reason"] = pre["code"], pre["reason"]
+		}
+		if !textReady {
+			textPreflight["code"] = "ENVIRONMENT_UNAVAILABLE"
+			textPreflight["reason"] = "Local evaluation runtime or environment is unavailable."
+		}
+		pre["workflows"] = map[string]any{DatasetWorkflowID: goPreflight, TextWorkflowID: textPreflight, ReviewerWorkflowID: textPreflight, NativeToolsWorkflowID: textPreflight}
 		modelhttp.JSON(w, 200, map[string]any{"environment": env, "preflight": pre})
 		return nil
 	})

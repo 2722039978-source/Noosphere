@@ -1,0 +1,175 @@
+Noosphere 可选本机引擎：OpenVINO GenAI
+
+这是与 Ollama、llama.cpp 并列的第二类本机推理适配器。它包含可安装的
+Python 服务、固定依赖和模型清单、受控启停脚本，以及 Go 身份发现/评测
+适配。已有 Ollama 和 llama.cpp 的连接方式保持可用。
+
+随源码提供的是安装入口和公开哈希，不包含虚拟环境、模型权重、缓存、
+运行日志或开发机器路径。默认安装目录为项目下 model/OpenVINO。
+
+1. 环境与模型
+
+本安装锁针对 Windows x64 和 CPython 3.14 x64：
+  OpenVINO             2026.4.1
+  OpenVINO GenAI       2026.4.1.0
+  OpenVINO Tokenizers  2026.4.1.0
+  NumPy                2.5.4
+  OpenVINO Telemetry   2025.2.0（发行包依赖）
+
+requirements-win-py314.lock 固定每个 wheel 的 SHA256；requirements.txt
+说明三个 OpenVINO 包的 ABI 版本组合。安装器不会修改全局 Python 环境、
+显卡驱动、系统 PATH、代理或证书设置。
+
+OpenVINO 官方列出 Windows 10/11 x64、Intel Arc GPU 系列和 Python
+3.10–3.14；此处安装锁和实际验收使用 3.14。GPU 需要机器已有可用 Intel
+驱动。本机已在 Intel Arc A580 上完成真实 GPU 推理，并在 Ryzen 5 5600
+上完成真实 CPU 推理；官方 CPU 支持表未列 AMD，后者只是这台机器的实测，
+不是对所有 AMD 配置的官方兼容保证。
+
+预置模型为官方 OpenVINO/Qwen3-0.6B-int4-ov：
+  原始模型：Qwen/Qwen3-0.6B，Apache-2.0
+  格式：OpenVINO IR（XML/BIN），并带 Tokenizer/Detokenizer IR
+  量化：NNCF INT4_ASYM，group_size=128，ratio=0.8
+  官方 revision：f864c6106efb6c7f7b4ef274a78a98e37210dddd
+  15 文件合计：454,752,100 字节
+  主权重 SHA256：
+    28613e994a6e1aaf54a6fe8677eda35e8e86684e653dde09f3ba960b8e53e152
+  文件集合聚合 SHA256：
+    a4d2b698c26385b2f8023568c970275eda8d493c53bb6973f88b41fcf0a4bd8f
+
+该 0.6B 模型用于验证第二引擎与轻量工作流。它既不是 DeepSeek 8B 的另一
+份量化，也不是 Bonsai 27B；不同模型的质量/延迟不能解释为单一引擎差异。
+不能直接把 GGUF 文件交给 OpenVINO。更换 IR 模型需要新的经验证清单、
+模板能力核对与模型注册，本安装入口不会自动转换或执行模型仓库代码。
+
+2. 安装、启动与停止
+
+在项目根目录打开 PowerShell。已有 Python launcher 时：
+
+  .\scripts\openvino\Install-OpenVINO.ps1
+
+如果 Hugging Face 大文件下载不可用，可使用清单固定且校验一致的镜像：
+
+  .\scripts\openvino\Install-OpenVINO.ps1 -Mirror -Direct
+
+-Mirror 只改变传输源，仍要求每个文件匹配固定哈希。非 LFS 文件还核对
+官方 revision 的 Git blob ID。-Direct 仅让本次下载进程绕开代理，TLS
+证书校验保持启用。部分文件保留用于断点续传；哈希不匹配不会成为可用模型。
+安装成功不会自动启动模型。已有本部署服务时，安装器要求先停止它。
+
+没有 py launcher 时，可使用 -Python 参数指定现有 3.14 x64 python.exe。
+所有入口都支持 -RuntimeHome 指定独立安装目录，后续入口须使用同一路径。
+
+  .\scripts\openvino\Start-OpenVINO.ps1 -Device GPU
+  .\scripts\openvino\Test-OpenVINO.ps1 -Action smoke
+  .\scripts\openvino\Stop-OpenVINO.ps1
+
+CPU 模式：
+
+  .\scripts\openvino\Start-OpenVINO.ps1 -Device CPU -CPUThreads 2
+  .\scripts\openvino\Test-OpenVINO.ps1 -Action status
+
+运行 8k 检索任务时，使用 -ContextTokens 8192 启动，并在 Model Lab 保存
+8192 上下文的推理配置。上下文变更需要停止旧服务、重新发现并注册版本。
+
+切换 CPU/GPU 前先停止当前服务。默认端口 18789，可用 -Port 明确指定。
+一次部署同时只持有一个服务；同一部署更换端口也须先停止。
+
+默认 HTTP 地址：http://127.0.0.1:18789/v1
+默认模型名：qwen3-0.6b-openvino-int4
+协议标识：openvino
+API 密钥：留空
+
+服务只监听 127.0.0.1，不静默回退设备，不自动停止其他软件。启动前至少
+要求 2 GiB 可用 RAM，加载阶段低于 0.75 GiB 会终止本次自己启动的进程。
+这些是本入口的启动保护，不代替 Noosphere 的环境预算门槛。
+
+启动/停止由跨进程 Windows mutex 串行化。状态记录 PID、可执行文件和
+进程创建时间；停止前在同一终止句柄上复核身份，不按进程名称批量结束。
+服务通过基础 Python 的 -I -S 进入隔离 site-packages，避免 Windows
+venv redirector 形成未被纳入停止控制的模型子进程。
+
+GPU 入口会拒绝在既有 18787/18788 模型端点活跃时启动。这不是整个电脑的
+通用 GPU 调度器；旧入口也不会反向检测 OpenVINO。启动大型 GPU 模型前，
+应先停止 OpenVINO GPU。CPU 模式可在足够主内存下参与双引擎流程，但应
+按总内存检查，并保持模型请求串行；2 CPU 线程只限制模型推理线程，
+不声称限制所有分词器/运行时辅助线程。
+
+3. 在 Noosphere 中接入
+
+在 Model Hub / 模型接入中点击“本机 OpenVINO”预设，保存连接，再执行
+“发现模型版本”和“注册此版本”。预设默认指向上面的模型名和端口。
+保存预设不会更改全局默认模型，除非明确勾选对应选项。
+
+身份发现使用 /noosphere/openvino/metadata 和 /v1/models 的版本化协议。
+普通远程 OpenAI-compatible 服务不能冒充这个本机引擎。
+
+Go 端会独立读取本地 IR、配置、Tokenizer 文件，验证大小与 SHA256。
+聚合身份的编码为按文件名排序，将每项的 name、NUL、十进制 size、NUL、
+小写 SHA256、换行依次送入 SHA256。实际模板、引擎构建版本、依赖版本、
+服务源码哈希、CPU/GPU 设备、线程和运行限制也进入版本身份。
+
+更换设备、线程数、运行时或适配器源码后应重新发现并注册。旧版本档案
+保留其当时身份；不能把 CPU 结果直接作为 GPU 身份的复跑证据。
+模型文件哈希是本地文件证据，不是进程显存/内存的密码学证明。哈希缓存
+使用文件身份、大小和修改时间，无法检测刻意保留这些属性的恶意改写。
+
+4. 推荐参数与准确的能力边界
+
+用于本轮文本评测的保守配置：
+  temperature=0，seed=42，top_p=0.95，top_k=20
+  num_ctx=4096，max_output=256（较长回答可 512）
+  think=false，stop=[]，keep_alive 留空，timeout=120 秒
+
+temperature=0 映射为 greedy decoding。top_p/top_k 会被保留和映射，但
+在 greedy 模式中不参与采样。seed 映射 rng_seed，必须非负。
+think=false 明确进入 Qwen 原模板的 enable_thinking=false；不会因布尔
+false 被当成未填写而开启思考。think=true 也支持，思考段单独记录。
+思考耗尽输出预算导致最终答案为空时，是可评分的质量/截断结果。
+
+默认服务最多 4096 个上下文 token、1024 个输出 token、一个推理槽。
+num_ctx 是“套模板后的 prompt token + max_output”的请求预算，并不声称
+预分配了固定大小的 KV。4096 长文必须为输出留余量。超出预算、未知参数
+和不支持的参数会明确拒绝，评测不静默降低配置。
+普通聊天把输出上限限制在服务容量内，返回一个最终结果块；当前未提供
+逐 token 的对话流，不能据此测量 UI 首 token 时间。
+
+支持：文本对话、身份发现、原生文本评测、CPU/GPU 显式选择、取消请求。
+不支持：Agent 结构化工具、owned warmup/unload、keep_alive、独占模型
+内存测量、多槽并行。推理期间另一请求返回 busy；不会建立隐藏推理队列。
+取消/连接关闭在下一次生成回调检查并取消，因此预填充阶段可能延后响应。
+
+5. 时间与质量结果的解释
+
+响应 raw evidence 中保留 GenAI 的 num_input_tokens、num_generated_tokens、
+generate_duration_ms、inference_duration_ms、ttft_ms 和原生 throughput。
+inference_duration_ms 包含 prefill，不能当作 llama.cpp 的 decode-only
+时间。Go 评测记录总生成耗时与 token 数，decode/load/prompt 单独耗时在
+缺乏对应同义指标时保持空缺，不从总耗时虚构生成速度。
+
+本机短 smoke 曾测得 GPU 加载约 5.26 秒、9 个输出 token 约 1.05 秒；
+CPU 两线程的 Go/HTTP smoke 约 2.20 秒。它们是不同阶段的小样本，不是
+稳定吞吐排行榜。输出包含“2 + 2 = 4”，但没有严格遵守“只输出数字”；
+smoke 证明引擎运行和协议链路，不证明复杂任务质量或格式遵循能力。
+0.6B 模型能力应通过实际任务集评分，不据此替代更大模型的验收。
+
+6. 日志、可移植性与出处
+
+运行记录写在安装目录 logs；文件名含启动时间，保留 stdout/stderr、
+进程身份、元数据和 smoke JSON。这些文件可能含机器路径或输入输出，
+不应连同源码上传。model/OpenVINO 下的 venv、weights、日志与缓存均不
+属于源码包。发行包应包含 scripts/openvino 的运行源码、PowerShell
+入口、requirements 锁与 model.lock.json。
+
+官方系统要求：
+https://docs.openvino.ai/2026/about-openvino/release-notes-openvino/system-requirements.html
+官方 GenAI 使用与 CPU/GPU API：
+https://openvinotoolkit.github.io/openvino.genai/docs/use-cases/text-generation/
+官方 GenAI 发行：
+https://pypi.org/project/openvino-genai/2026.4.1.0/
+官方转换模型及量化参数：
+https://huggingface.co/OpenVINO/Qwen3-0.6B-int4-ov/tree/f864c6106efb6c7f7b4ef274a78a98e37210dddd
+原始模型与许可：
+https://huggingface.co/Qwen/Qwen3-0.6B
+固定、逐字节验证的备用传输源：
+https://modelscope.cn/models/OpenVINO/Qwen3-0.6B-int4-ov/files?Revision=39e59427ca8f85005f71ecaef81ea278bada453f

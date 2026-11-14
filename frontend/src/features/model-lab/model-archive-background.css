@@ -11,7 +11,7 @@
   overflow: hidden;
   pointer-events: none;
   user-select: none;
-  background: #f7f6f3;
+  background: var(--bg-app);
   contain: strict;
 }
 
@@ -39,8 +39,8 @@
   z-index: 1;
 }
 
-/* The archive keeps its selected white/champagne treatment in every theme. */
-.ns-reference-shell[data-model-archive-active="true"] {
+/* The archive's light palette layers over the shared application theme. */
+html:not(.dark) .ns-reference-shell[data-model-archive-active="true"] {
   --bg-app: #f7f6f3;
   --bg-raised: #f7f6f3;
   --bg-elevated: #fcfbf8;
@@ -70,24 +70,9 @@
   --border: #82776730;
   --input: #82776730;
   --ring: #9b754c;
-  color: var(--text-1);
-  color-scheme: light;
 }
 
-html.dark .ns-reference-shell[data-model-archive-active="true"] {
-  --bg-app: #f7f6f3;
-  --bg-raised: #f7f6f3;
-  --bg-elevated: #fcfbf8;
-  --bg-input: #ffffffb8;
-  --border-soft: #82776730;
-  --border-strong: #82776755;
-  --text-1: #171815;
-  --text-2: #55574f;
-  --text-3: #72756a;
-}
-
-.ns-reference-shell[data-model-archive-active="true"] > .ns-sidebar,
-html.dark .ns-reference-shell[data-model-archive-active="true"] > .ns-sidebar {
+html:not(.dark) .ns-reference-shell[data-model-archive-active="true"] > .ns-sidebar {
   background: #f6f5f1;
 }
 
@@ -107,13 +92,9 @@ html.dark .ns-reference-shell[data-model-archive-active="true"] > .ns-sidebar {
   background: transparent;
 }
 
-html.dark .ns-reference-shell[data-model-archive-active="true"] .ns-workspace-trigger {
-  background: #ffffffb8;
-}
-
 .ns-reference-shell .ns-model-archive-scroll {
   overflow-x: hidden;
-  scrollbar-color: #b7ab98 transparent;
+  scrollbar-color: light-dark(#b7ab98, var(--border-strong)) transparent;
 }
 
 .ns-reference-shell .ns-model-lab.ns-model-archive-page {
@@ -173,7 +154,7 @@ html.dark .ns-reference-shell[data-model-archive-active="true"] .ns-workspace-tr
   margin: 43px 0 18px 4px;
   border-bottom: 1px solid var(--border-soft);
   border-radius: 12px 12px 0 0;
-  background: #faf9f5cc;
+  background: light-dark(#faf9f5cc, var(--bg-glass));
   overflow-x: auto;
 }
 
@@ -200,31 +181,31 @@ html.dark .ns-reference-shell[data-model-archive-active="true"] .ns-workspace-tr
 .ns-model-archive-page .ns-hub-tabs a[aria-current] {
   margin-bottom: -1px;
   color: var(--text-1);
-  border-bottom: 2px solid #b3823d;
+  border-bottom: 2px solid light-dark(#b3823d, var(--brand));
 }
 
-.ns-model-archive-page .ns-hub-tabs a[aria-current] svg { fill: #f2ce8f; }
+.ns-model-archive-page .ns-hub-tabs a[aria-current] svg { fill: light-dark(#f2ce8f, var(--brand-dim)); }
 .ns-model-archive-page .ns-hub-tabs a:hover { background: #a78a5a10; text-decoration: none; }
 .ns-model-archive-page .ns-hub-tabs a:focus-visible { outline: 2px solid var(--brand); outline-offset: -3px; }
 
 .ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-surface {
   position: relative;
-  border: 1px solid #8c81752e;
+  border: 1px solid light-dark(#8c81752e, var(--border-soft));
   border-radius: 10px;
-  background: #fcfbf8e3;
-  box-shadow: 0 5px 24px #5a483106;
+  background: light-dark(#fcfbf8e3, var(--bg-elevated));
+  box-shadow: var(--ns-shadow-soft);
   animation: none;
 }
 
 .ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-surface::before { display: none; }
 .ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-lab-panel { margin-bottom: 18px; }
 .ns-model-archive-page .ns-lab-panel > :last-child { margin-bottom: 0; }
-.ns-model-archive-page .ns-lab-notice { background: #f0e7d9d9; }
-.ns-model-archive-page .ns-lab-error { background: #f9eeebe8; }
-.ns-model-archive-page .ns-lab-details { background: #ffffff61; border-radius: 5px; }
-.ns-model-archive-page .ns-lab-case { background: #f8f5efe6; border-radius: 7px; }
-.ns-model-archive-page .ns-lab-field select { border-radius: 5px; background: #ffffffc7; }
-.ns-model-archive-page .ns-release-banner { background: #f4eee2f2; border-radius: 7px; }
+.ns-model-archive-page .ns-lab-notice { background: light-dark(#f0e7d9d9, color-mix(in srgb, var(--warn) 12%, var(--bg-raised))); }
+.ns-model-archive-page .ns-lab-error { background: light-dark(#f9eeebe8, color-mix(in srgb, var(--err) 12%, var(--bg-raised))); }
+.ns-model-archive-page .ns-lab-details { background: light-dark(#ffffff61, var(--bg-raised)); border-radius: 5px; }
+.ns-model-archive-page .ns-lab-case { background: light-dark(#f8f5efe6, var(--bg-raised)); border-radius: 7px; }
+.ns-model-archive-page .ns-lab-field select { border-radius: 5px; background: light-dark(#ffffffc7, var(--bg-raised)); }
+.ns-model-archive-page .ns-release-banner { background: light-dark(#f4eee2f2, color-mix(in srgb, var(--warn) 12%, var(--bg-raised))); border-radius: 7px; }
 
 @media (max-width: 1370px) {
   .ns-reference-shell .ns-model-lab.ns-model-archive-page { padding-left: 20px; padding-right: 20px; }
@@ -255,3 +236,5 @@ html.dark .ns-reference-shell[data-model-archive-active="true"] .ns-workspace-tr
 @media (max-width:639px) {
   .ns-reference-shell .ns-workspace-column[data-model-archive-active="true"] > .ns-masthead { height:75px; }
 }
+
+html.dark .ns-model-archive-backdrop-image { opacity: .10; }

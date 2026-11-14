@@ -1,7 +1,7 @@
 .ns-dataset-intro { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; padding:15px 4px 29px; }
 .ns-dataset-intro h2 { font-size:26px; font-weight:500; letter-spacing:-.035em; margin:5px 0 12px; }
 .ns-dataset-intro p { font-size:13px; line-height:1.9; color:var(--text-3); max-width:680px; }
-.ns-dataset-intro .ns-dataset-eyebrow { font-size:10px; letter-spacing:.15em; color:#967447; }
+.ns-dataset-intro .ns-dataset-eyebrow { font-size:10px; letter-spacing:.15em; color:light-dark(#967447, var(--brand)); }
 .ns-dataset-intro > a { white-space:nowrap; font-size:12px; padding-bottom:4px; }
 .ns-dataset-layout { display:grid; grid-template-columns:minmax(250px,.75fr) minmax(0,2fr); align-items:start; gap:20px; }
 .ns-dataset-catalog { padding:20px; }
@@ -12,21 +12,21 @@
 .ns-dataset-family h3 { overflow-wrap:anywhere; }
 .ns-dataset-family > p { font-size:10px; }
 .ns-dataset-family ol { display:grid; gap:5px; margin:10px 0 0; }
-.ns-dataset-family button { width:100%; display:flex; flex-direction:column; text-align:left; gap:5px; border:1px solid transparent; border-radius:4px; padding:10px 12px; background:#fff6; }
+.ns-dataset-family button { width:100%; display:flex; flex-direction:column; text-align:left; gap:5px; border:1px solid transparent; border-radius:4px; padding:10px 12px; background:light-dark(#fff6, var(--bg-raised)); }
 .ns-dataset-family button:hover { background:#b49b7120; }
 .ns-dataset-family button[aria-pressed=true] { background:#e8d9bc38; border-color:#b799614d; }
 .ns-dataset-family button > span { display:flex; justify-content:space-between; gap:10px; width:100%; font-size:13px; overflow-wrap:anywhere; }
 .ns-dataset-family button small { font-size:11px; color:var(--text-3); }
-.ns-dataset-family em { font-size:10px; color:#9c7546; font-style:normal; white-space:nowrap; }
+.ns-dataset-family em { font-size:10px; color:light-dark(#9c7546, var(--brand)); font-style:normal; white-space:nowrap; }
 .ns-dataset-catalog p.ns-dataset-scope { font-size:11px; line-height:1.9; padding-top:20px; margin-top:20px; border-top:1px solid var(--border-soft); color:var(--text-3); }
 .ns-dataset-main { min-width:0; }
-.ns-dataset-main textarea { border:1px solid var(--border-soft); background:#fffc; border-radius:5px; padding:11px 12px; font:inherit; font-size:12px; line-height:1.7; color:var(--text-1); min-width:0; width:100%; resize:vertical; }
+.ns-dataset-main textarea { border:1px solid var(--border-soft); background:light-dark(#fffc, var(--bg-app)); border-radius:5px; padding:11px 12px; font:inherit; font-size:12px; line-height:1.7; color:var(--text-1); min-width:0; width:100%; resize:vertical; }
 .ns-dataset-main textarea:focus-visible { outline:2px solid var(--brand,#9b754c); outline-offset:2px; }
 .ns-dataset-code textarea,.ns-dataset-assertion textarea { font-family:ui-monospace,Consolas,monospace; }
 .ns-dataset-main .ns-dataset-code { margin-top:16px; }
 .ns-dataset-fields { min-width:0; border:0; margin:0; padding:0; }
 .ns-dataset-fields:disabled { opacity:.65; }
-.ns-dataset-case { margin-top:15px; padding:18px; background:#fff8; border:1px solid var(--border-soft); border-radius:6px; }
+.ns-dataset-case { margin-top:15px; padding:18px; background:light-dark(#fff8, var(--bg-raised)); border:1px solid var(--border-soft); border-radius:6px; }
 .ns-dataset-signature { grid-template-columns:1.4fr 1fr 1fr; }
 .ns-dataset-assertion { display:grid; grid-template-columns:16px minmax(0,1fr) minmax(0,1fr) auto; gap:10px; align-items:center; margin:14px 0; }
 .ns-dataset-assertion > span { align-self:center; font-size:11px; color:var(--text-3); }
