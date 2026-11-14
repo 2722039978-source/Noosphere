@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        请先搜索现有 Issue，并阅读 [开发指南](https://github.com/2722039978-source/Noosphere/blob/main/docs/DEVELOPMENT.md)。
+        请先搜索现有 Issue，并阅读 [开发指南](https://github.com/2722039978-source/Noosphere/blob/main/README.md#快速开始)。
         日志和截图请先脱敏，不要上传 API Key、models.yaml、聊天记录或完整运行数据库。
   - type: dropdown
     id: module

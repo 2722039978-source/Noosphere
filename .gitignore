@@ -46,3 +46,10 @@ desktop/src-tauri/config.defaults.yaml
 desktop/src-tauri/setup.bat
 desktop/src-tauri/data/
 desktop/src-tauri/logs/
+
+# Local archives and reference project
+/docs/
+/RhineLabUI/
+/CONTRIBUTING.md
+/test/
+/model/
