@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/noosphere/backend/internal/agent"
 	"github.com/noosphere/backend/internal/codelens"
@@ -46,7 +47,6 @@ type App struct {
 	ModelStore    *modelstore.Store
 	startupCtx    context.Context
 	startupCancel context.CancelFunc
-	startupMu     sync.Mutex
 	startupWG     sync.WaitGroup
 	closeOnce     sync.Once
 	closeErr      error
@@ -257,13 +257,29 @@ func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux,
 	// The desktop keeps writable data separate from read-only application resources.
 	workingDir, _ := os.Getwd()
 	executable, _ := os.Executable()
-	scriptCandidates, err := resolveCodeLensScripts(os.Getenv("NOOSPHERE_CODELENS_SCRIPT"), workingDir, executable)
+	script := os.Getenv("NOOSPHERE_CODELENS_SCRIPT")
+	managed := os.Getenv("NOOSPHERE_DESKTOP_MANAGED") == "1"
+	if managed && script == "" {
+		lc.SetError("codelens", fmt.Errorf("CodeLens source resources are missing from the desktop application"))
+		close(startupDone)
+		return
+	}
+	scriptCandidates, err := resolveCodeLensScripts(script, workingDir, executable)
 	if err != nil {
 		lc.SetError("codelens", err)
 		close(startupDone)
 		return
 	}
 	pythonCmds := resolveCodeLensPython(cfg.Modules.CodeLens.PythonPath, scriptCandidates)
+	port := cfg.Modules.CodeLens.Port
+	if managed {
+		port = 0
+		if os.Getenv("NOOSPHERE_DESKTOP_DEVELOPMENT") != "1" && cfg.Modules.CodeLens.PythonPath == "python" && os.Getenv("NOOSPHERE_CODELENS_PYTHON") == "" {
+			lc.SetError("codelens", fmt.Errorf("bundled CodeLens runtime is missing; reinstall the complete application"))
+			close(startupDone)
+			return
+		}
+	}
 	traceDir, err := filepath.Abs(filepath.Join(dataDir, "codelens-source", "trace-v1"))
 	if err != nil {
 		lc.SetError("codelens", err)
@@ -275,39 +291,18 @@ func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux,
 	app.startupWG.Add(1)
 	go func() {
 		defer app.startupWG.Done()
-		defer close(startupDone)
+		var signalReady sync.Once
+		defer signalReady.Do(func() { close(startupDone) })
 		var lastError error
 		for _, pyCmd := range pythonCmds {
 			for _, sp := range scriptCandidates {
 				if app.startupCtx.Err() != nil {
 					return
 				}
-				clAdapter := codelens.NewAdapter(append([]string{}, pyCmd...), sp, cfg.Modules.CodeLens.Port)
-				clAdapter.TraceDirectory = traceDir
-				clAdapter.ModifyResponse = codelens.PersistIndexResponse(eng)
-				lastError = clAdapter.Start()
+				lastError = superviseCodeLens(app.startupCtx, lc, clPtr, pyCmd, sp, port, traceDir, codelens.PersistIndexResponse(eng), func() {
+					signalReady.Do(func() { close(startupDone) })
+				})
 				if lastError == nil {
-					app.startupMu.Lock()
-					if app.startupCtx.Err() != nil {
-						app.startupMu.Unlock()
-						clAdapter.Stop()
-						return
-					}
-					clPtr.Store(clAdapter)
-					app.startupMu.Unlock()
-					lc.SetState("codelens", core.StateRunning)
-					log.Printf("[codelens] worker ready: %v %s", pyCmd, sp)
-					app.startupWG.Add(1)
-					go func() {
-						defer app.startupWG.Done()
-						workerErr := clAdapter.WaitForExit(app.startupCtx)
-						app.startupMu.Lock()
-						defer app.startupMu.Unlock()
-						if app.startupCtx.Err() == nil {
-							clPtr.CompareAndSwap(clAdapter, nil)
-							lc.SetError("codelens", workerErr)
-						}
-					}()
 					return
 				}
 				log.Printf("[codelens] retry failed: %v %s: %v", pyCmd, sp, lastError)
@@ -315,4 +310,43 @@ func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux,
 		}
 		lc.SetError("codelens", fmt.Errorf("CodeLens worker failed: %v; check the configured Python/port, or run setup.bat to install dependencies", lastError))
 	}()
+}
+
+func superviseCodeLens(ctx context.Context, lc *core.Lifecycle, current *atomic.Pointer[codelens.Adapter], python []string, script string, port int, traceDir string, persist func(*http.Response) error, ready func()) error {
+	// Try another interpreter only if the first launch never became healthy.
+	// Following a crash, retry the same verified worker with a bounded backoff.
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+		lc.SetState("codelens", core.StateStarting)
+		adapter := codelens.NewAdapter(append([]string{}, python...), script, port)
+		adapter.TraceDirectory = traceDir
+		adapter.ModifyResponse = persist
+		if err := adapter.StartContext(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if attempt == 0 {
+				return err
+			}
+			lc.SetError("codelens", err)
+			continue
+		}
+		current.Store(adapter)
+		lc.SetState("codelens", core.StateRunning)
+		ready()
+		err := adapter.WaitForExit(ctx)
+		current.CompareAndSwap(adapter, nil)
+		adapter.Stop()
+		if ctx.Err() != nil {
+			return nil
+		}
+		lc.SetError("codelens", err)
+	}
+	return nil
 }

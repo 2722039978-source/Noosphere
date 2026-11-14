@@ -8,12 +8,13 @@ import (
 )
 
 type AppConfig struct {
-	App      AppSettings      `yaml:"app"`
-	Server   ServerSettings   `yaml:"server"`
-	Modules  ModuleSettings   `yaml:"modules"`
-	Gateway  GatewaySettings  `yaml:"gateway"`
-	Logging  LogSettings      `yaml:"logging"`
-	ModelLab ModelLabSettings `yaml:"model_lab"`
+	SchemaVersion int              `yaml:"config_version"`
+	App           AppSettings      `yaml:"app"`
+	Server        ServerSettings   `yaml:"server"`
+	Modules       ModuleSettings   `yaml:"modules"`
+	Gateway       GatewaySettings  `yaml:"gateway"`
+	Logging       LogSettings      `yaml:"logging"`
+	ModelLab      ModelLabSettings `yaml:"model_lab"`
 }
 
 // ModelLab is local offline execution only; it never enables live routing.
@@ -96,16 +97,20 @@ func Load(path string) (*AppConfig, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
+	if cfg.SchemaVersion != 1 {
+		return nil, fmt.Errorf("config_version %d is not supported; supported version is 1", cfg.SchemaVersion)
+	}
 
 	return cfg, nil
 }
 
 func defaults() *AppConfig {
 	return &AppConfig{
-		ModelLab: ModelLabSettings{Enabled: true, MaxContext: 8192, MaxOutput: 2048, InferenceTimeoutSeconds: 120, CleanupTimeoutSeconds: 10},
+		SchemaVersion: 1,
+		ModelLab:      ModelLabSettings{Enabled: true, MaxContext: 8192, MaxOutput: 2048, InferenceTimeoutSeconds: 120, CleanupTimeoutSeconds: 10},
 		App: AppSettings{
 			Name:    "Noosphere",
-			Version: "0.6.0",
+			Version: "0.7.0",
 			DataDir: "./data",
 		},
 		Server: ServerSettings{

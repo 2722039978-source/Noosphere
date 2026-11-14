@@ -2009,12 +2009,14 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "noosphere-desktop"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "getrandom 0.3.4",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",

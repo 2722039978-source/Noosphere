@@ -1,6 +1,7 @@
+config_version: 1
 app:
   name: Noosphere
-  version: 0.6.0  # canonical source: root VERSION file
+  version: 0.7.0  # canonical source: root VERSION file
   data_dir: ./data
 
 server:

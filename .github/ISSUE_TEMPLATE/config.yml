@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: 开发与启动指南
-    url: https://github.com/2722039978-source/Noosphere#快速开始
+    url: https://github.com/2722039978-source/Noosphere#开发和构建
     about: 查看环境要求、源码构建、配置与本地测试命令。
   - name: GitHub 协作与自动检查
     url: https://github.com/2722039978-source/Noosphere#链接

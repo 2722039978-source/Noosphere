@@ -184,11 +184,9 @@ func collectModelEnvironment(ctx context.Context, binary string) (modelstore.Env
 // alive, then closes their evidence/toolchain and analysis resources once.
 func (app *App) Close() error {
 	app.closeOnce.Do(func() {
-		app.startupMu.Lock()
 		if app.startupCancel != nil {
 			app.startupCancel()
 		}
-		app.startupMu.Unlock()
 		if app.LiveCanary != nil {
 			app.closeErr = stderrors.Join(app.closeErr, app.LiveCanary.Close())
 		}
@@ -220,8 +218,8 @@ func (app *App) Close() error {
 			app.Actions.Close()
 		}
 		app.startupWG.Wait()
-		if cl := app.CodeLens.Swap(nil); cl != nil {
-			cl.Stop()
+		if app.Engine != nil {
+			app.closeErr = stderrors.Join(app.closeErr, app.Engine.Close())
 		}
 	})
 	return app.closeErr

@@ -96,47 +96,47 @@ Model Lab 围绕“模型版本、任务集、推理参数、运行环境”组�
 3. 运行单版本基线，结合逐题结果、失败类型和有效样本阅读报告。
 4. 导出 HTML 报告、SVG 图卡或 JSON 实验包。需要验证候选发布时打开 Release Center。
 
-## 目录与本地文件
+## 下载与安装
 
-| 路径 | 用途 |
-| --- | --- |
-| `frontend/` | React 界面、页面、静态资源和前端构建配置。 |
-| `backend/` | Go 服务、模型网关、评测与工作区，以及 Python CodeLens。 |
-| `desktop/` | Tauri 桌面壳、进程管理、权限配置与打包入口。 |
-| `scripts/` | 开发启动、环境预检、便携包构建与验证。 |
-| `.github/` | CI 工作流与 Issue 模板。 |
+在 [GitHub Releases](https://github.com/2722039978-source/Noosphere/releases) 下载 Windows x64 正式安装器 `Noosphere-<版本>-windows-x64-setup.exe`，按向导选择目录。程序会启动内置 Go、CodeLens 和 REA。安装器可离线安装缺失的 WebView2 Runtime，应用所需的 Visual C++ 运行库随包提供。普通用户无需安装 WebView2 SDK、Python、Go、Node.js、Rust、C++ Build Tools 或 Windows SDK。
 
-本地生成的 `release/`、工具链与工作树 `.local/`、模型 `model/`、验收和历史归档 `test/` 由 `.gitignore` 排除。发布便携包通过 GitHub Releases 提供。
+便携版为 `Noosphere-<版本>-windows-x64.zip`。解压全部文件，运行 `Noosphere.exe`，并保留旁边的资源目录。ZIP 使用系统已有的 WebView2 Runtime，机器缺少 Runtime 时请使用正式安装器。旧版 `v0.6.0-20261114` 的 ZIP 仍采用手工安装 Python 的方式。
 
-## 下载
+从侧栏“模型”添加并测试模型连接，再打开项目开始对话或在 CodeLens 建索引。安装包提供应用和内置服务；本地推理模型、可选 OpenVINO、动态 Go 修复评测及 Agent 代跑项目测试使用各自的模型服务或语言工具。
 
-- [Windows x64 便携版 v0.6.0（2026-11-14）](https://github.com/2722039978-source/Noosphere/releases/tag/v0.6.0-20261114)：下载页面提供 ZIP、SHA-256 校验文件和本次更新说明。
-- [全部发布版本](https://github.com/2722039978-source/Noosphere/releases)。最新源码可按下方步骤构建。
+可用 `Get-FileHash -Algorithm SHA256 -LiteralPath <下载文件>` 对照同一版本的 `SHA256SUMS.txt`。从 Windows 设置的“已安装的应用”卸载 Noosphere 时，默认保留应用数据。
 
-解压完整便携包后运行其中的 `Noosphere.exe`，保留同目录资源。使用 CodeLens 前安装 Python 3.10+，运行包内的 `setup.bat` 安装依赖。
+## 开发和构建
 
-## 快速开始
-
-从源码构建需要 Windows、PowerShell 7、Node.js 24 与 npm、Go 1.26.5（见 [go.mod](backend/go.mod)）、Rust 1.88+ MSVC 工具链、Microsoft C++ Build Tools 的“使用 C++ 的桌面开发”组件与 Windows SDK，以及 Python 3.10+、WebView2 Runtime。
+使用 Windows x64、PowerShell 7、Git、npm、rustup 和 Visual Studio 的“使用 C++ 的桌面开发”工作负载（包含 x64 MSVC、Windows SDK 和 VC Redistributable 文件）。项目版本来源为根目录的 `VERSION`。Node、CPython、Rust 和 Go 版本分别由 [`.node-version`](.node-version)、[`.python-version`](.python-version)、[`rust-toolchain.toml`](rust-toolchain.toml) 和 [`backend/go.mod`](backend/go.mod) 指定。开发和桌面验证还需要系统 WebView2 Runtime。
 
 ```powershell
 git clone https://github.com/2722039978-source/Noosphere.git
 cd Noosphere
-npm --prefix frontend ci
-npm --prefix desktop ci
-python -m venv .local/venv
-.local/venv/Scripts/python.exe -m pip install -r backend/python/codelens/requirements.txt
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -RequireDesktop
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
+pwsh -NoProfile -File scripts/setup.ps1 -InstallBrowser
+pwsh -NoProfile -File scripts/doctor.ps1 -Profile Package
+pwsh -NoProfile -File scripts/dev.ps1
 ```
 
-构建完成后双击 `Start-Noosphere.cmd`。从侧栏“模型”添加并测试模型连接，打开项目后即可开始对话。双击 `Create-Shortcuts.cmd` 可以创建桌面快捷方式；开发模式使用 `scripts/dev.ps1`。
-
-公开核心测试检查 evalrunner 校验、Gateway 模型选择、模型版本比较与报告聚合：
+`setup.ps1` 安装锁定的 npm 依赖，并在 `.local/venv` 安装 CodeLens 开发依赖。`-InstallBrowser` 下载浏览器回归测试使用的 Chromium。只开发前端可用 `setup.ps1 -FrontendOnly`。`doctor.ps1` 支持 `Frontend`、`Backend`、`Desktop`、`Package` 检查范围。
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/check-core.ps1
+pwsh -NoProfile -File scripts/build.ps1
+pwsh -NoProfile -File scripts/package.ps1
+pwsh -NoProfile -File scripts/test.ps1 -Rust -Browser -PackagedRoot release
 ```
+
+`build.ps1` 更新本地 `release/`，可通过 `Start-Noosphere.cmd` 启动。`package.ps1` 生成 `artifacts/<版本>/` 下的 NSIS 安装器、便携 ZIP、`build-info.json` 和 `SHA256SUMS.txt`。常规 CI 构建归档候选产物。与 `VERSION` 一致的 `v<版本>` 标签在构建和验收成功后触发 GitHub Release。
+
+## 更新、备份与恢复
+
+在“设置 → 软件更新”检查官方完整安装包。下载完成后会校验 SHA-256 并保存会话导出。按面板提示退出 Noosphere，再运行已校验的安装器。安装后重新打开设置核对版本和实际数据目录。便携版可以解压到新目录，再从该目录启动。旧便携目录及其 `config.yaml` 应保留，直至确认所需数据已迁移。
+
+应用数据位置以设置页显示为准。默认安装数据根为 `%LOCALAPPDATA%\com.noosphere.desktop`，开发模式有独立数据目录。旧便携版仍识别 EXE 同目录的 `config.yaml`，维护者也可用绝对路径 `NOOSPHERE_DATA_DIR`。数据根保存配置、`models.yaml`、`data/`、运行日志和 `upgrade-backups/`；会话正文由 WebView2 IndexedDB 保存，可通过设置面板导出和导入。
+
+更新遇到故障时，先退出桌面，再保留现有数据目录的副本。可从已保存的安装包回到旧版本。需要恢复备份时，根据版本备份清单确定原始路径，保留当前数据后恢复对应快照，并通过会话备份面板导入 JSON。SQLite 数据库和同版本 WAL 需要一起处理。跨 Windows 账号迁移后可能需要重新输入模型密钥，主钥保存在原账号的 Windows 凭据管理器中。源码索引和向量缓存可以用原项目重建，配置、会话、项目记忆和审批记录应保留。
+
+启动故障先查看设置显示的数据目录中的 `desktop-services.log` 及 Go 服务日志。若连窗口也没有出现，可使用安装器补齐 WebView2 Runtime，并检查 Windows 事件查看器。报告故障时附版本号和对应日志，避免附带私有模型配置、会话、代码索引或原始文件修改记录。
 
 ## 模块化架构
 
@@ -153,7 +153,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/check-core.ps1
 | Nebula 与 Knowledge | 记忆存储、文本 / 向量检索、项目知识与引用有效性检查 | [nebula](backend/internal/nebula)、[knowledge](backend/internal/knowledge) |
 | DevOps 与硬件采集 | 系统指标、诊断工具、主机环境与硬件信息 | [devops](backend/internal/devops)、[hostinfo](backend/internal/hostinfo) |
 | 模型工程 | 版本、任务集、测评、沙箱执行、模拟发布和工作区真实灰度 | [modellab](backend/internal/modellab)、[modelstore](backend/internal/modelstore)、[evalrunner](backend/internal/evalrunner)、[modelops](backend/internal/modelops)、[livecanary](backend/internal/livecanary) |
-| 构建与检查 | 环境预检、开发启动、便携包构建、快捷方式与核心测试 | [scripts](scripts)、[CI](.github/workflows/ci.yml) |
+| 构建与检查 | 工具链检查、开发启动、生产构建、安装器与 ZIP、原生集成验证 | [scripts](scripts)、[CI](.github/workflows/ci.yml) |
 
 前端模块入口定义在 [modules.ts](frontend/src/app/modules.ts)，页面映射见 [routes.tsx](frontend/src/app/routes.tsx)。这里的模块化指代码与职责划分，不表示每个模块都是可独立安装的插件。
 
@@ -163,7 +163,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/check-core.ps1
 - **本地工作台不等于全程离线**：使用远程 Provider 时，对话、附件与提供给模型的项目上下文会发送到对应服务；源码和便携包不附带模型权重。
 - **数据目录可查看**：实际目录以设置页显示为准；绝对路径环境变量 `NOOSPHERE_DATA_DIR` 可指定独立数据目录。
 - **凭证与导出要分开保管**：模型凭证通过界面管理，不要写入公开示例或 Issue。报告和备份可能包含私人项目内容。
-- **验证范围有限**：公开 CI 包含前端构建、Windows 核心测试与 Go 构建 / vet、Python 语法检查；本机模型、具体硬件与原生窗口交互仍需在对应环境验证。
+- **验证范围**：Windows workflow 执行源码测试和真实桌面 IPC 验收，模型端点由测试提供。无开发工具的 Windows 镜像、真实模型推理和具体硬件仍需单独验证。
 - **任务产物留在本机**：历史文档、工作记录、开发缓存和验收输出可统一放在 Git 忽略的 `test/`。公开源码及便携版保留启动所需文件。
 
 完整的模型适配、任务格式、指标解释、Agent 限制和第三方资源说明见 [LIMITATIONS.md](LIMITATIONS.md)。

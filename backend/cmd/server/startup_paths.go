@@ -12,6 +12,9 @@ func resolveCodeLensPython(configured string, scripts []string) [][]string {
 	if configured != "" && configured != "python" {
 		return [][]string{{configured}}
 	}
+	if bundled := os.Getenv("NOOSPHERE_CODELENS_PYTHON"); filepath.IsAbs(bundled) {
+		return [][]string{{filepath.Clean(bundled)}}
+	}
 	var commands [][]string
 	seen := make(map[string]bool)
 	for _, script := range scripts {

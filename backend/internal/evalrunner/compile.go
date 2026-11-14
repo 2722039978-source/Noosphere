@@ -72,11 +72,17 @@ func (r *Runner) compileFiles(parent context.Context, source, wrapper string) ([
 	}
 	defer process.close()
 	if err = cmd.Start(); err != nil {
+		if ctx.Err() != nil {
+			return nil, failure("RUNNER_TIMEOUT", ctx.Err())
+		}
 		return nil, failure("RUNNER_INFRASTRUCTURE", err)
 	}
 	if err = process.contain(cmd); err != nil {
 		cmd.Process.Kill()
 		cmd.Wait()
+		if ctx.Err() != nil {
+			return nil, failure("RUNNER_TIMEOUT", ctx.Err())
+		}
 		return nil, failure("RUNNER_INFRASTRUCTURE", err)
 	}
 	err = cmd.Wait()

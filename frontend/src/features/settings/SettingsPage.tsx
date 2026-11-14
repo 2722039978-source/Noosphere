@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useThemeStore } from "@/stores/theme-store";
 import { ChatBackupPanel } from './ChatBackupPanel';
 import { ExperienceSettings } from './ExperienceSettings';
+import { UpdatePanel } from './UpdatePanel';
 import { version } from '../../../package.json';
 
 
@@ -17,9 +18,10 @@ export function SettingsPage() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="ns-page-wrap">
-        <PageHeader title="设置" subtitle="外观、诊断与会话备份" />
+        <PageHeader title="设置" subtitle="外观、诊断、会话备份与软件更新" />
         <ExperienceSettings />
         <ChatBackupPanel />
+        <UpdatePanel />
 
         {/* 应用信息 */}
         <Surface className="px-6 py-5">
@@ -30,7 +32,6 @@ export function SettingsPage() {
               label="后端状态"
               value={backend.startingBackend ? "启动中" : backend.health === "online" ? "在线" : backend.health === "checking" ? "检测中" : "离线"}
             />
-            <InfoRow label="接口地址" value="127.0.0.1:8080" />
             <InfoRow label="数据目录" value={backend.backendStatus.data_dir || "等待桌面服务提供路径"} />
           </div>
           {(backend.backendError || backend.health === "offline" || backend.health === "error" || backend.startingBackend) && (

@@ -54,13 +54,13 @@ Nebula 的记忆检索模式与质量取决于配置的嵌入服务和实际资�
 
 ## 构建、数据与自动检查
 
-便携程序需要与 `bin/`、`codelens-python/`、`rea-runtime/` 等资源一起保留。当前 Windows x64 源码构建校验并附带 Node.js 24.22.2 与 REA 6.8.0，许可证随相应组件分发。运行目录中的 `setup.bat` 安装 CodeLens 的 Python 依赖；源码构建步骤见 [README](README.md#快速开始)。
+便携程序与 `bin/`、`codelens-python/`、`codelens-runtime/`、`rea-runtime/` 等资源一起交付。CodeLens 使用包内 Python 和已校验的 Windows wheel。REA 使用包内 Node.js 24.22.2 与 REA 6.8.0。WebView2 Runtime 由系统或安装器提供。自定义动态 Go 测评、项目测试或 OpenVINO 仍有对应工具要求。源码构建与发布入口见 [README](README.md#开发和构建)。
 
-便携版通常在配置所在目录保存数据；安装版通常使用 `%LOCALAPPDATA%\com.noosphere.desktop`。设置页面显示实际目录，绝对路径环境变量 `NOOSPHERE_DATA_DIR` 可指定独立目录。构建记录保存在本机 `release/build-info.json`。
+正式桌面默认使用 `%LOCALAPPDATA%\com.noosphere.desktop`，旧便携应用保留 EXE 旁的配置目录。设置页面显示实际目录，绝对路径环境变量 `NOOSPHERE_DATA_DIR` 可指定独立目录。构建记录保存在 `release/build-info.json` 及各版本发布资产中。升级前检查配置、服务数据和 WebView2 会话备份。恢复步骤见 [README](README.md#更新备份与恢复)。
 
 模型配置与凭证通过界面管理。Windows 凭证保存使用加密存储与系统凭证管理能力。请勿将密钥、个人数据或私人代码写入公开示例、Issue 和日志。
 
-公开 CI 执行核心回归测试和构建检查。模型服务、具体硬件和原生窗口交互仍需要在对应环境中运行验证。README 截图使用独立示例数据，图中名称和数值用于展示界面。
+Windows CI 配置包含源码测试、产物生成、真实 WebView2 IPC 和安装器验收。模型连接在验收中使用本地模拟端点。真实模型、具体硬件及无开发工具的独立 Windows 镜像需要在对应环境中验证。README 截图使用独立示例数据。
 
 ## 设计来源与第三方资源
 
