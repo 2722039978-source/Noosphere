@@ -5,6 +5,7 @@ import type { HardwareInventory } from '@/lib/hardware-types';
 import type { ModelRevision } from '@/lib/model-engineering-types';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { engineAdvice, estimateModelFit } from './hardware-fit';
 import { hardwareCapacity } from './hardware-presentation';
 import { loadHubPerformance, type HubPerformance } from './hub-performance';
@@ -16,7 +17,10 @@ export function HardwareAdvisor({ hardware, ram }: { hardware: HardwareInventory
   const [modelID, setModelID] = useState('');
   const [context, setContext] = useState(2048);
   const [cache, setCache] = useState('');
-  const [device, setDevice] = useState(hardware.gpus.length ? '0' : 'cpu');
+  const [device, setDevice] = useState(() => {
+    const largest = hardware.gpus.reduce((best, gpu, index) => (gpu.total_vram_bytes ?? 0) > (hardware.gpus[best]?.total_vram_bytes ?? 0) ? index : best, -1);
+    return largest >= 0 ? String(largest) : 'cpu';
+  });
   const [reserve, setReserve] = useState(1.5);
   const [error, setError] = useState<unknown>();
   const [observation, setObservation] = useState<HubPerformance | null | undefined>();
@@ -93,7 +97,7 @@ export function HardwareAdvisor({ hardware, ram }: { hardware: HardwareInventory
         <label className="ns-lab-field">上下文预算（Token）<select value={context} onChange={event => setContext(Number(event.target.value))}>
           {[512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072].map(value => <option key={value}>{value}</option>)}
         </select></label>
-        <label className="ns-lab-field">已知 KV 缓存（KiB / Token）<input type="number" min="0.25" max="4096" step="0.25" value={cache} placeholder="按实际引擎配置填写" onChange={event => setCache(event.target.value)} /></label>
+        <label className="ns-lab-field">已知 KV 缓存（KiB / Token）<Input type="number" min="0.25" max="4096" step="0.25" value={cache} placeholder="按实际引擎配置填写" onChange={event => setCache(event.target.value)} /></label>
         <label className="ns-lab-field">运行余量（GiB）<select value={reserve} onChange={event => setReserve(Number(event.target.value))}>
           {[0.5, 1, 1.5, 2, 3, 4].map(value => <option key={value}>{value}</option>)}
         </select></label>
