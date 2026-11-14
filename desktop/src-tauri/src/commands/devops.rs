@@ -35,16 +35,15 @@ pub fn list_tools() -> Result<Value, ApiError> {
 
 #[tauri::command]
 pub async fn devops_loop(request_id: String, issue: String, streams: tauri::State<'_, crate::commands::stream::StreamTasks>) -> Result<Value, ApiError> {
-    crate::runtime::ensure_backend_ready()?;
+    let connection = crate::runtime::backend_connection()?;
     let registration = streams.register(request_id)?;
-    let token = crate::local_auth::token().map_err(ApiError::new)?;
     let client = reqwest::Client::builder().no_proxy().redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(130)).build().map_err(|e| ApiError::new(e.to_string()))?;
     tokio::select! {
         biased;
         _ = registration.cancel.cancelled() => Err(ApiError::new("诊断已取消")),
         result = async {
-            let response = client.post("http://127.0.0.1:8080/api/v1/devops/loop").bearer_auth(token)
+            let response = client.post(format!("{}/api/v1/devops/loop", connection.base)).bearer_auth(connection.token)
                 .json(&json!({"issue":issue,"max_steps":5,"auto_approve":false})).send().await
                 .map_err(|e| ApiError::new(e.to_string()))?;
             let status=response.status();

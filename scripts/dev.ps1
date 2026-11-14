@@ -1,5 +1,6 @@
 # Run this project's Vite server and desktop app without requiring cargo-tauri.
 # Frontend changes use HMR; restart this script after changing Rust code.
+#Requires -Version 7.0
 param([switch]$SkipBuild)
 
 $ErrorActionPreference = 'Stop'
@@ -7,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $TauriRoot = Join-Path $ProjectRoot 'desktop/src-tauri'
 $FrontendRoot = Join-Path $ProjectRoot 'frontend'
+& (Join-Path $PSScriptRoot 'doctor.ps1') -Profile Desktop
 $CargoCommand = Resolve-NoosphereCommand 'cargo'
 $NodeCommand = Resolve-NoosphereCommand 'node'
 $ViteScript = Join-Path $FrontendRoot 'node_modules/vite/bin/vite.js'

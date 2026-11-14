@@ -4,6 +4,8 @@ import hmac
 import time
 import asyncio
 import threading
+import socket
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 import uvicorn
@@ -11,7 +13,15 @@ from ast_parser import get_analyzer, LANGUAGES
 from project_index import GRAPH_CACHE, INDEX_LOCK, build_index, project_id, project_root, project_file, source_files
 from source_trace import find_trace, load_snapshot
 
-app = FastAPI(title='CodeLens AI', version='0.6.0')
+@asynccontextmanager
+async def lifespan(_app):
+    analyzer = get_analyzer()
+    for parser in analyzer.parsers.values():
+        parser.parse(b'')
+    yield
+
+
+app = FastAPI(title='CodeLens AI', version='0.7.0', lifespan=lifespan)
 
 @app.middleware('http')
 async def worker_auth(request, call_next):
@@ -57,7 +67,7 @@ async def invalid_path(_request, error):
 
 @app.get('/api/v1/health')
 def health():
-    return {'status': 'ok', 'service': 'codelens', 'version': '0.6.0', 'parser': 'tree-sitter', 'languages': list(LANGUAGES.values())}
+    return {'status': 'ok', 'service': 'codelens', 'version': app.version, 'parser': 'tree-sitter', 'languages': list(LANGUAGES.values())}
 
 def index_project(req: IndexRequest, cancelled=None):
     result = build_index(project_root(req.project_path), req.exclude, cancelled)
@@ -152,4 +162,11 @@ def code_graph(req: GraphRequest):
     return {'entities': len(ranked), 'top_connected': [{'name': name, 'callers': len(edges['callers']), 'callees': len(edges['callees'])} for name, edges in ranked[:30]]}
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='127.0.0.1', port=int(os.environ.get('NOOSPHERE_CODELENS_PORT', '18765')), log_level='info')
+    port = int(os.environ.get('NOOSPHERE_CODELENS_PORT', '18765'))
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        if os.name == 'nt':
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        listener.bind(('127.0.0.1', port))
+        print(f'NOOSPHERE_CODELENS_READY {listener.getsockname()[1]}', flush=True)
+        settings = uvicorn.Config(app, host='127.0.0.1', port=port, log_level='info')
+        uvicorn.Server(settings).run(sockets=[listener])

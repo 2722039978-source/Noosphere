@@ -62,7 +62,7 @@ pub fn gateway_chat_stream(
     on_event: Channel<StreamChunk>,
     streams: tauri::State<'_, StreamTasks>,
 ) -> Result<(), ApiError> {
-    crate::runtime::ensure_backend_ready()?;
+    let connection = crate::runtime::backend_connection()?;
     let registration = streams.register(request_id.clone())?;
     let body = json!({
         "messages": messages,
@@ -73,9 +73,9 @@ pub fn gateway_chat_stream(
     });
     tauri::async_runtime::spawn(run_stream(
         registration,
-        "http://127.0.0.1:8080/api/gateway/chat/stream".to_owned(),
+        format!("{}/api/gateway/chat/stream", connection.base),
         body,
-        Some(crate::local_auth::token().map_err(ApiError::new)?.to_owned()),
+        Some(connection.token),
         move |chunk| on_event.send(chunk).is_ok(),
     ));
     Ok(())

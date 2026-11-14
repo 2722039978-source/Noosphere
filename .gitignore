@@ -18,6 +18,7 @@ desktop/src-tauri/target/
 
 # Generated distribution and local runtime state
 release/
+/artifacts/
 .local/
 *.log
 models.yaml
@@ -45,6 +46,8 @@ qa-output/
 # Tauri resources staged by scripts/common.ps1 and local runtime data
 desktop/src-tauri/bin/
 desktop/src-tauri/codelens-python/
+desktop/src-tauri/codelens-runtime/
+desktop/src-tauri/redist/
 desktop/src-tauri/rea-runtime/
 desktop/src-tauri/config.yaml
 desktop/src-tauri/config.defaults.yaml
@@ -85,16 +88,21 @@ playwright-report/
 test-results/
 coverage/
 
-# 公开核心测试和指定的前端回归测试
+# 开发测试保留在本地，公开四个核心测试文件
 **/tests/
 !/frontend/tests/
 /frontend/tests/*
 !/frontend/tests/model-selection-ui.cjs
+!/frontend/tests/ui-regression.cjs
+!/frontend/tests/load-source.mjs
 **/testdata/
 **/fixtures/
 *_test.go
 test_*.py
 *.test.*
+!/frontend/tests/indexed-chat-storage.test.mjs
+!/frontend/tests/stream-runner.test.mjs
+!/frontend/tests/chat-workspace-runtime.test.mjs
 *.spec.*
 /scripts/test-*
 backend/python/codelens/requirements-dev.txt
@@ -102,6 +110,8 @@ backend/python/codelens/requirements-dev.txt
 !/backend/internal/gateway/public_selection_test.go
 !/backend/internal/modelstore/public_versions_test.go
 !/backend/internal/modellab/public_report_test.go
+!/backend/internal/config/upgrade_test.go
+!/backend/cmd/server/server_test.go
 
 # 本地视频和设计过程记录
 /video/

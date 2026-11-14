@@ -25,12 +25,13 @@ async fn request(path:String, body:Option<Value>)->Result<Value,ApiError>{
 
 pub(crate) async fn request_with_timeout(path: String, body: Option<Value>, timeout: Duration) -> Result<Value, ApiError> {
     tauri::async_runtime::spawn_blocking(move||{
-        crate::runtime::ensure_backend_ready()?;
-        let url=format!("http://127.0.0.1:8080{path}");
-        let auth=crate::local_auth::authorization().map_err(ApiError::new)?;
+        let connection=crate::runtime::backend_connection()?;
+        let url=format!("{}{path}",connection.base);
+        let auth=connection.authorization();
+        let agent=crate::runtime::local_agent();
         let response=match body {
-            Some(value)=>ureq::post(&url).set("Authorization",&auth).set("Content-Type","application/json").timeout(timeout).send_string(&value.to_string()),
-            None=>ureq::get(&url).set("Authorization",&auth).timeout(timeout).call(),
+            Some(value)=>agent.post(&url).set("Authorization",&auth).set("Content-Type","application/json").timeout(timeout).send_string(&value.to_string()),
+            None=>agent.get(&url).set("Authorization",&auth).timeout(timeout).call(),
         };
         let response=match response {Ok(response)=>response,Err(ureq::Error::Status(_,response))=>response,Err(error)=>return Err(ApiError::new(format!("工作区服务连接失败：{error}")))};
         let status=response.status();let mut text=String::new();

@@ -319,9 +319,8 @@ fn send(base: &str, authorization: &str, spec: RequestSpec) -> Result<Value, Api
 pub async fn model_engineering(request: ModelEngineeringRequest) -> Result<Value, ApiError> {
     let spec=build_request(request)?;
     tauri::async_runtime::spawn_blocking(move || {
-        crate::runtime::ensure_backend_ready()?;
-        let auth=crate::local_auth::authorization().map_err(ApiError::new)?;
-        send("http://127.0.0.1:8080",&auth,spec)
+        let connection=crate::runtime::backend_connection()?;
+        send(&connection.base,&connection.authorization(),spec)
     }).await.map_err(|error|ApiError::new(format!("model engineering task: {error}")))?
 }
 

@@ -1,5 +1,7 @@
 # Shared helpers. Dot-sourcing this file does not build or publish anything.
 
+. (Join-Path $PSScriptRoot 'codelens-runtime/prepare.ps1')
+
 function Resolve-NoosphereCommand {
   param([string]$Name)
   $Command = Get-Command $Name -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -49,6 +51,21 @@ function Get-NoosphereVersion {
   return $Version
 }
 
+function Assert-NoosphereVersionFiles {
+  param([string]$ProjectRoot, [string]$Version)
+  foreach ($Path in @('frontend/package.json', 'frontend/package-lock.json', 'desktop/package.json',
+      'desktop/package-lock.json', 'desktop/src-tauri/tauri.conf.json')) {
+    $Document = Get-Content -LiteralPath (Join-Path $ProjectRoot $Path) -Raw | ConvertFrom-Json -AsHashtable
+    if ($Document.version -ne $Version -or ($Document.packages -and $Document.packages[''].version -ne $Version)) {
+      throw "$Path must match VERSION ($Version)."
+    }
+  }
+  $Manifest = Get-Content -LiteralPath (Join-Path $ProjectRoot 'desktop/src-tauri/Cargo.toml') -Raw
+  if ($Manifest -notmatch '(?m)^version = "([^"]+)"' -or $Matches[1] -ne $Version) {
+    throw "desktop/src-tauri/Cargo.toml must match VERSION ($Version)."
+  }
+}
+
 function Write-NoosphereUtf8 {
   param([string]$Path, [string]$Content)
   [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
@@ -59,7 +76,15 @@ function Build-NoosphereBackend {
   $BackendBin = Join-Path $ProjectRoot 'desktop/src-tauri/bin'
   New-Item -ItemType Directory -Path $BackendBin -Force | Out-Null
   $Artifact = Join-Path $BackendBin 'noosphere-backend.exe'
-  Invoke-NoosphereCommand $GoCommand @('build', '-trimpath', '-ldflags', "-X main.Version=$Version -s -w", '-o', $Artifact, './cmd/server') (Join-Path $ProjectRoot 'backend') | Out-Host
+  $Environment = @{ GOOS = $env:GOOS; GOARCH = $env:GOARCH; CGO_ENABLED = $env:CGO_ENABLED }
+  try {
+    $env:GOOS = 'windows'
+    $env:GOARCH = 'amd64'
+    $env:CGO_ENABLED = '0'
+    Invoke-NoosphereCommand $GoCommand @('build', '-trimpath', '-ldflags', "-X main.Version=$Version -s -w", '-o', $Artifact, './cmd/server') (Join-Path $ProjectRoot 'backend') | Out-Host
+  } finally {
+    foreach ($Name in $Environment.Keys) { [Environment]::SetEnvironmentVariable($Name, $Environment[$Name], 'Process') }
+  }
   if (-not (Test-Path -LiteralPath $Artifact -PathType Leaf)) { throw 'Go did not produce the requested backend executable.' }
   return $Artifact
 }
@@ -145,7 +170,7 @@ function Copy-NoosphereRea {
 }
 
 function Initialize-NoosphereResources {
-  param([string]$ProjectRoot, [string]$ReaRuntime)
+  param([string]$ProjectRoot, [string]$ReaRuntime, [string]$CodeLensRuntime, [string]$CrtRuntime)
   $TauriRoot = Join-Path $ProjectRoot 'desktop/src-tauri'
   $Defaults = Join-Path $TauriRoot 'config.defaults.yaml'
   Copy-Item -LiteralPath (Join-Path $ProjectRoot 'backend/configs/config.yaml') -Destination $Defaults -Force
@@ -157,7 +182,66 @@ function Initialize-NoosphereResources {
   }
   Copy-NoosphereCodeLens $ProjectRoot (Join-Path $TauriRoot 'codelens-python')
   if ($ReaRuntime) { Copy-NoosphereRea $ReaRuntime $TauriRoot }
+  New-Item -ItemType Directory -Path (Join-Path $TauriRoot 'codelens-runtime'), (Join-Path $TauriRoot 'redist') -Force | Out-Null
+  if ($CodeLensRuntime) { Copy-NoosphereCodeLensRuntime $CodeLensRuntime $TauriRoot }
+  if ($CrtRuntime) { Copy-NoosphereCrt $CrtRuntime (Join-Path $TauriRoot 'redist') }
   Copy-Item -LiteralPath (Join-Path $ProjectRoot 'setup.bat') -Destination (Join-Path $TauriRoot 'setup.bat') -Force
+}
+
+function Find-NoosphereCrt {
+  $ProgramFilesX86 = ${env:ProgramFiles(x86)}
+  if (-not $ProgramFilesX86) { throw 'Visual C++ runtime staging requires Windows x64.' }
+  $VsWhere = Join-Path $ProgramFilesX86 'Microsoft Visual Studio/Installer/vswhere.exe'
+  $Redist = @($env:VCToolsRedistDir | Where-Object { $_ })
+  if (Test-Path -LiteralPath $VsWhere -PathType Leaf) {
+    $Roots = @(& $VsWhere -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
+    foreach ($Root in $Roots) {
+      $Base = Join-Path $Root 'VC/Redist/MSVC'
+      if (Test-Path -LiteralPath $Base -PathType Container) {
+        $Redist += Get-ChildItem -LiteralPath $Base -Directory |
+          Where-Object Name -Match '^\d+\.\d+\.\d+$' |
+          Sort-Object { [version]$_.Name } -Descending | Select-Object -ExpandProperty FullName
+      }
+    }
+  }
+  foreach ($Root in $Redist) {
+    $Arch = Join-Path $Root 'x64'
+    if (-not (Test-Path -LiteralPath $Arch -PathType Container)) { continue }
+    foreach ($Directory in Get-ChildItem -LiteralPath $Arch -Directory -Filter 'Microsoft.VC*.CRT') {
+      if ((Test-Path -LiteralPath (Join-Path $Directory.FullName 'vcruntime140.dll')) -and
+          (Test-Path -LiteralPath (Join-Path $Directory.FullName 'vcruntime140_1.dll'))) {
+        return $Directory.FullName
+      }
+    }
+  }
+  throw 'Visual C++ x64 redistributable files were not found. Install the Windows Desktop development with C++ workload and the current MSVC x64/x86 tools.'
+}
+
+function Copy-NoosphereCrt {
+  param([string]$Source, [string]$Destination)
+  foreach ($Dll in Get-ChildItem -LiteralPath $Source -File -Filter '*.dll') {
+    $Signature = Get-AuthenticodeSignature -LiteralPath $Dll.FullName
+    if ($Signature.Status -ne 'Valid' -or $Signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') {
+      throw "Invalid Microsoft signature for CRT file $($Dll.FullName)."
+    }
+    Copy-Item -LiteralPath $Dll.FullName -Destination $Destination -Force
+  }
+}
+
+function Copy-NoosphereCodeLensRuntime {
+  param([string]$Source, [string]$DestinationRoot)
+  $DestinationRoot = [IO.Path]::GetFullPath($DestinationRoot)
+  $Destination = [IO.Path]::GetFullPath((Join-Path $DestinationRoot 'codelens-runtime'))
+  $Boundary = $DestinationRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+  if (-not $Destination.StartsWith($Boundary, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid CodeLens staging path.' }
+  $Stage = Join-Path $DestinationRoot ('.codelens-stage-' + [guid]::NewGuid().ToString('N'))
+  Copy-Item -LiteralPath $Source -Destination $Stage -Recurse
+  if (Test-Path -LiteralPath $Destination) {
+    $Item = Get-Item -LiteralPath $Destination -Force
+    if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'CodeLens distribution directory cannot be a link.' }
+    Remove-Item -LiteralPath $Destination -Recurse -Force
+  }
+  Move-Item -LiteralPath $Stage -Destination $Destination
 }
 
 function Get-NoosphereDesktopArtifact {
@@ -209,7 +293,7 @@ function Get-NoosphereSourceIdentity {
   $Listed = @(& $Git.Source -C $ProjectRoot ls-files -co --exclude-standard -z 2>$null)
   if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate production source for the build manifest.' }
   [string[]]$Entries = @((($Listed -join "`n") -split "`0") | Where-Object {
-    $_ -match '^(backend/|frontend/|desktop/|scripts/|\.cargo/|VERSION$|setup\.bat$|\.gitignore$|\.gitattributes$)'
+    $_ -match '^(backend/|frontend/|desktop/|scripts/|\.cargo/|VERSION$|\.node-version$|\.python-version$|rust-toolchain\.toml$|setup\.bat$|\.gitignore$|\.gitattributes$)'
   } | Select-Object -Unique | ForEach-Object {
     $Path = Join-Path $ProjectRoot $_
     $Hash = if (Test-Path -LiteralPath $Path -PathType Leaf) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash } else { 'MISSING' }
@@ -250,6 +334,18 @@ function Get-NoosphereReleaseInfo {
     $ReaInfo = Get-Content -LiteralPath (Join-Path $ReleaseRoot 'rea-runtime/distribution.json') -Raw | ConvertFrom-Json
     if ($ReaInfo.rea -ne $Info.rea_runtime.rea -or $ReaInfo.node -ne $Info.rea_runtime.node -or $ReaInfo.lock_sha256 -ne $Info.rea_runtime.lock_sha256) { throw 'REA 分发清单与构建记录不匹配。' }
   }
+  if ($Info.codelens_runtime) {
+    foreach ($Relative in @('codelens-runtime/python.exe', 'codelens-runtime/python314.dll', 'codelens-runtime/python314.zip',
+        'codelens-runtime/distribution.json', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+      if (-not (Test-Path -LiteralPath (Join-Path $ReleaseRoot $Relative) -PathType Leaf)) {
+        throw "Windows runtime resource is missing: $Relative."
+      }
+    }
+    $RuntimeInfo = Get-Content -LiteralPath (Join-Path $ReleaseRoot 'codelens-runtime/distribution.json') -Raw | ConvertFrom-Json
+    foreach ($Field in @('python', 'archive_sha256', 'lock_sha256')) {
+      if ($Info.codelens_runtime.$Field -ne $RuntimeInfo.$Field) { throw "CodeLens runtime manifest differs at $Field." }
+    }
+  }
   if ($ExpectedSourceRevision -and $Info.source_revision -ne $ExpectedSourceRevision) { throw 'Release source revision differs from the requested build. Publish the current desktop build before refreshing shortcuts.' }
   if ($ExpectedSourceFingerprint -and $Info.source_fingerprint -ne $ExpectedSourceFingerprint) { throw 'Release source fingerprint differs from the current production source, including uncommitted changes. Rebuild and publish before refreshing shortcuts.' }
   foreach ($Pair in @(@('Noosphere.exe', 'desktop_sha256'), @('bin/noosphere-backend.exe', 'backend_sha256'))) {
@@ -286,7 +382,8 @@ function New-NoosphereShortcut {
 function Publish-NoosphereRelease {
   param(
     [string]$ProjectRoot, [string]$DesktopArtifact, [string]$BackendArtifact, [string[]]$InstallerArtifacts = @(),
-    [string]$ReleaseRoot, [ValidateSet('release', 'dev')][string]$BuildProfile = 'release', [string]$ReaRuntime
+    [string]$ReleaseRoot, [ValidateSet('release', 'dev')][string]$BuildProfile = 'release', [string]$ReaRuntime,
+    [string]$CodeLensRuntime, [string]$CrtRuntime, [hashtable]$Toolchains, [switch]$PackageStage
   )
   $ProjectRoot = [IO.Path]::GetFullPath($ProjectRoot)
   if (-not $ReleaseRoot) { $ReleaseRoot = Join-Path $ProjectRoot 'release' }
@@ -319,15 +416,17 @@ function Publish-NoosphereRelease {
   Copy-Item -LiteralPath $DesktopArtifact -Destination (Join-Path $ReleaseRoot 'Noosphere.exe') -Force
   Copy-Item -LiteralPath $BackendArtifact -Destination (Join-Path $ReleaseBin 'noosphere-backend.exe') -Force
   Copy-Item -LiteralPath (Join-Path $ProjectRoot 'desktop/src-tauri/config.defaults.yaml') -Destination (Join-Path $ReleaseRoot 'config.defaults.yaml') -Force
-  if (-not (Test-Path -LiteralPath (Join-Path $ReleaseRoot 'config.yaml'))) {
+  if (-not $PackageStage -and -not (Test-Path -LiteralPath (Join-Path $ReleaseRoot 'config.yaml'))) {
     Copy-Item -LiteralPath (Join-Path $ReleaseRoot 'config.defaults.yaml') -Destination (Join-Path $ReleaseRoot 'config.yaml')
   }
-  if (-not (Test-Path -LiteralPath (Join-Path $ReleaseRoot 'models.yaml'))) {
+  if (-not $PackageStage -and -not (Test-Path -LiteralPath (Join-Path $ReleaseRoot 'models.yaml'))) {
     Write-NoosphereUtf8 (Join-Path $ReleaseRoot 'models.yaml') "default_model: `"`"`nproviders: []`n"
   }
   Copy-NoosphereCodeLens $ProjectRoot (Join-Path $ReleaseRoot 'codelens-python')
   if ($ReaRuntime) { Copy-NoosphereRea $ReaRuntime $ReleaseRoot }
-  Copy-Item -LiteralPath (Join-Path $ProjectRoot 'setup.bat') -Destination (Join-Path $ReleaseRoot 'setup.bat') -Force
+  if ($CodeLensRuntime) { Copy-NoosphereCodeLensRuntime $CodeLensRuntime $ReleaseRoot }
+  if ($CrtRuntime) { Copy-NoosphereCrt $CrtRuntime $ReleaseRoot }
+  if (-not $PackageStage) { Copy-Item -LiteralPath (Join-Path $ProjectRoot 'setup.bat') -Destination (Join-Path $ReleaseRoot 'setup.bat') -Force }
 
   $OldInstallers = @(Get-ChildItem -LiteralPath $ReleaseRoot -Filter '*setup*.exe' -File)
   if ($OldInstallers.Count -gt 0) {
@@ -345,16 +444,18 @@ function Publish-NoosphereRelease {
   $BuildInfo = [ordered]@{
     version = Get-NoosphereVersion $ProjectRoot
     built_at_utc = [DateTime]::UtcNow.ToString('o')
-    runtime_revision = 1
+    runtime_revision = $(if ($CodeLensRuntime) { 2 } else { 1 })
     source_revision = $Source.revision
     source_dirty = $Source.dirty
     source_fingerprint = $Source.fingerprint
-    source_fingerprint_scope = 'production-v1:backend/,frontend/,desktop/,scripts/,.cargo/,VERSION,setup.bat,.gitignore,.gitattributes;git-nonignored'
+    source_fingerprint_scope = 'production-v2:backend/,frontend/,desktop/,scripts/,.cargo/,VERSION,.node-version,.python-version,rust-toolchain.toml,setup.bat,.gitignore,.gitattributes;git-nonignored'
     build_profile = $BuildProfile
     frontend_sha256 = $FrontendHash
     desktop_sha256 = (Get-FileHash -LiteralPath (Join-Path $ReleaseRoot 'Noosphere.exe') -Algorithm SHA256).Hash
     backend_sha256 = (Get-FileHash -LiteralPath (Join-Path $ReleaseBin 'noosphere-backend.exe') -Algorithm SHA256).Hash
     rea_runtime = $(if ($ReaRuntime) { Get-Content -LiteralPath (Join-Path $ReleaseRoot 'rea-runtime/distribution.json') -Raw | ConvertFrom-Json })
+    codelens_runtime = $(if ($CodeLensRuntime) { Get-Content -LiteralPath (Join-Path $ReleaseRoot 'codelens-runtime/distribution.json') -Raw | ConvertFrom-Json })
+    toolchains = $Toolchains
     installers = @($InstallerArtifacts | ForEach-Object { Split-Path -Leaf $_ })
   }
   Write-NoosphereUtf8 (Join-Path $ReleaseRoot 'build-info.json') ($BuildInfo | ConvertTo-Json -Depth 3)

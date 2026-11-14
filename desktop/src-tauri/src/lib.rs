@@ -1,6 +1,7 @@
 mod commands;
 mod runtime;
 mod local_auth;
+mod updates;
 use commands::services::ServiceState;
 use tauri::Manager;
 
@@ -67,6 +68,9 @@ pub fn run() {
             commands::workspaces::get_run_events,
             commands::workspaces::cancel_workspace_run,
             commands::model_engineering::model_engineering,
+            updates::update_check,
+            updates::update_download,
+            updates::update_show_folder,
         ])
         .setup(|app| {
             let paths = runtime::RuntimePaths::from_app(app.handle());
