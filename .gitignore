@@ -85,8 +85,11 @@ playwright-report/
 test-results/
 coverage/
 
-# 开发测试保留在本地，公开四个核心测试文件
+# 公开核心测试和指定的前端回归测试
 **/tests/
+!/frontend/tests/
+/frontend/tests/*
+!/frontend/tests/model-selection-ui.cjs
 **/testdata/
 **/fixtures/
 *_test.go

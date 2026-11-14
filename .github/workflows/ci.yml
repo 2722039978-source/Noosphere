@@ -32,6 +32,10 @@ jobs:
         run: npm ci
       - name: Type-check and build production assets
         run: npm run build
+      - name: Install Playwright Chromium
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Check chat model selection
+        run: node tests/model-selection-ui.cjs
 
   backend:
     name: Core tests (Windows)
