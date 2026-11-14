@@ -97,19 +97,6 @@ Release Center 使用测评与策略证据组织阶段推进，提供暂停、�
 3. 运行单版本基线或双版本测评，结合逐题结果、失败类型和有效样本阅读报告。
 4. 按需导出 HTML 报告；如要了解策略与阶段推进，可继续使用 Release Center 的模拟流程。
 
-## 截图
-
-Model Hub：模型连接、版本与状态。截图使用独立的示例数据。
-
-![Model Hub](docs/screenshots/model-hub.png)
-
-<details>
-<summary>查看 Model Lab</summary>
-
-![Model Lab：模型版本、任务集与推理配置](docs/screenshots/model-lab.png)
-
-</details>
-
 ## 下载
 
 - [Windows x64 便携版 v0.5.0（2026-11-03）](https://github.com/2722039978-source/Noosphere/releases/tag/v0.5.0-20261103)：下载页面提供 ZIP 和 SHA-256 校验文件。
