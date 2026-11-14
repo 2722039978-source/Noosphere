@@ -67,6 +67,17 @@ jobs:
         run: ./scripts/setup.ps1 -InstallBrowser
       - name: Build and package Windows x64
         run: ./scripts/package.ps1
+      - name: Configure WebView2 debugging for the disposable runner
+        run: |
+          # Elevated WebView2 hosts ignore environment debugging arguments starting with Runtime 150.
+          $Policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          $Port = 43873
+          $Arguments = "--remote-debugging-port=$Port --remote-debugging-address=127.0.0.1"
+          New-Item -Path $Policy -Force | Out-Null
+          foreach ($Application in @('Noosphere.exe', 'noosphere-desktop.exe')) {
+            New-ItemProperty -LiteralPath $Policy -Name $Application -Value $Arguments -PropertyType String -Force | Out-Null
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "NOOSPHERE_TEST_WEBVIEW_PORT=$Port"
       - name: Run Go, Python, Rust, frontend and packaged native tests
         run: |
           $Version = (Get-Content VERSION -Raw).Trim()
@@ -79,6 +90,11 @@ jobs:
         run: |
           $Version = (Get-Content VERSION -Raw).Trim()
           ./scripts/verify-installer.ps1 -Installer "artifacts/$Version/Noosphere-$Version-windows-x64-setup.exe"
+      - name: Remove WebView2 test policy
+        if: always() && env.NOOSPHERE_TEST_WEBVIEW_PORT != ''
+        run: |
+          $Policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
+          Remove-ItemProperty -LiteralPath $Policy -Name 'Noosphere.exe', 'noosphere-desktop.exe'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: noosphere-windows-x64
