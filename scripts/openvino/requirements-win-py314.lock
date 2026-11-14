@@ -1,0 +1,7 @@
+# Windows x64 / CPython 3.14. Exact artifacts from the verified PyPI install report.
+# Regenerate deliberately when upgrading the OpenVINO ABI set.
+numpy==2.5.4 --hash=sha256:2ca144f15135b6212a5c47b1e2aeca6e412f102f95a2d5d88d8aec77eb255de3
+openvino==2026.4.1 --hash=sha256:96d5ecb8cca4d61a3eee754c9e477702509cf782eb45596c653a00ddb2176d96
+openvino-genai==2026.4.1.0 --hash=sha256:10a77036e3953a4e73f08b93dccfc1cc95604dc140925b1060da8ae994966edd
+openvino-telemetry==2025.2.0 --hash=sha256:bcb667e83a44f202ecf4cfa49281715c6d7e21499daec04ff853b7f964833599
+openvino-tokenizers==2026.4.1.0 --hash=sha256:e6250eae9d00704249d21bfd8ad1600de2e49635aa2dcbb6e54a6aa9087f052d

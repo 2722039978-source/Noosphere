@@ -57,7 +57,7 @@ func (g *Gateway) EvaluationSourceFingerprint(id string) (string, error) {
 }
 
 func sourceFingerprint(model *ModelConfig) (string, error) {
-	if model.Provider != "ollama" && model.Provider != "openai_compatible" {
+	if model.Provider != "ollama" && model.Provider != "openai_compatible" && model.Provider != "openvino" {
 		return "", &providers.EvaluationError{Code: "UNSUPPORTED_CAPABILITY", Message: "configured provider does not implement local native evaluation"}
 	}
 	origin, err := providers.NormalizeEvaluationEndpoint(model.BaseURL)
@@ -178,7 +178,7 @@ func (g *Gateway) Evaluate(parent context.Context, id string, req providers.Eval
 	if err = ctx.Err(); err != nil {
 		return nil, providers.EvaluationContextError(err)
 	}
-	if explicitSession && req.Kind != "warmup" && model.Provider != "openai_compatible" {
+	if explicitSession && req.Kind != "warmup" && model.Provider != "openai_compatible" && model.Provider != "openvino" {
 		key, keyErr := evaluationOwnershipKey(model, req)
 		if keyErr != nil {
 			return nil, keyErr

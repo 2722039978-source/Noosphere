@@ -47,6 +47,17 @@ type AttemptDiagnostics struct {
 	CPU                 modelstore.Metric `json:"cpu_percent"`
 	RAM                 modelstore.Metric `json:"ram_bytes"`
 	AvailableVRAM       modelstore.Metric `json:"available_vram_bytes"`
+	FirstTokenNS        modelstore.Metric `json:"first_token_ns"`
+	FirstAnswerNS       modelstore.Metric `json:"first_answer_ns"`
+	PeakWorkingSet      modelstore.Metric `json:"peak_working_set_bytes"`
+	PeakDedicatedGPU    modelstore.Metric `json:"peak_dedicated_gpu_bytes"`
+}
+
+func optionalDiagnostic(m *modelstore.Metric, unit, reason string) modelstore.Metric {
+	if m == nil {
+		return unknownMetric(unit, reason)
+	}
+	return normalizedMetric(*m, unit)
 }
 
 func diagnose(a modelstore.Attempt, read func(string) ([]byte, error)) AttemptDiagnostics {
@@ -55,6 +66,10 @@ func diagnose(a modelstore.Attempt, read func(string) ([]byte, error)) AttemptDi
 	d.EngineTotalNS = unknownMetric("ns", "formal engine total duration evidence unavailable")
 	d.WarmupEngineTotalNS = unknownMetric("ns", "warmup engine total duration evidence unavailable")
 	d.WarmupLoadNS = unknownMetric("ns", "warmup engine load duration evidence unavailable")
+	d.FirstTokenNS = optionalDiagnostic(m.FirstTokenNS, "ns", "first stream text delta not observed")
+	d.FirstAnswerNS = optionalDiagnostic(m.FirstAnswerNS, "ns", "first final answer delta not observed")
+	d.PeakWorkingSet = optionalDiagnostic(m.PeakWorkingSet, "bytes", "loopback listener working set not sampled")
+	d.PeakDedicatedGPU = optionalDiagnostic(m.PeakDedicatedGPU, "bytes", "dedicated GPU samples unavailable for listener")
 	if a.Result.InferenceCompleted && !a.Result.Truncated && knownMetric(m.Tokens, "tokens", false) && knownMetric(m.DecodeNS, "ns", true) && (m.Tokens.Source == "ollama_native" || m.Tokens.Source == "llamacpp_native") && m.DecodeNS.Source == m.Tokens.Source {
 		v := *m.Tokens.Value / (*m.DecodeNS.Value / 1e9)
 		if finite(v) {
@@ -141,7 +156,7 @@ type MetricCoverage struct {
 }
 
 func diagnosticMetrics(d AttemptDiagnostics) map[string]modelstore.Metric {
-	return map[string]modelstore.Metric{"formal_wall_ns": d.WallNS, "formal_engine_total_ns": d.EngineTotalNS, "formal_load_ns": d.LoadNS, "prompt_ns": d.PromptNS, "decode_ns": d.DecodeNS, "tokens": d.Tokens, "tokens_per_second": d.TokensPerSecond, "warmup_cost_ns": d.WarmupCost, "warmup_engine_total_ns": d.WarmupEngineTotalNS, "warmup_load_ns": d.WarmupLoadNS, "compiler_ns": d.CompilerNS, "wasi_preparation_ns": d.PreparationNS, "wasi_execution_ns": d.ExecutionNS, "scorer_total_ns": d.ScorerNS, "cpu_percent": d.CPU, "ram_bytes": d.RAM, "available_vram_bytes": d.AvailableVRAM}
+	return map[string]modelstore.Metric{"formal_wall_ns": d.WallNS, "formal_engine_total_ns": d.EngineTotalNS, "formal_load_ns": d.LoadNS, "prompt_ns": d.PromptNS, "decode_ns": d.DecodeNS, "tokens": d.Tokens, "tokens_per_second": d.TokensPerSecond, "warmup_cost_ns": d.WarmupCost, "warmup_engine_total_ns": d.WarmupEngineTotalNS, "warmup_load_ns": d.WarmupLoadNS, "compiler_ns": d.CompilerNS, "wasi_preparation_ns": d.PreparationNS, "wasi_execution_ns": d.ExecutionNS, "scorer_total_ns": d.ScorerNS, "cpu_percent": d.CPU, "ram_bytes": d.RAM, "available_vram_bytes": d.AvailableVRAM, "first_token_ns": d.FirstTokenNS, "first_answer_ns": d.FirstAnswerNS, "peak_working_set_bytes": d.PeakWorkingSet, "peak_dedicated_gpu_bytes": d.PeakDedicatedGPU}
 }
 
 func metricCoverage(ds []AttemptDiagnostics, planned int) map[string]map[string]MetricCoverage {

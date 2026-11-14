@@ -59,7 +59,7 @@ function Build-NoosphereBackend {
   $BackendBin = Join-Path $ProjectRoot 'desktop/src-tauri/bin'
   New-Item -ItemType Directory -Path $BackendBin -Force | Out-Null
   $Artifact = Join-Path $BackendBin 'noosphere-backend.exe'
-  Invoke-NoosphereCommand $GoCommand @('build', '-ldflags', "-X main.Version=$Version -s -w", '-o', $Artifact, './cmd/server') (Join-Path $ProjectRoot 'backend') | Out-Host
+  Invoke-NoosphereCommand $GoCommand @('build', '-trimpath', '-ldflags', "-X main.Version=$Version -s -w", '-o', $Artifact, './cmd/server') (Join-Path $ProjectRoot 'backend') | Out-Host
   if (-not (Test-Path -LiteralPath $Artifact -PathType Leaf)) { throw 'Go did not produce the requested backend executable.' }
   return $Artifact
 }
@@ -84,7 +84,7 @@ function Initialize-NoosphereRea {
   param([string]$ProjectRoot)
   if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'REA 分发目前支持 Windows x64。' }
   $Recipe = Join-Path $ProjectRoot 'scripts/rea-runtime'
-  $Cache = if ($env:NOOSPHERE_REA_BUILD_CACHE) { $env:NOOSPHERE_REA_BUILD_CACHE } else { Join-Path $ProjectRoot '.local/rea-runtime-cache' }
+  $Cache = if ($env:NOOSPHERE_REA_BUILD_CACHE) { $env:NOOSPHERE_REA_BUILD_CACHE } else { Join-Path $ProjectRoot 'test/cache/rea-runtime' }
   if (([IO.Path]::GetPathRoot($Cache)).Length -lt 3) { throw 'REA 构建缓存必须使用绝对路径。' }
   $NodeName = 'node-v24.22.2-win-x64'
   $NodeZip = Join-Path $Cache "$NodeName.zip"

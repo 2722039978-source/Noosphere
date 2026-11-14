@@ -52,6 +52,9 @@ func (s *Service) PrepareEvaluation(parent context.Context, workspaceID string, 
 			out.Ready = false
 			check.Code = errorCode(err)
 			check.Detail = preparationHelp(id, check.Code)
+			if id == "runner" && label == "本机文本评分器" {
+				check.Detail = "本机环境信息不可用，请检查本地测评服务状态后重新准备。"
+			}
 		}
 		out.Checks = append(out.Checks, check)
 	}
@@ -69,35 +72,42 @@ func (s *Service) PrepareEvaluation(parent context.Context, workspaceID string, 
 	}
 	spec = normalizeSpec(spec)
 	var setupErr error
-	if spec.WorkflowID != DatasetWorkflowID || spec.EvaluationMode != "" && spec.EvaluationMode != "baseline" || (spec.StableRevisionID == spec.CandidateRevisionID) != (spec.EvaluationMode == "baseline") {
+	dataset, datasetErr := s.resolveDataset(ctx, workspaceID, spec.DatasetID, false)
+	if !supportedWorkflow(spec.WorkflowID) || datasetErr == nil && spec.WorkflowID != dataset.workflowID() || spec.EvaluationMode != "" && spec.EvaluationMode != "baseline" || (spec.StableRevisionID == spec.CandidateRevisionID) != (spec.EvaluationMode == "baseline") {
 		setupErr = identityError("INVALID_REQUEST", "请检查测评方式及模型选择：基线使用同一版本，比较使用两个不同版本")
 	}
 	add("selection", "测评方式", "当前工作区与模型选择匹配", "model-hub", setupErr)
-	_, err = s.resolveDataset(ctx, workspaceID, spec.DatasetID, false)
-	add("dataset", "任务集版本", "任务版本存在且可用于当前工作区", "datasets", err)
+	add("dataset", "任务集版本", "任务版本存在且可用于当前工作区", "datasets", datasetErr)
 	profile, profileErr := s.GetProfile(ctx, spec.ProfileID)
 	if profileErr == nil {
 		profileErr = r.config.Budget.validate(profile)
 	}
+	if profileErr == nil && dataset != nil {
+		profileErr = validateReviewerProfile(dataset, profile)
+	}
 	add("profile", "已保存参数", "参数未超过服务端预算", "parameters", profileErr)
 	env, envErr := r.config.CollectEnvironment(ctx)
-	if envErr == nil && !r.fixture && strings.TrimSpace(env.ToolchainVersion) == "" {
-		envErr = identityError("RUNNER_UNAVAILABLE", "请配置可信 Go 工具链后重启")
-	}
-	add("runner", "本地执行器", "Go / WASI 执行器可用", "settings", envErr)
-	var codeErr error
-	if r.build == nil {
-		if r.config.ContextAdapter == nil || r.config.ContextAdapter() == nil {
-			codeErr = identityError("CODELENS_UNAVAILABLE", "CodeLens 服务未就绪，请检查 Python 服务")
-		} else {
-			health, _, e := r.config.ContextAdapter().HealthEvidence(ctx)
-			codeErr = e
-			if e == nil && (health.Status != "ok" || health.Version != "0.6.0") {
-				codeErr = identityError("CODELENS_UNAVAILABLE", "CodeLens 状态或版本不符合测评要求")
+	if dataset != nil && dataset.isDeclarative() {
+		add("runner", "本机文本评分器", "确定规则评分器可用，无需 Go 工具链或 CodeLens", "settings", envErr)
+	} else {
+		if envErr == nil && (r.config.Runner == nil || !r.fixture && strings.TrimSpace(env.ToolchainVersion) == "") {
+			envErr = identityError("RUNNER_UNAVAILABLE", "请配置可信 Go 工具链后重启")
+		}
+		add("runner", "本地执行器", "Go / WASI 执行器可用", "settings", envErr)
+		var codeErr error
+		if r.build == nil {
+			if r.config.ContextAdapter == nil || r.config.ContextAdapter() == nil {
+				codeErr = identityError("CODELENS_UNAVAILABLE", "CodeLens 服务未就绪，请检查 Python 服务")
+			} else {
+				health, _, e := r.config.ContextAdapter().HealthEvidence(ctx)
+				codeErr = e
+				if e == nil && (health.Status != "ok" || health.Version != "0.6.0") {
+					codeErr = identityError("CODELENS_UNAVAILABLE", "CodeLens 状态或版本不符合测评要求")
+				}
 			}
 		}
+		add("codelens", "代码分析服务", "CodeLens 健康状态与协议可用", "codelens", codeErr)
 	}
-	add("codelens", "代码分析服务", "CodeLens 健康状态与协议可用", "codelens", codeErr)
 	resourceDetail, resourceErr := r.resources(ctx)
 	add("resources", "本机可用资源", resourceDetail, "devops", resourceErr)
 	var modelErr error

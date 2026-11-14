@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	stderrors "errors"
-	"fmt"
 	"io"
 	"log"
 	"os/exec"
@@ -19,6 +18,7 @@ import (
 	"github.com/noosphere/backend/internal/devops/metrics"
 	"github.com/noosphere/backend/internal/evalrunner"
 	"github.com/noosphere/backend/internal/hostinfo"
+	"github.com/noosphere/backend/internal/livecanary"
 	"github.com/noosphere/backend/internal/modellab"
 	"github.com/noosphere/backend/internal/modelops"
 	"github.com/noosphere/backend/internal/modelstore"
@@ -109,16 +109,24 @@ func initModelLab(app *App, dataDir string) {
 	app.ModelStore = store
 	app.ModelLab = lab
 	app.ModelOps = ops
+	live, liveErr := livecanary.New(context.Background(), store, lab, app.Gateway)
+	if liveErr != nil {
+		log.Printf("[model_lab] live canary unavailable: %v", liveErr)
+	} else {
+		app.LiveCanary = live
+		if app.Mux != nil {
+			live.RegisterRoutes(app.Mux, app.Workspaces)
+		}
+	}
 	registerModelWorkers(app.Workspaces, lab)
 	ops.RegisterWorkspace(app.Workspaces)
 	if app.Mux != nil {
 		registerModelEngineeringRoutes(app.Mux, lab, ops, app.Workspaces)
 	}
 	if runner == nil {
-		app.Lifecycle.SetError("model_lab", fmt.Errorf("trusted Go toolchain unavailable; set model_lab.go_binary"))
-	} else {
-		app.Lifecycle.SetState("model_lab", core.StateRunning)
+		log.Printf("[model_lab] text evaluations ready; Go repair tasks require model_lab.go_binary")
 	}
+	app.Lifecycle.SetState("model_lab", core.StateRunning)
 }
 
 func collectModelEnvironment(ctx context.Context, binary string) (modelstore.EnvironmentSnapshot, error) {
@@ -153,7 +161,7 @@ func collectModelEnvironment(ctx context.Context, binary string) (modelstore.Env
 		e.RAMBytes = modelstore.Int(int64(snapshot.Memory.TotalGB * (1 << 30)))
 	}
 	if binary == "" {
-		return e, fmt.Errorf("trusted Go toolchain unavailable")
+		return e, nil
 	}
 	child, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -161,7 +169,12 @@ func collectModelEnvironment(ctx context.Context, binary string) (modelstore.Env
 	cmd.Env = []string{"GOTOOLCHAIN=local", "GOWORK=off", "GOENV=off", "CGO_ENABLED=0", "GOPROXY=off", "GOSUMDB=off"}
 	raw, err := cmd.Output()
 	if err != nil || len(raw) > 1024 {
-		return e, fmt.Errorf("trusted Go toolchain version unavailable")
+		if ctx.Err() != nil {
+			return e, ctx.Err()
+		}
+		// The environment is still useful for deterministic text evaluation.
+		// Go workflows separately require an observed toolchain version.
+		return e, nil
 	}
 	e.ToolchainVersion = strings.TrimSpace(string(raw))
 	return e, nil
@@ -176,6 +189,9 @@ func (app *App) Close() error {
 			app.startupCancel()
 		}
 		app.startupMu.Unlock()
+		if app.LiveCanary != nil {
+			app.closeErr = stderrors.Join(app.closeErr, app.LiveCanary.Close())
+		}
 		if app.ModelLab != nil {
 			app.ModelLab.StopAdmission()
 		}

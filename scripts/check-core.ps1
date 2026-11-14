@@ -3,7 +3,7 @@ param([string]$GoBinary = 'go')
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BackendRoot = Join-Path $ProjectRoot 'backend'
-$TemporaryRoot = Join-Path $ProjectRoot '.local/core-tests'
+$TemporaryRoot = Join-Path $ProjectRoot 'test/cache/core-tests'
 New-Item -ItemType Directory -Path $TemporaryRoot -Force | Out-Null
 $PreviousTemp = $env:TEMP
 $PreviousTmp = $env:TMP

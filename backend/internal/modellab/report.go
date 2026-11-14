@@ -97,6 +97,12 @@ func Compare(e modelstore.Evaluation, r modelstore.Report, all []modelstore.Atte
 	if e.Manifest.Source == "offline_fixture" {
 		c.Limitations = append(c.Limitations, "Synthetic offline_fixture evidence is not live production proof.")
 	}
+	if e.Manifest.WorkflowID == TextWorkflowID {
+		c.Limitations = append(c.Limitations, textSuiteMetadata().Limitations...)
+	}
+	if e.Manifest.WorkflowID == ReviewerWorkflowID {
+		c.Limitations = append(c.Limitations, "Reviewer results cover fixed benign tasks only. Translation pairs and retrieval positions are correlated. JSON function selection is a proxy, not native tool execution. Open dialogue quality needs human assessment; broad safety is unmeasured.")
+	}
 	c.EvaluationMode = "compare"
 	if e.Manifest.EvaluationMode == "baseline" {
 		c.EvaluationMode = "baseline"

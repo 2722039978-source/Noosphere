@@ -52,7 +52,15 @@ export function ChatInput({ models, modelId, defaultModelId, onModelChange, stre
   const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 639px)").matches);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const selectedModel = selectedChatModel(models, modelId, defaultModelId);
+  const defaultModel = selectedChatModel(models, '', defaultModelId);
+  const selectedModel = modelId ? selectedChatModel(models, modelId) : defaultModel;
+  let defaultOptionLabel = '未配置可用模型';
+  if (models.some(model => model.enabled !== false)) {
+    const source = defaultModelId ? '工作区默认' : defaultModel?.is_default ? '全局默认' : '自动回退';
+    const name = defaultModel ? defaultModel.name || defaultModel.model_name : '模型不可用';
+    const disabled = defaultModel?.enabled === false ? ' · 已禁用' : '';
+    defaultOptionLabel = `${source} · ${name}${disabled}`;
+  }
   const agentSupport = agentCapability(selectedModel);
   const capabilityBlocked = chatCapabilityBlocker(selectedModel, agentMode);
   const capabilityReason = capabilityBlocked || (agentMode ? agentSupport.reason : '');
@@ -193,7 +201,7 @@ export function ChatInput({ models, modelId, defaultModelId, onModelChange, stre
                   <Box aria-hidden="true" />
                   <SelectValue placeholder={models.length ? "选择模型" : "未配置模型"} />
                 </SelectTrigger>
-                <SelectContent><SelectGroup><SelectItem value="__default__">{defaultModelId ? '工作区默认' : '全局默认'} · {(defaultModelId ? models.find(model => model.id === defaultModelId)?.name || '工作区模型不可用' : models.find(model => model.is_default && model.enabled !== false)?.name || models.find(model => model.enabled !== false)?.name) || '未配置'}</SelectItem>
+                <SelectContent><SelectGroup><SelectItem value="__default__">{defaultOptionLabel}</SelectItem>
                   {models.map((m) => (
                     <SelectItem key={m.id} value={m.id} disabled={m.enabled === false}>
                       {m.name || m.model_name}{m.enabled === false ? ' · 已禁用' : ''}

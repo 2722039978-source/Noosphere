@@ -18,9 +18,11 @@ export interface HubPerformance {
   /** One saved formal inference; this is neither an average nor a whole-model score. */
   generation: HubGenerationSample;
   generationSamples: number;
-  /** regression-intelligence-v1 does not collect time to first token. */
-  ttft: null;
+  ttft: number | null;
   ttftMissingReason: string;
+  contextTokens?: number;
+  workingSetPeak?: number;
+  dedicatedPeak?: number;
   note: string;
 }
 
@@ -49,6 +51,12 @@ function generationMetric(value: unknown): value is Metric & { value: number; un
     && (value.source === 'ollama_native_eval_count/eval_duration_ns'
       || value.source === 'llamacpp_native_eval_count/eval_duration_ns')
     && value.quality === 'derived';
+}
+
+function measured(value: unknown, unit: 'ns' | 'bytes', source: string): number | undefined {
+  if (!isRecord(value) || value.quality !== 'observed' || value.unit !== unit || value.source !== source
+    || typeof value.value !== 'number' || !Number.isFinite(value.value) || value.value < 0) return undefined;
+  return value.value;
 }
 
 /** Read only immutable, complete, currently valid selected-attempt evidence. */
@@ -100,14 +108,24 @@ export function readHubPerformance(
   // Count both rounds, while keeping the displayed sample in the primary arm.
   const generation = samples.find(sample => selected.get(sample.attemptID)?.arm === arm) ?? samples[0];
   if (!generation) return null;
+  const diagnostic = analysis.diagnostics.find(value => value.attempt_id === generation.attemptID && value.case_id === generation.caseID && value.arm === selected.get(generation.attemptID)?.arm);
+  const ttft = measured(diagnostic?.first_token_ns, 'ns', 'host_monotonic_stream_delta');
+  const observedDiagnostics = analysis.diagnostics.filter(value => selected.get(value.attempt_id)?.arm === value.arm && selected.get(value.attempt_id)?.case_id === value.case_id);
+  const maximum = (key: 'peak_working_set_bytes' | 'peak_dedicated_gpu_bytes') => observedDiagnostics.reduce<number | undefined>((previous, value) => {
+    const sample = measured(value[key], 'bytes', 'windows_loopback_listener_sampled');
+    return sample === undefined ? previous : Math.max(previous ?? 0, sample);
+  }, undefined);
   return {
     reportID: report.id,
     evaluationID: evaluation.id,
     finishedAt: evaluation.finished_at,
     generation,
     generationSamples: samples.length,
-    ttft: null,
-    ttftMissingReason: '当前测评协议未采集首 Token 延迟。',
+    ttft: ttft ?? null,
+    ttftMissingReason: ttft === undefined ? '此样本未采集首 Token 延迟。' : '',
+    contextTokens: evaluation.manifest.profile.requested.num_ctx,
+    workingSetPeak: maximum('peak_working_set_bytes'),
+    dedicatedPeak: maximum('peak_dedicated_gpu_bytes'),
     note: `真实离线测评 · 正式推理单样本（任务 ${generation.caseID}）；报告中此版本有 ${samples.length} 个生成速度样本。`,
   };
 }

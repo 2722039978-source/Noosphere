@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "source": "Original Noosphere reviewer fixtures authored 2026-11-14; public-domain dedication CC0-1.0. Repository examples and records are fictional and harmless.",
+  "license": "CC0-1.0",
+  "recommended_max_output": 256,
+  "scorer_version": "host-reviewer-v1.0.0",
+  "scorer_sha256": "10c65a3cbf87a0ef1503b56fdf2e17d552d0268785c9b438a71f0458fe06dc8f",
+  "prompt_version": "local-reviewer-prompt-v1.0.0",
+  "prompt_sha256": "6699119ee5db746819a4596458e6778d5a0d6c4042670a6cef77276c564a0142",
+  "id": "reviewer-context-8k-v1",
+  "minimum_context": 8192,
+  "title": "上下文检索 v1 · 8k 配置档",
+  "description": "3 个固定记录位置，700 条记录。8k 表示最低配置容量；相关位置不增加独立任务类型。",
+  "cases": [
+    {
+      "id": "retrieval-8k-start",
+      "category": "context_retrieval_8k",
+      "task": "Find fixed record R001. Return only a JSON object containing exactly key and token as strings.",
+      "reviewer": {
+        "method": "exact_json",
+        "language": "en",
+        "retrieval": {
+          "rows": 480,
+          "target": 1
+        }
+      },
+      "expected_output": {
+        "key": "R001",
+        "token": "78666456f3"
+      }
+    },
+    {
+      "id": "retrieval-8k-middle",
+      "category": "context_retrieval_8k",
+      "task": "Find fixed record R240. Return only a JSON object containing exactly key and token as strings.",
+      "reviewer": {
+        "method": "exact_json",
+        "language": "en",
+        "retrieval": {
+          "rows": 480,
+          "target": 240
+        }
+      },
+      "expected_output": {
+        "key": "R240",
+        "token": "817c6247a3"
+      }
+    },
+    {
+      "id": "retrieval-8k-end",
+      "category": "context_retrieval_8k",
+      "task": "Find fixed record R480. Return only a JSON object containing exactly key and token as strings.",
+      "reviewer": {
+        "method": "exact_json",
+        "language": "en",
+        "retrieval": {
+          "rows": 480,
+          "target": 480
+        }
+      },
+      "expected_output": {
+        "key": "R480",
+        "token": "b3e4424b24"
+      }
+    }
+  ]
+}

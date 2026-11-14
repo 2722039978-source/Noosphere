@@ -30,17 +30,22 @@ type DatasetDocument struct {
 }
 
 type DatasetCaseDocument struct {
-	ID           string      `json:"id"`
-	Category     string      `json:"category"`
-	Task         string      `json:"task"`
-	Function     string      `json:"function"`
-	InputType    string      `json:"input_type"`
-	OutputType   string      `json:"output_type"`
-	FaultySource string      `json:"faulty_source"`
-	Assertions   []Assertion `json:"assertions"`
+	NativeTools    *NativeToolCase `json:"native_tools,omitempty"`
+	Reviewer       *ReviewerCase   `json:"reviewer,omitempty"`
+	Rules          []TextRule      `json:"rules,omitempty"`
+	ExpectedOutput json.RawMessage `json:"expected_output,omitempty"`
+	ID             string          `json:"id"`
+	Category       string          `json:"category"`
+	Task           string          `json:"task"`
+	Function       string          `json:"function"`
+	InputType      string          `json:"input_type"`
+	OutputType     string          `json:"output_type"`
+	FaultySource   string          `json:"faulty_source"`
+	Assertions     []Assertion     `json:"assertions"`
 }
 
 type DatasetSummary struct {
+	Suite *SuiteMetadata `json:"suite,omitempty"`
 	modelstore.DatasetRevision
 	Kind        string `json:"kind"`
 	Title       string `json:"title"`
@@ -64,13 +69,16 @@ func datasetInputError(reason string) error {
 }
 
 func validateDatasetDocument(input DatasetDocument) (*Dataset, []byte, error) {
+	if nativeToolsID(input.BenchmarkID) {
+		return nil, nil, datasetInputError("reserved builtin native tools identity")
+	}
 	// Reject unsupported fields at transport decoding; normalize only finite
 	// assertion values, leaving exact source and descriptive text hash-bound.
 	raw, err := json.Marshal(input)
 	if err != nil || len(raw) > modelhttp.MaxBody {
 		return nil, nil, datasetInputError("document must fit within 64 KiB")
 	}
-	if !utf8.ValidString(input.Title) || !utf8.ValidString(input.Description) || input.SchemaVersion != 1 || !caseIDPattern.MatchString(input.BenchmarkID) || input.BenchmarkID == DatasetID || !modelhttp.ID(input.Version) || len(input.Version) > 64 || strings.TrimSpace(input.Title) == "" || len(input.Title) > 200 || len(input.Description) > 4000 || len(input.Source) > 1000 || len(input.License) > 128 || input.ScoringRule != "exact" || len(input.Cases) < 1 || len(input.Cases) > 50 {
+	if !utf8.ValidString(input.Title) || !utf8.ValidString(input.Description) || input.SchemaVersion != 1 || !caseIDPattern.MatchString(input.BenchmarkID) || input.BenchmarkID == DatasetID || input.BenchmarkID == TextDatasetID || reviewerID(input.BenchmarkID) != "" || !modelhttp.ID(input.Version) || len(input.Version) > 64 || strings.TrimSpace(input.Title) == "" || len(input.Title) > 200 || len(input.Description) > 4000 || len(input.Source) > 1000 || len(input.License) > 128 || input.ScoringRule != "exact" || len(input.Cases) < 1 || len(input.Cases) > 50 {
 		return nil, nil, datasetInputError("dataset schema, identity, exact scoring, or 1..50 case limit")
 	}
 	var doc DatasetDocument
@@ -80,7 +88,10 @@ func validateDatasetDocument(input DatasetDocument) (*Dataset, []byte, error) {
 	seen := map[string]bool{}
 	d := &Dataset{scorerHash: digest(scorerSource)}
 	for i, c := range doc.Cases {
-		if !caseIDPattern.MatchString(c.ID) || seen[c.ID] || strings.TrimSpace(c.Category) == "" || len(c.Category) > 80 || strings.TrimSpace(c.Task) == "" || len(c.Task) > 8000 || len(c.Assertions) < 1 || len(c.Assertions) > 100 {
+		if c.NativeTools != nil {
+			return nil, nil, datasetInputError("native tool cases are immutable builtins")
+		}
+		if !caseIDPattern.MatchString(c.ID) || seen[c.ID] || strings.TrimSpace(c.Category) == "" || len(c.Category) > 80 || strings.TrimSpace(c.Task) == "" || len(c.Task) > 8000 || len(c.Assertions) < 1 || len(c.Assertions) > 100 || len(c.Rules) > 0 || len(c.ExpectedOutput) > 0 || c.Reviewer != nil {
 			return nil, nil, datasetInputError(fmt.Sprintf("invalid case %d identity, task, or 1..100 assertion limit", i+1))
 		}
 		seen[c.ID] = true
@@ -157,7 +168,29 @@ func builtinDatasetDetail() (DatasetDetail, error) {
 	return detail, nil
 }
 
+func builtinTextDatasetDetail() (DatasetDetail, error) {
+	d, err := LoadDataset(TextDatasetID)
+	if err != nil {
+		return DatasetDetail{}, err
+	}
+	var meta textDatasetManifest
+	if err := strictJSON(textDatasetSource, &meta); err != nil {
+		return DatasetDetail{}, err
+	}
+	doc := DatasetDocument{SchemaVersion: 1, BenchmarkID: TextDatasetID, Version: d.revision.Version, Title: meta.Title, Description: meta.Description, Source: d.revision.Source, License: d.revision.License, ScoringRule: textScoringRule, Cases: []DatasetCaseDocument{}}
+	for _, e := range d.cases {
+		doc.Cases = append(doc.Cases, DatasetCaseDocument{ID: e.ID, Category: e.Category, Task: e.Task, Rules: jsonCopy(e.Rules), ExpectedOutput: append(json.RawMessage(nil), e.ExpectedOutput...)})
+	}
+	detail := datasetDetail(d, doc, modelstore.DatasetDefinition{})
+	detail.Revision.Kind, detail.Revision.WorkflowID, detail.Revision.ScoringRule = "builtin", TextWorkflowID, textScoringRule
+	detail.Revision.Suite = textSuiteMetadata()
+	return detail, nil
+}
+
 func (s *Service) SaveDataset(ctx context.Context, workspaceID string, doc DatasetDocument) (DatasetDetail, error) {
+	if reviewerID(doc.BenchmarkID) != "" {
+		return DatasetDetail{}, datasetInputError("reserved built-in reviewer identity")
+	}
 	if !modelhttp.ID(workspaceID) {
 		return DatasetDetail{}, modelstore.ErrInvalid
 	}
@@ -173,6 +206,15 @@ func (s *Service) SaveDataset(ctx context.Context, workspaceID string, doc Datas
 }
 
 func (s *Service) GetDataset(ctx context.Context, workspaceID, id string) (DatasetDetail, error) {
+	if nativeToolsID(id) {
+		return builtinNativeToolsDetail()
+	}
+	if reviewerID(id) != "" {
+		return builtinReviewerDetail(id)
+	}
+	if id == TextDatasetID || id == TextDatasetID+".1.0.0" {
+		return builtinTextDatasetDetail()
+	}
 	if id == DatasetID || id == DatasetID+".1.0.0" {
 		return builtinDatasetDetail()
 	}
@@ -193,9 +235,31 @@ func (s *Service) ListDatasets(ctx context.Context, workspaceID string, includeA
 		return nil, err
 	}
 	out := []DatasetSummary{catalogueSummary(builtin.Revision)}
+	textBuiltin, err := builtinTextDatasetDetail()
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, catalogueSummary(textBuiltin.Revision))
+	for _, id := range reviewerIDs {
+		detail, err := builtinReviewerDetail(id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, catalogueSummary(detail.Revision))
+	}
 	if workspaceID == "" {
+		tools, err := builtinNativeToolsDetail()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, catalogueSummary(tools.Revision))
 		return out, nil
 	}
+	tools, err := builtinNativeToolsDetail()
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, catalogueSummary(tools.Revision))
 	records, err := s.store.ListDatasetDefinitions(ctx, workspaceID, includeArchived)
 	if err != nil {
 		return nil, err
@@ -232,6 +296,15 @@ func (s *Service) ArchiveDataset(ctx context.Context, workspaceID, id string, ar
 }
 
 func (s *Service) resolveDataset(ctx context.Context, workspaceID, id string, allowArchived bool) (*Dataset, error) {
+	if nativeToolsID(id) {
+		return loadNativeToolsDataset()
+	}
+	if reviewerID(id) != "" {
+		return LoadDataset(reviewerID(id))
+	}
+	if id == TextDatasetID || id == TextDatasetID+".1.0.0" {
+		return LoadDataset(TextDatasetID)
+	}
 	if id == DatasetID || id == DatasetID+".1.0.0" {
 		return LoadDataset(DatasetID)
 	}

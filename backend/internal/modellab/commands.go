@@ -45,6 +45,11 @@ func (s *Service) Control(ctx context.Context, r modelstore.EvaluationControl) (
 		if _, err = s.runtimeReady(); err != nil {
 			return previous, identityError("PROVIDER_UNAVAILABLE", "trusted runtime unavailable")
 		}
+		// Text evaluation can run without Go. An unavailable Go runner still
+		// remains a transient prerequisite for historical Go control receipts.
+		if previous.Manifest.WorkflowID == DatasetWorkflowID && rt.config.Runner == nil {
+			return previous, identityError("PROVIDER_UNAVAILABLE", "trusted Go runtime unavailable")
+		}
 		dataset, err := s.frozenDataset(ctx, previous)
 		if err != nil {
 			// Embedded dataset/validation failures are fixed compatibility facts,

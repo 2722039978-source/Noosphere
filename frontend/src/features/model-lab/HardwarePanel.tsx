@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Surface } from '@/components/ui/surface';
 import { hardwareCapacity, readHardware } from './hardware-presentation';
 import { JsonView, LabError } from './shared';
+import { HardwareAdvisor } from './HardwareAdvisor';
 
 const STATUS = { complete: '检测完成', partial: '部分信息可用', unavailable: '检测不可用', unsupported: '当前平台仅提供基础信息' };
 
@@ -38,6 +39,7 @@ export function HardwarePanel({ environment, load = true }: { environment?: Envi
         {hardware.system_disks.map((d, i) => <p key={`d${i}`}>系统盘：{d.model || '型号未知'} · {hardwareCapacity(d.capacity_bytes)} · {d.interface_type || '接口未知'}</p>)}
       </details>
       <details className="ns-lab-details"><summary>采集来源、缺失项与限制</summary>{hardware.issues.map((issue, i) => <p key={i}>{issue.component} · {issue.code} · {issue.message}</p>)}{hardware.limitations.map((line, i) => <p key={i}>{line}</p>)}<JsonView value={hardware} title="完整本地硬件档案" /></details>
+      {load && <HardwareAdvisor hardware={hardware} ram={current?.ram_bytes} />}
     </> : <p role="status" className="ns-lab-muted">{busy ? '正在检测 CPU、显卡、内存及整机型号…' : current ? '这份环境记录没有受支持的硬件型号档案；可以重新检测，历史测评内容不会被改写。' : '本机配置尚未读取；请检测或检查本地后端状态。'}</p>}
   </Surface>;
 }

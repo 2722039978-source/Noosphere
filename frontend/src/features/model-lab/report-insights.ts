@@ -4,18 +4,38 @@ import type { Comparison } from './presentation';
 export type CaseChange = 'improved' | 'regressed' | 'both_pass' | 'both_fail' | 'unavailable';
 export interface ReportCase { id: string; category: string; expected: string; stable?: SelectedAttempt; candidate?: SelectedAttempt; change: CaseChange }
 export interface ArmReading { label: string; modelName: string; pass: number; scored: number; planned: number; infra: number; unavailable: number }
+export interface CapabilityRow { category: string; label: string; planned: number | null; mode: 'deterministic' | 'proxy' | 'unmeasured' | 'manual'; modeLabel: string; reason: string; arms: Record<'stable' | 'candidate', { pass: number; scored: number; infra: number; unavailable: number }> }
 export interface ReportInsights {
   baseline: boolean; title: string; explanation: string; cases: ReportCase[];
   arms: Record<'stable' | 'candidate', ArmReading>; improvements: number; regressions: number; comparable: number;
   performance: { headline: string; detail: string; samples: number | null; planned: number };
-  cautions: string[];
+  cautions: string[]; profile: CapabilityRow[];
 }
 export interface ArmEvidence { attemptID?: string; attemptNo?: number; state?: string; verdict?: string; verdictText?: string; output: string; notice: string; score?: string; scoreSummary?: string }
 export interface PairedCaseEvidence { id: string; category: string; change: CaseChange; task: string; expected: string; stable: ArmEvidence; candidate: ArmEvidence; issue?: string }
 const qualityVerdicts = new Set(['pass', 'fail', 'functional_fail', 'invalid_output', 'compile_fail', 'resource_fail', 'runtime_fail', 'execution_fail', 'sandbox_violation']);
 const scored = (a?: SelectedAttempt) => a?.state === 'completed' && qualityVerdicts.has(a.verdict);
+const ownLabel = (labels: Record<string, string>, key: string, fallback: string): string => Object.prototype.hasOwnProperty.call(labels, key) ? labels[key] : fallback;
+export const capabilityLabel = (category: string): string => ownLabel({ chinese_instruction: '中文指令遵循', structured_json: '结构化 JSON', go_function_repair: 'Go 函数修复', logic: 'Go · 逻辑', boundary: 'Go · 边界条件', string: 'Go · 字符串', strings: 'Go · 字符串', array: 'Go · 数组', bilingual_zh: '中文成对任务', bilingual_en: '英文成对任务', constrained_dialogue: '约束对话与状态更新', repository_qa: '固定小仓库问答', context_retrieval_2k: '检索 · 2k 配置', context_retrieval_4k: '检索 · 4k 配置', context_retrieval_8k: '检索 · 8k 配置', benign_boundary: '良性请求与授权边界', function_selection_json: '函数选择与参数', native_tool_call: '原生工具调用', open_dialogue_quality: '开放式对话质量', general_safety: '广义安全能力', unknown: '分类未知' }, category, category);
+
+export function capabilityProfile(cases: ReportCase[], hasFrozenCases: boolean, goSuite = false, benchmark = ''): CapabilityRow[] {
+  const reviewerSuite = /^reviewer-(core|context-4k|context-8k|tools)-v1$/.test(benchmark);
+  const groups = new Map<string, ReportCase[]>();
+  for (const row of cases) { const key = row.category || 'unknown'; groups.set(key, [...(groups.get(key) || []), row]); }
+  for (const category of ['chinese_instruction', 'structured_json', ...(goSuite ? [] : ['go_function_repair'])]) if (!groups.has(category)) groups.set(category, []);
+  if (reviewerSuite) for (const category of ['bilingual_zh', 'bilingual_en', 'constrained_dialogue', 'repository_qa', 'context_retrieval_2k', 'context_retrieval_4k', 'context_retrieval_8k', 'benign_boundary', 'function_selection_json', 'native_tool_call', 'open_dialogue_quality', 'general_safety']) if (!groups.has(category)) groups.set(category, []);
+  return [...groups].map(([category, rows]) => {
+    const planned = hasFrozenCases ? rows.length : null;
+    const customDimension = !reviewerSuite && /^(bilingual_|constrained_dialogue$|repository_qa$|context_retrieval_|benign_boundary$|function_selection_json$|native_tool_call$|open_dialogue_quality$|general_safety$)/.test(category);
+    const mode: CapabilityRow['mode'] = customDimension ? rows.length ? 'deterministic' : 'unmeasured' : category === 'open_dialogue_quality' ? 'manual' : !rows.length ? 'unmeasured' : category === 'function_selection_json' ? 'proxy' : 'deterministic';
+    const modeLabel = ({ deterministic: '固定规则', proxy: 'JSON 代理', unmeasured: '未测', manual: '需人工评阅' })[mode];
+    const reason = category === 'function_selection_json' ? '只核对文本中的函数选择与参数，不代替原生工具调用。' : category === 'native_tool_call' ? rows.length ? '使用原生 tool-call 协议和无副作用工具反馈；不支持的尝试不计正确性。' : '本套件未执行原生工具协议。' : category === 'open_dialogue_quality' ? '开放式回答需人工评阅；不生成自动分。' : category === 'general_safety' ? '良性边界任务不能推断广义安全能力。' : category === 'benign_boundary' ? '仅测无害请求的过度拒答和给定授权边界。' : category.startsWith('context_retrieval_') ? '档位为配置容量；实际输入分词数看引擎原始证据。' : category.startsWith('bilingual_') ? '中英题为翻译对，不能视为互相独立的通用能力样本。' : '';
+    const arm = (key: 'stable' | 'candidate') => { const count = rows.filter(c => scored(c[key])).length; return { pass: rows.filter(c => scored(c[key]) && c[key]?.verdict === 'pass').length, scored: count, infra: rows.filter(c => c[key]?.state === 'failed').length, unavailable: Math.max(0, rows.length - count) }; };
+    return { category, label: customDimension ? `自定义分类 · ${category}` : capabilityLabel(category), planned, mode, modeLabel, reason: customDimension ? '' : reason, arms: { stable: arm('stable'), candidate: arm('candidate') } };
+  });
+}
 export const changeLabel = (change: CaseChange, baseline = false) => ({ improved: baseline ? '仅第二轮通过' : '候选模型改善', regressed: baseline ? '仅第一轮通过' : '候选模型变差', both_pass: '两边均通过', both_fail: '两边均未通过', unavailable: '暂无法比较' })[change];
-export const verdictLabel = (state?: string, verdict?: string) => state === 'failed' ? '基础设施失败，未计入正确性' : state === 'completed' ? ({ pass: '通过', invalid_output: '输出格式或代码不符合要求', functional_fail: '预期结果未通过', compile_fail: '编译未通过', resource_fail: '输出程序超出执行资源限制', runtime_fail: '执行未通过' }[verdict || ''] || `未通过 · ${verdict}`) : ({ cancelled: '已取消，未评分', interrupted: '已中断，未评分', queued: '尚未执行', running: '报告生成时尚未完成' }[state || ''] || '本报告没有已保存结果');
+export const verdictLabel = (state?: string, verdict?: string): string => state === 'failed' ? '基础设施失败，未计入正确性' : state === 'completed' ? ownLabel({ pass: '通过', invalid_output: '输出格式或代码不符合要求', functional_fail: '预期结果未通过', compile_fail: '编译未通过', resource_fail: '输出程序超出执行资源限制', runtime_fail: '执行未通过' }, verdict || '', `未通过 · ${verdict}`) : ownLabel({ cancelled: '已取消，未评分', interrupted: '已中断，未评分', queued: '尚未执行', running: '报告生成时尚未完成' }, state || '', '本报告没有已保存结果');
 
 export function buildReportInsights(report: Report, analysis: Comparison | null, evaluation?: Evaluation | null): ReportInsights {
   const baseline = evaluation?.manifest.evaluation_mode === 'baseline' || analysis?.evaluation_mode === 'baseline';
@@ -61,13 +81,14 @@ export function buildReportInsights(report: Report, analysis: Comparison | null,
       performance.headline = `${baseline ? '第二轮' : '候选模型'}的正式推理耗时${Math.abs(delta) < .005 ? '基本相近' : `${delta > 0 ? '高' : '低'}约 ${Math.abs(delta).toFixed(1)}%`}`;
       performance.detail = `由 ${samples}/${planned} 对可比样本支持；${baseline ? '第二轮 / 第一轮' : '候选模型 / 原模型'}成对耗时比的中位数为 ${ratio.value.toFixed(3)}。只描述本组样本${baseline ? '的轮次差异' : ''}，不等于整体任务或端到端使用速度。`;
     } else if (!validCounts) performance.detail = '性能样本记录与本报告的可比较任务不一致，暂不据此判断快慢。';
-    const names: Record<string, string> = { cpu_percent: 'CPU 占用', ram_bytes: '内存占用', available_vram_bytes: '可用显存', tokens_per_second: '生成速度', decode_ns: '生成耗时' };
+    const names: Record<string, string> = { cpu_percent: 'CPU 占用', ram_bytes: '内存占用', available_vram_bytes: '可用显存', tokens_per_second: '生成速度', decode_ns: '生成耗时', first_token_ns: '首个生成事件耗时', first_answer_ns: '首个正文事件耗时', peak_working_set_bytes: '进程峰值工作集', peak_dedicated_gpu_bytes: '进程峰值专用显存' };
     const missing = new Set<string>();
     for (const coverage of Object.values(a.metric_coverage)) for (const [name, metric] of Object.entries(coverage)) if (metric.samples < metric.planned) missing.add(names[name] || '部分资源指标');
     if (missing.size) cautions.push(`${[...missing].join('、')}记录不完整，暂不能据此判断资源优势；具体缺失原因见技术分析。`);
   } else cautions.push('缺少与本报告一致的统计分析；题目通过情况可核对，统计区间与性能结论暂不可用。');
   if (!performance.headline.includes('约') && performance.headline.includes('不足')) cautions.push(performance.headline + '。');
-  return { baseline, title, explanation, arms, improvements, regressions, comparable, cases, performance, cautions };
+  const profile = capabilityProfile(cases, !!manifestCases?.length, evaluation?.manifest.dataset.benchmark_id === 'codetask-go-v1' || evaluation?.manifest.workflow_id === 'codelens.codetask.go.v1', evaluation?.manifest.dataset.benchmark_id);
+  return { baseline, title, explanation, arms, improvements, regressions, comparable, cases, performance, cautions, profile };
 }
 
 export function pairedCaseEvidence(row: ReportCase, data: ModelEngineeringResponses['get_case'] | null, issue = ''): PairedCaseEvidence {
@@ -78,16 +99,20 @@ export function pairedCaseEvidence(row: ReportCase, data: ModelEngineeringRespon
     const a: Attempt | undefined = data?.attempts.find(a => a.id === ref.id && a.arm === ref.arm && a.case_id === row.id && a.attempt_no === ref.attempt_no && a.state === ref.state && a.verdict === ref.verdict);
     const base = { attemptID: ref.id, attemptNo: ref.attempt_no, state: ref.state, verdict: ref.verdict, verdictText: verdictLabel(ref.state, ref.verdict), output: '', notice: '' };
     if (!a) return { ...base, notice: issue || '该报告选中的尝试证据暂不可读取，不使用后续重试替代。' };
+    if (a.result.error_stage === 'capability' && ['UNSUPPORTED_CAPABILITY', 'TOOL_PROTOCOL_UNOBSERVED'].includes(a.error_code || '')) base.verdictText = '未测 · 原生工具协议未证实';
     const output = a.output_artifact ? artifacts.get(a.output_artifact) : undefined;
     base.output = output?.content || '';
-    base.notice = output?.missing ? '原始输出证据缺失。' : output?.truncated ? '输出显示已截断，不能视为完整代码。' : !output?.content ? '该尝试未保存可读取的原始模型输出。' : '';
+    base.notice = output?.missing ? '原始输出证据缺失。' : output?.truncated ? '输出显示已截断，不能视为完整回答。' : !output?.content ? '该尝试未保存可读取的原始模型输出。' : '';
+    if (output?.redacted) base.notice += '输出为脱敏阅读副本。';
     if (a.result.truncated) base.notice += '模型生成达到输出限制，结果不完整。';
+    if (a.result.error_reason) base.notice += `${a.error_code ? `${a.error_code} · ` : ''}${a.result.error_reason}`;
     for (const id of a.result.evidence_artifacts || []) {
       const artifact = artifacts.get(id);
       if (!artifact?.content || artifact.missing || artifact.truncated) continue;
       try {
         const score = JSON.parse(artifact.content);
-        if (score.case_id === row.id && score.scorer_version && Array.isArray(score.assertions)) return { ...base, score: artifact.content, scoreSummary: `已核对 ${score.assertions.filter((x: { passed?: boolean }) => x.passed === true).length}/${score.assertions.length} 组断言` };
+        if (score?.case_id === row.id && score.scorer_version && Array.isArray(score.rules)) return { ...base, score: artifact.content, scoreSummary: `已核对 ${score.rules.filter((x: { passed?: boolean } | null) => x?.passed === true).length}/${score.rules.length} 条规则` };
+        if (score?.case_id === row.id && score.scorer_version && Array.isArray(score.assertions)) return { ...base, score: artifact.content, scoreSummary: `已核对 ${score.assertions.filter((x: { passed?: boolean } | null) => x?.passed === true).length}/${score.assertions.length} 组断言` };
       } catch { /* A non-score artifact remains available in the technical evidence. */ }
     }
     return base;

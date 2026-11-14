@@ -14,6 +14,7 @@ backend/data/
 # Rust and Tauri
 desktop/node_modules/
 desktop/src-tauri/target/
+/desktop/src-tauri/gen/
 
 # Generated distribution and local runtime state
 release/
@@ -29,8 +30,11 @@ models.yaml
 Thumbs.db
 
 # Local browser profiles, verification output, and generated shortcuts
+# Private task history, acceptance output, and build caches.
+/test/
 .tmp-edge-profile/
 qa-output/
+.pytest_cache/
 *.lnk
 
 # Local environment credentials (keep distributable examples)
@@ -64,6 +68,7 @@ desktop/src-tauri/logs/
 !/docs/screenshots/model-lab.png
 
 # Local model weights, databases, credentials and verification output
+/model/
 *.gguf
 *.safetensors
 *.onnx

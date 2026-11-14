@@ -27,7 +27,7 @@ export function resolveModelIdentity(model:ModelConfig,metadata?:{vendor?:string
  let deployment:'local'|'api'|'unknown'='unknown';
  if(model.deployment==='local'||model.deployment==='api')deployment=model.deployment;
  else try{const host=new URL(model.base_url).hostname.toLowerCase();deployment=['localhost','127.0.0.1','[::1]','::1'].includes(host)?'local':'api';}catch{/* No endpoint assumption. */}
- const provider=({ollama:'Ollama',deepseek:'DeepSeek',openai:'OpenAI',openai_compatible:'OpenAI-compatible',claude:'Anthropic',anthropic:'Anthropic',gemini:'Gemini'} as Record<string,string>)[model.provider]||model.provider;
+ const provider=({ollama:'Ollama',openvino:'OpenVINO GenAI',deepseek:'DeepSeek',openai:'OpenAI',openai_compatible:'OpenAI-compatible',claude:'Anthropic',anthropic:'Anthropic',gemini:'Gemini'} as Record<string,string>)[model.provider]||model.provider;
  const family=model.model_family||metadata?.family||(brand==='unknown'?'未提供':brand==='anthropic'?'Claude':brand==='google'?(/^gemma/i.test(model.model_name)?'Gemma':'Gemini'):brand==='meta'?'Llama':LABELS[brand]);
  return {brand,vendor,family,provider,deployment,label:`${deployment==='local'?'本地':deployment==='api'?'API':'未知部署'} · ${provider}`,icon:ASSETS[brand]?`/model-brands/${ASSETS[brand]}`:null};
 }

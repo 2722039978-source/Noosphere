@@ -12,11 +12,12 @@ import { active, evidenceLabel, metricText, sameOptions, short, STATUS, validate
 import { FailureCasePanel } from './FailureCasePanel';
 import { HardwarePanel } from './HardwarePanel';
 import { FirstEvaluationPath } from './FirstEvaluationPath';
-import { initialEvaluationSelection, preflightHelp, startBlocker, type EvaluationMode } from './first-evaluation';
+import { initialEvaluationSelection, preflightHelp, startBlocker } from './first-evaluation';
 import { useBackend } from '@/hooks/useBackend';
 import { datasetWorkflow } from './custom-datasets';
 import { PreparationPanel } from './PreparationPanel';
 import { preparationCurrent, PREPARATION_LIFETIME, type PreparedSelection } from './preparation';
+import { isTextSuite, suiteBudgetIssue, suiteDescription, suitePreflightReady } from './reviewer-suites';
 
 const DEFAULT: Options = { temperature: 0, seed: 7, num_ctx: 2048, max_output: 1024, deadline_ns: 120e9, parallelism: 1, retry_limit: 0, keep_alive: '0', think: false };
 type Detail = ModelEngineeringResponses['get_evaluation'];
@@ -29,23 +30,27 @@ export function ModelLabPage() {
   const [models, setModels] = useState<ModelRevision[]>([]), [profiles, setProfiles] = useState<InferenceProfile[]>([]), [datasets, setDatasets] = useState<DatasetRevision[]>([]);
   const [history, setHistory] = useState<Evaluation[]>([]), [historyCursor, setHistoryCursor] = useState('');
   const [environment, setEnvironment] = useState<ModelEngineeringResponses['environment'] | null>(null);
-  const [stable, setStable] = useState(''), [candidate, setCandidate] = useState(''), [datasetID, setDatasetID] = useState(''), [profileID, setProfileID] = useState('');
+  const [stable, setStable] = useState(''), [datasetID, setDatasetID] = useState(''), [profileID, setProfileID] = useState('');
+  const candidate = stable;
+  const mode = 'baseline' as const;
   const [options, setOptions] = useState<Options>(DEFAULT), [detail, setDetail] = useState<Detail | null>(null), [caseID, setCaseID] = useState('');
   const [error, setError] = useState<unknown>(), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [refresh, setRefresh] = useState(0);
   const [observationError, setObservationError] = useState<unknown>();
   const [failedIntent, setFailedIntent] = useState<ModelEngineeringRequest | null>(null);
-  const [mode, setMode] = useState<EvaluationMode>('baseline'), [setupRefresh, setSetupRefresh] = useState(0);
+  const [setupRefresh, setSetupRefresh] = useState(0);
   const preparationWorkspace = useRef<string | null>(null);
   const preparationModel = useRef('');
-  const modeRef = useRef(mode); modeRef.current = mode;
   const epoch = useRef(0), mutation = useRef(false);
   const selectedRef = useRef(selectedID); selectedRef.current = selectedID;
   const dataset = datasets.find(d => d.id === datasetID);
+  const textSuite = isTextSuite(dataset);
   const budget = environment?.preflight.budget;
-  const setupError = validateSetup(stable, candidate, datasetID, options, budget, mode);
+  const setupError = validateSetup(stable, candidate, datasetID, options, budget, mode) || suiteBudgetIssue(dataset, options);
   const selectedProfile = profiles.find(p => p.id === profileID);
   const profileSaved = selectedProfile && sameOptions(selectedProfile.requested, options);
-  const blocker = startBlocker({ setupError, profileSaved: !!profileSaved, preflightReady: !!environment?.preflight.available });
+  const workflowPreflight = environment?.preflight.workflows?.[datasetWorkflow(dataset)];
+  const workflowReady = workflowPreflight?.available ?? suitePreflightReady(dataset, !!environment, !!environment?.preflight.available);
+  const blocker = startBlocker({ setupError, profileSaved: !!profileSaved, preflightReady: workflowReady });
   const [prepared, setPrepared] = useState<PreparedSelection|null>(null);
   const preparationKey=JSON.stringify([workspace,stable,candidate,profileID,datasetID,mode,options,setupRefresh]);
   const preparationReady=preparationCurrent(prepared,preparationKey);
@@ -56,7 +61,7 @@ export function ModelLabPage() {
     preparationModel.current = preferredModelID;
     const generation = ++epoch.current; let disposed = false; setLoading(true); setError(undefined); setEnvironment(null); setFailedIntent(null);
     void checkHealth();
-    if (reset) { setBusy(false); mutation.current = false; setStable(''); setCandidate(''); setProfileID(''); setHistory([]); setHistoryCursor(''); setOptions(DEFAULT); setMode('baseline'); modeRef.current = 'baseline'; }
+    if (reset) { setBusy(false); mutation.current = false; setStable(''); setProfileID(''); setHistory([]); setHistoryCursor(''); setOptions(DEFAULT); }
     Promise.allSettled([
       modelEngineering({ operation: 'list_models', limit: 100 }), modelEngineering({ operation: 'list_profiles', limit: 100 }),
       modelEngineering({ operation: 'list_datasets', workspace_id: workspace }), modelEngineering({ operation: 'environment' }),
@@ -70,10 +75,9 @@ export function ModelLabPage() {
         const available = m.value.models, selection = initialEvaluationSelection(available, preferredModelID);
         setModels(available);
         setStable(old => !reset && !selectedFromLink && available.some(model => model.id === old) ? old : selection.stable);
-        setCandidate(old => !reset && !selectedFromLink && available.some(model => model.id === old) ? old : modeRef.current === 'baseline' ? selection.candidate : available.find(model => model.id !== selection.stable)?.id || '');
       }
       if (p.status === 'fulfilled') { setProfiles(p.value.profiles); }
-      if (d.status === 'fulfilled') { const available = d.value.datasets.filter(item => !item.archived); setDatasets(available); setDatasetID(old => preferredDatasetID ? available.find(item => item.id === preferredDatasetID)?.id || '' : !reset && available.some(item => item.id === old) ? old : available[0]?.id || ''); }
+      if (d.status === 'fulfilled') { const available = d.value.datasets.filter(item => !item.archived); setDatasets(available); setDatasetID(old => preferredDatasetID ? available.find(item => item.id === preferredDatasetID)?.id || '' : !reset && available.some(item => item.id === old) ? old : available.find(isTextSuite)?.id || available[0]?.id || ''); }
       if (e.status === 'fulfilled') {
         setEnvironment(e.value);
         if (reset) { const b = e.value.preflight.budget; setOptions({ ...DEFAULT, num_ctx: Math.min(DEFAULT.num_ctx, b?.max_context ?? 8192), max_output: Math.min(DEFAULT.max_output, b?.max_output ?? 2048), deadline_ns: Math.min(DEFAULT.deadline_ns!, b?.inference_timeout_ns ?? 120e9) }); }
@@ -133,31 +137,28 @@ export function ModelLabPage() {
   };
   const command = (command: 'cancel' | 'resume') => detail && mutate({ operation: 'evaluation_command', workspace_id: workspace, id: detail.evaluation.id, command, expected_revision: detail.evaluation.revision, idempotency_key: crypto.randomUUID() });
   const changeOption = (key: keyof Options, value: number) => setOptions(old => ({ ...old, [key]: value }));
-  const changeMode = (next: EvaluationMode) => { setMode(next); setCandidate(next === 'baseline' ? stable : models.find(model => model.id !== stable)?.id || ''); };
   return <LabShell title="Model Lab" subtitle="从已接入的本地模型开始 · 检查环境、执行真实任务，再阅读结果与使用模型">
     <FirstEvaluationPath stage={selectedID ? 'running' : 'prepare'} />
-    <p className="ns-lab-notice">首次可以只用一个已接入的本地模型建立基线。离开页面后后台任务继续运行，结果会保存；日常会话模型由你在测评后明确选择。</p>
+    <p className="ns-lab-notice">选择一个本地模型与任务集，用同一份推理配置独立执行两轮。返回本页可继续查看进度、评分与实验条件。</p>
     <LabError error={error} onRetry={failedIntent ? () => void mutate(failedIntent) : undefined} />
     <LabError error={observationError} />
     {failedIntent && <JsonView value={failedIntent} title="待重试的原请求（沿用原参数、任务版本及幂等键）" />}
     {loading ? <LoadingState label="正在读取测评准备状态…" /> : <Surface className="ns-lab-panel"><div className="ns-lab-section"><h2>准备首次测评</h2><Link to="/model-hub">连接与注册模型版本 →</Link></div>
-      {!models.length && <p className="ns-lab-notice">先在 Model Hub 打开已接入的本地模型，发现并注册版本，再回到这里。支持原生 Ollama 与本机 llama.cpp；普通远程 API 连接仍可直接用于对话。</p>}
+      {!models.length && <p className="ns-lab-notice">先在 Model Hub 打开已接入的本地模型，发现并注册版本，再回到这里。支持原生 Ollama、本机 llama.cpp 与 OpenVINO GenAI；普通远程 API 连接仍可直接用于对话。</p>}
       {preferredModelID && !models.some(model => model.id === preferredModelID) && <p role="alert" className="ns-lab-notice">链接中的版本不在当前已读取的档案中，请明确选择模型版本，或返回 Model Hub 重新注册。</p>}
       {preferredDatasetID && !datasets.some(item => item.id === preferredDatasetID) && <p role="alert" className="ns-lab-notice">链接中的任务版本不可用于当前工作区的新测评，可能已归档或不可读取。请明确选择其他版本，或在任务集档案中恢复。</p>}
-      <div className="ns-first-mode" role="group" aria-label="测评方式"><button aria-pressed={mode === 'baseline'} disabled={busy} onClick={() => changeMode('baseline')}>单模型基线<small>用一个模型完成首次测评</small></button><button aria-pressed={mode === 'compare'} disabled={busy} onClick={() => changeMode('compare')}>两个版本比较<small>比较 Stable 与 Candidate</small></button></div>
-      <p className="ns-lab-muted">{mode === 'baseline' ? '同一版本在相同配置下执行两轮。Stable / Candidate 分别代表第一轮 / 第二轮，不代表模型升级或跨模型胜出。' : '两个不同的已注册版本使用同一份参数与任务集，查看质量差异和候选退化案例。'}</p>
-      <div className="ns-lab-grid"><label className="ns-lab-field">{mode === 'baseline' ? '本次测评模型' : 'Stable 稳定模型'}<select disabled={busy} value={stable} onChange={e => { setStable(e.target.value); if (mode === 'baseline') setCandidate(e.target.value); }}><option value="">选择模型版本</option>{models.map(m => <option key={m.id} value={m.id}>{m.model_name} · {short(m.digest)}</option>)}</select></label>
-        {mode === 'compare' && <label className="ns-lab-field">Candidate 候选模型<select disabled={busy} value={candidate} onChange={e => setCandidate(e.target.value)}><option value="">选择模型版本</option>{models.map(m => <option key={m.id} value={m.id}>{m.model_name} · {short(m.digest)}</option>)}</select></label>}
-        <label className="ns-lab-field">测评集<select disabled={busy} value={datasetID} onChange={e => { const id = e.target.value; setDatasetID(id); setQuery(old => { const next = new URLSearchParams(old); next.set('dataset', id); return next; }); }}><option value="">选择任务版本</option>{datasets.map(d => <option key={d.id} value={d.id}>{d.title || d.benchmark_id} · {d.version} · {d.cases.length} 例{d.kind === 'workspace_custom' ? ' · 自定义' : ''}</option>)}</select><Link to="/model-lab/datasets">创建、导入与管理自己的任务集 →</Link></label>
-        <label className="ns-lab-field">已保存推理配置<select value={profileID} onChange={e => { setProfileID(e.target.value); const p = profiles.find(x => x.id === e.target.value); if (p) setOptions(p.requested); }}><option value="">新建配置</option>{profiles.map(p => <option key={p.id} value={p.id}>{short(p.id)} · ctx {p.requested.num_ctx} / out {p.requested.max_output}</option>)}</select></label>
+      <div className="ns-lab-grid"><label className="ns-lab-field">本次测评模型<select disabled={busy} value={stable} onChange={e => setStable(e.target.value)}><option value="">选择模型版本</option>{models.map(m => <option key={m.id} value={m.id}>{m.model_name} · {short(m.digest)}</option>)}</select></label>
+        <label className="ns-lab-field">测评集<select aria-label="测评集" disabled={busy} value={datasetID} onChange={e => { const id = e.target.value; setDatasetID(id); setQuery(old => { const next = new URLSearchParams(old); next.set('dataset', id); return next; }); }}><option value="">选择任务版本</option>{datasets.map(d => <option key={d.id} value={d.id}>{d.title || d.benchmark_id} · {d.version} · {d.cases.length} 例{d.kind === 'workspace_custom' ? ' · 自定义' : ''}</option>)}</select><Link to="/model-lab/datasets">创建、导入与管理自己的任务集 →</Link></label>
+        <label className="ns-lab-field">已保存推理配置<select aria-label="已保存推理配置" value={profileID} onChange={e => { setProfileID(e.target.value); const p = profiles.find(x => x.id === e.target.value); if (p) setOptions(p.requested); }}><option value="">新建配置</option>{profiles.map(p => <option key={p.id} value={p.id}>{short(p.id)} · ctx {p.requested.num_ctx} / out {p.requested.max_output}</option>)}</select></label>
       </div>
+      <section className="ns-lab-record" aria-label="所选任务集说明"><h3>{dataset?.title || dataset?.benchmark_id || '任务集覆盖'}</h3><p className="ns-lab-muted">{suiteDescription(dataset)}</p>{dataset?.suite?.minimum_context ? <p className="ns-lab-muted">最低上下文 {dataset.suite.minimum_context} · 建议输出 {dataset.suite.recommended_max_output} / 上限 {dataset.suite.max_output} <Button variant="outline" disabled={busy} onClick={() => { setProfileID(''); setOptions(old => ({ ...old, num_ctx: dataset.suite!.minimum_context!, max_output: dataset.suite!.recommended_max_output! })); }}>应用套件建议</Button></p> : null}{dataset?.suite?.limitations?.length ? <p className="ns-lab-muted">边界：{dataset.suite.limitations.join('；')}</p> : null}</section>
       <details className="ns-lab-details" data-testid="advanced-inference"><summary>高级推理参数</summary><div className="ns-lab-grid ns-lab-options">{([['temperature', '采样温度', options.temperature, 0.1], ['seed', '随机种子', options.seed, 1], ['num_ctx', '上下文预算', options.num_ctx, 1], ['max_output', '输出预算', options.max_output, 1], ['deadline_ns', '推理时限（秒，0=120）', (options.deadline_ns ?? 120e9) / 1e9, 1]] as const).map(([key, label, value, step]) => <label className="ns-lab-field" key={key}>{label}<Input type="number" step={step} value={Number.isFinite(value) ? value : ''} onChange={e => changeOption(key, e.target.value === '' ? NaN : Number(e.target.value) * (key === 'deadline_ns' ? 1e9 : 1))} /></label>)}</div>
-      <label className="ns-lab-muted"><input type="checkbox" checked={options.think === true} disabled={busy} onChange={event => setOptions(old => ({ ...old, think: event.target.checked }))} /> 启用思考模式（服务支持时生效；首次默认关闭，为代码输出保留预算）</label></details>
-      <p className="ns-lab-muted">{budget ? `服务端预算：上下文 ≤${budget.max_context}、输出 ≤${budget.max_output}、单次推理 ≤${budget.inference_timeout_ns / 1e9} 秒` : '服务端预算未提供；界面暂按全局上限 8192 / 2048 / 120 秒校验，实际配置未确认'}；并发 1，无自动重试。服务端再次校验模型身份、CodeLens 与资源准入，显存未知不代表资源充足。</p>
-      <div className="ns-first-checks" aria-label="测评准备检查"><div><strong>模型版本 · {stable && candidate ? '已选择' : '待注册与选择'}</strong><span>{models.find(model => model.id === stable)?.model_name || '返回 Model Hub 发现并注册本地版本'}</span></div><div><strong>本地执行器 · {environment?.preflight.available ? '已就绪' : '待检查'}</strong><span>{environment ? `${environment.environment.os} / ${environment.environment.arch} · ${environment.preflight.code || 'Go / WASI 预检通过'}` : '未取得运行环境'}</span></div><div><strong>推理配置 · {profileSaved ? '已保存' : '待保存'}</strong><span>{profileSaved ? `${options.num_ctx} 上下文 / ${options.max_output} 输出` : '检查参数并点击保存推理配置'}</span></div></div>
-      {environment ? <p className={environment.preflight.available ? 'ns-lab-muted' : 'ns-lab-notice'} role="status">运行环境：{environment.environment.os}/{environment.environment.arch} · {environment.environment.cores || '?'} 核 · 显存 {metricText(environment.environment.vram)} · {environment.preflight.available ? '执行器就绪；CodeLens、模型身份与物理资源仍需启动时校验' : `执行器预检未通过：${environment.preflight.code || '执行器未就绪'}。${preflightHelp(environment.preflight.code)}`}</p> : <p className="ns-lab-notice">执行器预检尚不可用。{preflightHelp()}</p>}
-      {!environment?.preflight.available && modules.model_lab?.error && <p role="alert" className="ns-lab-notice">Model Lab 启动原因：{modules.model_lab.error}<br />如提示 Go 工具链不可用，请在本机配置的 model_lab.go_binary 填入可信 go.exe 的绝对路径，重启 Noosphere 后重新检查环境。</p>}
-      {dataset && <p className="ns-lab-muted">本次包含 {dataset.cases.length} 个独立任务、共 {dataset.cases.length * 2} 次正式推理，串行运行；推理上限约 {Math.ceil(dataset.cases.length * 2 * (options.deadline_ns || 120e9) / 60e9)} 分钟，另有上下文、编译和评分开销。</p>}
+      <label className="ns-lab-muted"><input type="checkbox" checked={options.think === true} disabled={busy} onChange={event => setOptions(old => ({ ...old, think: event.target.checked }))} /> 启用思考模式（服务支持时生效；首次默认关闭，为最终回答保留预算）</label></details>
+      <p className="ns-lab-muted">{budget ? `服务端预算：上下文 ≤${budget.max_context}、输出 ≤${budget.max_output}、单次推理 ≤${budget.inference_timeout_ns / 1e9} 秒` : '服务端预算未提供；界面暂按全局上限 8192 / 2048 / 120 秒校验，实际配置未确认'}；并发 1，无自动重试。服务端再次校验模型身份、{textSuite ? '文本评分器' : 'CodeLens'}与资源准入，显存未知不代表资源充足。</p>
+      <div className="ns-first-checks" aria-label="测评准备检查"><div><strong>模型版本 · {stable && candidate ? '已选择' : '待注册与选择'}</strong><span>{models.find(model => model.id === stable)?.model_name || '返回 Model Hub 发现并注册本地版本'}</span></div><div><strong>{textSuite ? '文本评分器' : '本地执行器'} · {workflowReady ? '待完整检查' : '待处理'}</strong><span>{environment ? `${environment.environment.os} / ${environment.environment.arch} · ${textSuite ? '固定规则文本核对' : environment.preflight.code || 'Go / WASI 预检通过'}` : '未取得运行环境'}</span></div><div><strong>推理配置 · {profileSaved ? '已保存' : '待保存'}</strong><span>{profileSaved ? `${options.num_ctx} 上下文 / ${options.max_output} 输出` : '检查参数并点击保存推理配置'}</span></div></div>
+      {environment ? <p className={workflowReady ? 'ns-lab-muted' : 'ns-lab-notice'} role="status">运行环境：{environment.environment.os}/{environment.environment.arch} · {environment.environment.cores || '?'} 核 · 显存 {metricText(environment.environment.vram)} · {textSuite ? '文本任务无需 Go / CodeLens；请完成本次测评准备检查，校验评分器、模型身份与物理资源' : environment.preflight.available ? '执行器就绪；CodeLens、模型身份与物理资源仍需启动时校验' : `执行器预检未通过：${environment.preflight.code || '执行器未就绪'}。${preflightHelp(environment.preflight.code)}`}</p> : <p className="ns-lab-notice">运行环境尚不可用，请重新检查后端。</p>}
+      {!textSuite && !environment?.preflight.available && modules.model_lab?.error && <p role="alert" className="ns-lab-notice">Model Lab 启动原因：{modules.model_lab.error}<br />如提示 Go 工具链不可用，请在本机配置的 model_lab.go_binary 填入可信 go.exe 的绝对路径，重启 Noosphere 后重新检查环境。</p>}
+      {dataset && <p className="ns-lab-muted">本次包含 {dataset.cases.length} 个独立任务、共 {dataset.cases.length * 2} 次正式推理，串行运行；推理上限约 {Math.ceil(dataset.cases.length * 2 * (options.deadline_ns || 120e9) / 60e9)} 分钟，另有上下文、{textSuite ? '文本核对' : '编译'}和评分开销。</p>}
       {blocker && <p role="status" className="ns-lab-muted">下一步：{blocker}</p>}
       <PreparationPanel key={preparationKey} request={{operation:'prepare_evaluation',workspace_id:workspace,stable_revision_id:stable,candidate_revision_id:candidate,profile_id:profileID,dataset_id:datasetID,workflow_id:datasetWorkflow(dataset),evaluation_mode:mode}} disabled={busy||!!blocker} onResult={ready=>setPrepared({key:preparationKey,ready,receivedAt:Date.now()})}/>
       {!blocker&&!preparationReady&&<p role="status" className="ns-lab-muted">下一步：点击“检查本次测评准备”；准备结果有效期为两分钟。</p>}

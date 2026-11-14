@@ -11,7 +11,7 @@ import (
 )
 
 // Version is the canonical build version. Overridden by -ldflags at build time.
-var Version = "0.5.0" // canonical source: root VERSION file
+var Version = "0.6.0" // canonical source: root VERSION file
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")

@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { useThemeStore } from "@/stores/theme-store";
 import { ChatBackupPanel } from './ChatBackupPanel';
 import { ExperienceSettings } from './ExperienceSettings';
+import { version } from '../../../package.json';
 
 
 export function SettingsPage() {
@@ -24,7 +25,7 @@ export function SettingsPage() {
         <Surface className="px-6 py-5">
           <h2 className="text-[15px] font-semibold text-text-1">应用信息</h2>
           <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
-            <InfoRow label="版本" value="0.5.0" />
+            <InfoRow label="版本" value={version} />
             <InfoRow
               label="后端状态"
               value={backend.startingBackend ? "启动中" : backend.health === "online" ? "在线" : backend.health === "checking" ? "检测中" : "离线"}

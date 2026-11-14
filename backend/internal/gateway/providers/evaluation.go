@@ -57,26 +57,47 @@ type EvaluationRequest struct {
 	Messages                  []Message         `json:"messages"`
 	Options                   EvaluationOptions `json:"options"`
 	Timeout                   time.Duration     `json:"timeout"`
+	ObserveStream             bool              `json:"observe_stream,omitempty"`
+	Tools                     []ToolDefinition  `json:"tools,omitempty"`
+	ToolMessages              []ToolMessage     `json:"tool_messages,omitempty"`
+	ToolChoice                string            `json:"tool_choice,omitempty"`
+	VerifyContextBudget       bool              `json:"verify_context_budget,omitempty"`
 }
 
 type EvaluationResponse struct {
-	MetricSource         string            `json:"metric_source,omitempty"`
-	Output               string            `json:"output"`
-	Thinking             string            `json:"thinking"`
-	DoneReason           string            `json:"done_reason"`
-	Truncated            bool              `json:"truncated"`
-	IdentityBefore       ModelIdentity     `json:"identity_before"`
-	IdentityAfter        ModelIdentity     `json:"identity_after"`
-	RequestedOptions     EvaluationOptions `json:"requested_options"`
-	RawResponse          json.RawMessage   `json:"raw_response"`
-	WallDuration         time.Duration     `json:"wall_duration"`
-	TotalDurationNS      *int64            `json:"total_duration_ns"`
-	LoadDurationNS       *int64            `json:"load_duration_ns"`
-	PromptEvalCount      *int64            `json:"prompt_eval_count"`
-	PromptEvalDurationNS *int64            `json:"prompt_eval_duration_ns"`
-	EvalCount            *int64            `json:"eval_count"`
-	EvalDurationNS       *int64            `json:"eval_duration_ns"`
-	Limitations          []string          `json:"limitations,omitempty"`
+	MetricSource         string                 `json:"metric_source,omitempty"`
+	Output               string                 `json:"output"`
+	ToolCalls            []ToolCall             `json:"tool_calls,omitempty"`
+	ContextBudget        *ContextBudgetEvidence `json:"context_budget,omitempty"`
+	Thinking             string                 `json:"thinking"`
+	DoneReason           string                 `json:"done_reason"`
+	Truncated            bool                   `json:"truncated"`
+	IdentityBefore       ModelIdentity          `json:"identity_before"`
+	IdentityAfter        ModelIdentity          `json:"identity_after"`
+	RequestedOptions     EvaluationOptions      `json:"requested_options"`
+	RawResponse          json.RawMessage        `json:"raw_response"`
+	WallDuration         time.Duration          `json:"wall_duration"`
+	TotalDurationNS      *int64                 `json:"total_duration_ns"`
+	LoadDurationNS       *int64                 `json:"load_duration_ns"`
+	PromptEvalCount      *int64                 `json:"prompt_eval_count"`
+	PromptEvalDurationNS *int64                 `json:"prompt_eval_duration_ns"`
+	EvalCount            *int64                 `json:"eval_count"`
+	EvalDurationNS       *int64                 `json:"eval_duration_ns"`
+	FirstTokenNS         *int64                 `json:"first_token_ns,omitempty"`
+	FirstAnswerNS        *int64                 `json:"first_answer_ns,omitempty"`
+	ProcessUsage         *ProcessUsage          `json:"process_usage,omitempty"`
+	Limitations          []string               `json:"limitations,omitempty"`
+}
+
+// ProcessUsage is sampled for the loopback TCP listener during a single request.
+// Dedicated usage excludes shared GPU memory. A missing sample stays unknown.
+type ProcessUsage struct {
+	Source                string `json:"source"`
+	IntervalMS            int    `json:"interval_ms"`
+	WorkingSetSamples     int    `json:"working_set_samples"`
+	DedicatedGPUSamples   int    `json:"dedicated_gpu_samples"`
+	PeakWorkingSetBytes   uint64 `json:"peak_working_set_bytes"`
+	PeakDedicatedGPUBytes uint64 `json:"peak_dedicated_gpu_bytes"`
 }
 
 // EvaluationProvider is optional; existing chat providers need no fake methods.

@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "model_name": "qwen3-0.6b-openvino-int4",
+  "family": "qwen3",
+  "parameter_size": "0.6B",
+  "quantization": "NNCF INT4_ASYM; group_size=128; ratio=0.8",
+  "license": "Apache-2.0",
+  "original_model": "Qwen/Qwen3-0.6B",
+  "source": {
+    "repo": "OpenVINO/Qwen3-0.6B-int4-ov",
+    "revision": "f864c6106efb6c7f7b4ef274a78a98e37210dddd",
+    "base_url": "https://huggingface.co/OpenVINO/Qwen3-0.6B-int4-ov/resolve"
+  },
+  "mirror": {
+    "repo": "OpenVINO/Qwen3-0.6B-int4-ov",
+    "revision": "39e59427ca8f85005f71ecaef81ea278bada453f",
+    "base_url": "https://modelscope.cn/models/OpenVINO/Qwen3-0.6B-int4-ov/resolve"
+  },
+  "files": [
+    {
+      "name": "README.md",
+      "size": 4035,
+      "sha256": "44461fa87a02a198ca22d0f3fc3d1b85ea0fe58954f8a561671b3f4e703e33c7",
+      "git_blob_sha1": "640c042f8f3e03749826d30b290b3d27990a426a"
+    },
+    {
+      "name": "added_tokens.json",
+      "size": 707,
+      "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680",
+      "git_blob_sha1": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+    },
+    {
+      "name": "config.json",
+      "size": 766,
+      "sha256": "37f864a9383c29f83a81175edc2ea2d6b4f2a768d75def06d11cfae9ed0552d8",
+      "git_blob_sha1": "e95fbd56c5438342b6a312af95934dfaf31b5130"
+    },
+    {
+      "name": "generation_config.json",
+      "size": 214,
+      "sha256": "81051cd3f6e77013827148d0b8a6ead93f8ac390d5ab805f849199f0af6a08db",
+      "git_blob_sha1": "e4f1d3193e99a3e5d7047edf56e93a6e933fa31b"
+    },
+    {
+      "name": "merges.txt",
+      "size": 1671853,
+      "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+      "git_blob_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+    },
+    {
+      "name": "openvino_detokenizer.bin",
+      "size": 2189717,
+      "sha256": "d73093f72c80ebcaffb76a192727170ecd3c6a06c4df52df0e76b3f70ad9d7f7"
+    },
+    {
+      "name": "openvino_detokenizer.xml",
+      "size": 11369,
+      "sha256": "5f6ba78f4af50b1d8fb169b62231910a0f93a6c5cd8f717e2dd387b8c636ad78",
+      "git_blob_sha1": "59eaf61da220451abf37b09fad4a7fa56cb76854"
+    },
+    {
+      "name": "openvino_model.bin",
+      "size": 428151524,
+      "sha256": "28613e994a6e1aaf54a6fe8677eda35e8e86684e653dde09f3ba960b8e53e152"
+    },
+    {
+      "name": "openvino_model.xml",
+      "size": 2895946,
+      "sha256": "9e159176888d34788db87e6f8ba99cdd76e3e8c82cdd78436d1f925eec1d4306",
+      "git_blob_sha1": "bb19bf51fb52e75ed9782c5e2b94f2c0c3f2e7be"
+    },
+    {
+      "name": "openvino_tokenizer.bin",
+      "size": 5588868,
+      "sha256": "1e31f7285e95a4d08f1e5516c5099f96e169253100b4919db936990fa1923395"
+    },
+    {
+      "name": "openvino_tokenizer.xml",
+      "size": 27295,
+      "sha256": "13e45249ab6433bc30333ca6a6fcc047808c10e811217edd268d2608cf3886d5",
+      "git_blob_sha1": "759c22a415316adcc7ea3be0f434438e2d7fa08f"
+    },
+    {
+      "name": "special_tokens_map.json",
+      "size": 613,
+      "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
+      "git_blob_sha1": "ac23c0aaa2434523c494330aeb79c58395378103"
+    },
+    {
+      "name": "tokenizer.json",
+      "size": 11422654,
+      "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+    },
+    {
+      "name": "tokenizer_config.json",
+      "size": 9706,
+      "sha256": "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0",
+      "git_blob_sha1": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+    },
+    {
+      "name": "vocab.json",
+      "size": 2776833,
+      "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+      "git_blob_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+    }
+  ]
+}
