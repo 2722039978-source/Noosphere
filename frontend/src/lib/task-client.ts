@@ -9,6 +9,12 @@ export function isRunActive(run: Pick<WorkspaceRun, 'status'>) {
   return run.status === 'queued' || run.status === 'running';
 }
 
+export const TASK_KIND_LABEL: Record<string, string> = {
+  agent: '对话任务', index: '项目索引', diagnosis: '系统诊断', evaluation: '模型测评', release_simulation: '发布演练',
+};
+
+export function taskRecordPath(id: string) { return `/chat?task=${encodeURIComponent(id)}`; }
+
 /** The persisted reference also exists for queued/interrupted tasks without a result. */
 export function workspaceRunDestination(run: Pick<WorkspaceRun, 'kind' | 'result' | 'reference_id'>): string | null {
   if (run.kind !== 'evaluation' && run.kind !== 'release_simulation') return null;
@@ -45,7 +51,7 @@ export async function waitForWorkspaceRun(
     if (options.signal?.aborted) throw observationAborted();
     options.onUpdate?.(run);
     if (!isRunActive(run)) {
-      if (run.status !== 'completed') throw new Error(run.error || `任务${RUN_STATUS_LABEL[run.status] || run.status}，可在任务中心查看详情。`);
+      if (run.status !== 'completed') throw new Error(run.error || `任务${RUN_STATUS_LABEL[run.status] || run.status}，可在侧栏查看详情。`);
       return run;
     }
     const marker = `${run.status}:${run.phase}:${run.updated_at}`;

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, ArrowUpRight, Focus, Search, Settings2, X } from 'lucide-react';
-import { WORKSPACE_MODULES, nextModuleIndex, searchModules } from '@/app/modules';
+import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Code2, Focus, Layers, MessageSquare, Search, Settings2, X, Activity, type LucideIcon } from 'lucide-react';
+import { WORKSPACE_MODULES, nextModuleIndex, searchModules, type WorkspaceModule } from '@/app/modules';
 import { useBackend } from '@/hooks/useBackend';
 import { useExperienceStore } from '@/stores/experience-store';
 import { Button } from '@/components/ui/button';
@@ -9,14 +9,20 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import { Input } from '@/components/ui/input';
 import StatusBar from '@/components/StatusBar';
 import { BootOverlay } from './BootOverlay';
-import { WorkspaceSignal } from '@/components/WorkspaceSignal';
-import { WorkspaceHub } from '@/components/WorkspaceHub';
 import { preloadWorkspace } from '@/app/workspace-loaders';
 import { useArchiveReturn } from '@/app/ArchiveReturn';
 import './archive.css';
 const ArchiveCanvas = lazy(() => import('./ArchiveCanvas'));
 let bootSeen = false;
 let lastSelected = 0;
+
+const featureCopy: Record<WorkspaceModule['id'], { title: string; description: string; action: string; Icon: LucideIcon }> = {
+  assistant: { title: '对话与任务', description: '向模型提问、添加文件，或把当前对话转为任务，随时查看执行进度。', action: '开始对话', Icon: MessageSquare },
+  codelens: { title: '代码分析', description: '在项目中查找代码和符号，打开回答所引用的源码。', action: '打开代码分析', Icon: Code2 },
+  nebula: { title: '项目记忆', description: '保存对话里的偏好和约定，查看来源并确认 AI 提出的修改。', action: '打开记忆', Icon: BookOpen },
+  devops: { title: '系统诊断', description: '查看本机资源和服务状态，诊断运行中的问题。', action: '打开系统诊断', Icon: Activity },
+  gateway: { title: '本地模型', description: '发现本机的推理引擎和模型，直接在 Noosphere 内启动和连接。', action: '管理模型', Icon: Layers },
+};
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -42,8 +48,11 @@ export function HomePage() {
   const lowerQuality = useCallback(() => setAutoLow(true), []);
   const choose = useCallback((index: number) => { setSelected(index); setInspecting(false); }, []);
   const module = WORKSPACE_MODULES[selected];
-  const service = backend.modules[module.service];
-  const results = searchModules(query);
+  const feature = featureCopy[module.id];
+  const matches = searchModules(query);
+  const searchTerm = query.trim().toLocaleLowerCase();
+  const results = WORKSPACE_MODULES.filter(item => matches.includes(item)
+    || (featureCopy[item.id].title + featureCopy[item.id].description).includes(searchTerm));
   useEffect(() => { lastSelected = selected; }, [selected]);
   useEffect(() => {
     if (!returningOnMount.current) return;
@@ -84,8 +93,8 @@ export function HomePage() {
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
       if (archiveReturn.phase !== 'idle' || searchOpen || event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
-      if ((event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable=true], [role=dialog]')) return;
       if (bootVisible) { if (event.key === 'Escape' || event.key === 'Enter') { event.preventDefault(); finishBoot(); } return; }
+      if ((event.target as HTMLElement)?.closest('input, textarea, select, [contenteditable=true], [role=dialog]')) return;
       if (event.key === '/') { event.preventDefault(); setSearchOpen(true); }
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setSelected((n) => nextModuleIndex(n, event.key === 'ArrowRight' ? 1 : -1)); setInspecting(false); }
       if (event.key === 'Escape') setInspecting(false);
@@ -95,27 +104,73 @@ export function HomePage() {
     return () => window.removeEventListener('keydown', keyboard);
   }, [searchOpen, module.to, enter, bootVisible, finishBoot, archiveReturn.phase]);
   const renderScene = sceneAllowed && graphics !== 'off' && !sceneFailed;
-  return <><div onClickCapture={followLink} {...(bootVisible || departing ? { inert: '' } : {})} className={`ns-archive-app ${renderScene ? 'has-scene' : 'is-static'} ${inspecting ? 'is-inspecting' : ''} ${departing ? 'is-departing' : ''}`}>
-    {departing && <div className="ns-dossier-handoff is-departing" aria-hidden="true"><span>FILE / {module.number}</span><strong>{module.name}</strong><small>WORKSPACE / CONNECTED</small></div>}
-    <a className="ns-skip-link" href="#archive-content" onClick={(event) => { event.preventDefault(); document.getElementById('archive-content')?.focus(); }}>跳到主要内容</a>
-    <div className="ns-archive-visual" aria-hidden="true">{renderScene ? <Suspense fallback={<span className="ns-scene-loading">正在准备档案…</span>}><ArchiveCanvas selected={selected} onSelect={choose} highQuality={graphics === 'high' || (graphics === 'auto' && !autoLow)} inspecting={inspecting} adaptive={graphics === 'auto'} onFailure={failScene} onAutoQuality={lowerQuality} onReady={archiveReturn.ready} /></Suspense> : <div className="ns-static-orbits"><i /><i /><i /><span>N<span>／</span>S</span></div>}</div>
-    <header className="ns-archive-masthead"><Link to="/home" className="ns-archive-brand" aria-label="Noosphere 工作台"><strong>NOOSPHERE</strong><small>SYNTHESIZE INFORMATION</small><span>ANALYSIS <b>OS</b></span></Link><nav aria-label="档案操作"><WorkspaceHub /><Button variant="ghost" onClick={() => setSearchOpen(true)}><Search data-icon="inline-start" /><span>模块检索</span><kbd>/</kbd></Button><Link className="ns-direct-chat" to="/chat">AI 对话 <ArrowUpRight size={14} /></Link><Button asChild variant="ghost" size="icon"><Link to="/settings" aria-label="设置"><Settings2 /></Link></Button></nav></header>
-    <div className="ns-archive-signal"><WorkspaceSignal /></div>
-    <main id="archive-content" tabIndex={-1} className="ns-archive-content">
-      <section className="ns-file-callout" aria-label="选中模块" style={{ '--module-accent': module.accent } as React.CSSProperties}>
-        <div className="ns-file-eyebrow">PERSONAL WORKSPACE <span>/</span> {module.category}</div>
-        <div className="ns-file-number">FILE NUMBER: <span key={module.number}>NS–00{module.number.slice(-1)}</span><ArrowUpRight size={23} /></div>
-        <div className="ns-file-rule"><i /></div>
-        <div className="ns-file-title" aria-live="polite" aria-atomic="true"><h1 key={module.id}>{module.name}</h1><span>{module.english}</span></div>
-        <p className="ns-file-description">{module.description}</p>
-        <div className="ns-file-capabilities">{module.capabilities.map((text) => <span key={text}>{text}</span>)}</div>
-        <div className="ns-file-actions"><Link to={module.to} className="ns-access-file"><span>进入{module.name}<small>ACCESS WORKSPACE</small></span><ArrowRight size={24} /></Link>{renderScene && <Button variant="ghost" size="icon" aria-label={inspecting ? '收回档案' : '展开档案预览'} aria-pressed={inspecting} onClick={() => setInspecting(!inspecting)}>{inspecting ? <X /> : <Focus />}</Button>}</div>
-        <div className="ns-module-health"><i data-online={service?.state === 'running'} />{service?.state === 'running' ? '服务就绪' : backend.health === 'online' ? '等待服务' : '等待本地服务'}<span>LOCAL / {module.service.toUpperCase()}</span></div>
-      </section>
-      <div className="ns-archive-bottom"><div className="ns-archive-ordinal"><span>WORKSPACE / SELECT</span><div><b key={module.number}>{module.number}</b><i>/</i><span>05</span></div></div><nav className="ns-archive-module-nav" aria-label="主导航"><Link className="sr-only" to="/home">工作台</Link>{WORKSPACE_MODULES.map((item, index) => <button key={item.id} onClick={() => choose(index)} aria-label={`选择${item.name}`} aria-pressed={index === selected}><span>{item.number}</span><strong>{item.name}</strong><small>{item.category}</small></button>)}<Link className="sr-only" to="/settings">设置</Link></nav><div className="ns-archive-step"><Button variant="ghost" size="icon" aria-label="上一个档案" onClick={() => choose(nextModuleIndex(selected, -1))}><ArrowLeft /></Button><Button variant="ghost" size="icon" aria-label="下一个档案" onClick={() => choose(nextModuleIndex(selected, 1))}><ArrowRight /></Button></div></div>
-    </main>
-    <div className="ns-archive-meta"><span>{sceneFailed ? '三维预览暂不可用 · 所有模块仍可访问' : graphics === 'off' ? '二维模式' : autoLow ? '已自动降低画质' : 'LOCAL FIRST · YOUR KNOWLEDGE, CONNECTED'}</span><span><kbd>←</kbd> <kbd>→</kbd> 切换模块 <i>/</i> <kbd>ENTER</kbd> 进入</span></div>
-    <StatusBar backend={backend} />
-    <Dialog open={searchOpen} onOpenChange={setSearchOpen}><DialogContent className="ns-module-search" aria-describedby="module-search-description"><DialogTitle>工作档案索引</DialogTitle><DialogDescription id="module-search-description">查找模块名称、用途或功能，直接进入工作区。</DialogDescription><Input autoFocus aria-label="检索模块" placeholder="搜索模块与功能…" value={query} onChange={(event) => setQuery(event.target.value)} /><div className="ns-module-results">{results.map((item) => <Link key={item.id} to={item.to} onClick={() => setSearchOpen(false)}><span>{item.number}</span><div><strong>{item.name}</strong><small>{item.category} / {item.english}</small></div><ArrowUpRight size={18} /></Link>)}{!results.length && <p role="status">没有找到匹配模块，试试“代码”“记忆”或“模型”。</p>}</div></DialogContent></Dialog>
-  </div>{bootVisible && <BootOverlay onFinish={finishBoot} />}</>;
+  return <>
+    <div onClickCapture={followLink} {...(bootVisible || departing ? { inert: '' } : {})}
+      className={`ns-archive-app ${renderScene ? 'has-scene' : 'is-static'} ${inspecting ? 'is-inspecting' : ''} ${departing ? 'is-departing' : ''}`}>
+      {departing && <div className="ns-dossier-handoff is-departing" aria-hidden="true"><strong>{departing === '/settings' ? '设置' : feature.title}</strong></div>}
+      <a className="ns-skip-link" href="#archive-content" onClick={event => { event.preventDefault(); document.getElementById('archive-content')?.focus(); }}>跳到主要内容</a>
+      <div className="ns-archive-visual" aria-hidden="true">
+        {renderScene ? <Suspense fallback={<span className="ns-scene-loading">正在载入三维场景…</span>}>
+          <ArchiveCanvas selected={selected} onSelect={choose} highQuality={graphics === 'high' || (graphics === 'auto' && !autoLow)}
+            inspecting={inspecting} adaptive={graphics === 'auto'} onFailure={failScene} onAutoQuality={lowerQuality} onReady={archiveReturn.ready} />
+        </Suspense> : <div className="ns-static-orbits"><i /><i /><i /><b /></div>}
+      </div>
+      <header className="ns-archive-masthead">
+        <div>
+          <h1>功能介绍</h1>
+          <p>连接本地模型，在对话中处理文件、代码和任务。</p>
+        </div>
+        <nav aria-label="介绍页操作">
+          {module.id !== 'assistant' && <Link className="ns-intro-back" to="/chat"><ArrowLeft size={15} aria-hidden="true" />返回对话</Link>}
+          <Button className="ns-intro-search" variant="outline" size="sm" onClick={() => setSearchOpen(true)}><Search aria-hidden="true" />搜索功能</Button>
+          <Button asChild variant="ghost" size="icon-sm"><Link to="/settings" aria-label="设置"><Settings2 aria-hidden="true" /></Link></Button>
+        </nav>
+      </header>
+      <main id="archive-content" tabIndex={-1} className="ns-archive-content">
+        <section className="ns-file-callout" aria-labelledby="intro-feature-title">
+          <div className="ns-file-title" aria-live="polite" aria-atomic="true">
+            <div className="ns-feature-copy" key={module.id}>
+              <span className="ns-feature-icon"><feature.Icon size={23} aria-hidden="true" /></span>
+              <h2 id="intro-feature-title">{feature.title}</h2>
+              <p>{feature.description}</p>
+            </div>
+          </div>
+          <div className="ns-file-actions">
+            <Link to={module.to} className="ns-access-file">{feature.action}<ArrowRight size={17} aria-hidden="true" /></Link>
+            {renderScene && <Button variant="ghost" size="sm" aria-label={inspecting ? '收回三维预览' : '展开三维预览'} aria-pressed={inspecting}
+              onClick={() => setInspecting(value => !value)}>{inspecting ? <X aria-hidden="true" /> : <Focus aria-hidden="true" />}{inspecting ? '收回预览' : '预览'}</Button>}
+          </div>
+        </section>
+        <div className="ns-archive-bottom">
+          <nav className="ns-archive-module-nav" aria-label="功能列表">
+            {WORKSPACE_MODULES.map((item, index) => {
+              const { title, Icon } = featureCopy[item.id];
+              return <button key={item.id} type="button" onClick={() => choose(index)} aria-label={`选择${title}`} aria-pressed={index === selected}><Icon size={18} aria-hidden="true" /><span>{title}</span></button>;
+            })}
+          </nav>
+          <div className="ns-archive-step">
+            <Button variant="ghost" size="icon-sm" aria-label="上一个功能" onClick={() => choose(nextModuleIndex(selected, -1))}><ArrowLeft aria-hidden="true" /></Button>
+            <Button variant="ghost" size="icon-sm" aria-label="下一个功能" onClick={() => choose(nextModuleIndex(selected, 1))}><ArrowRight aria-hidden="true" /></Button>
+          </div>
+        </div>
+        {sceneFailed && <p className="ns-archive-meta" role="status">三维预览暂不可用，功能仍可打开。</p>}
+      </main>
+      <StatusBar backend={backend} />
+      <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+        <DialogContent className="ns-module-search">
+          <DialogTitle>搜索功能</DialogTitle>
+          <DialogDescription>输入功能名称，选择后直接打开。</DialogDescription>
+          <Input autoFocus aria-label="搜索功能" placeholder="搜索对话、代码、记忆…" value={query} onChange={event => setQuery(event.target.value)} />
+          <div className="ns-module-results">
+            {results.map(item => {
+              const result = featureCopy[item.id];
+              return <Link key={item.id} to={item.to} onClick={() => setSearchOpen(false)}><result.Icon size={17} aria-hidden="true" /><div><strong>{result.title}</strong><small>{result.description}</small></div><ArrowUpRight size={16} aria-hidden="true" /></Link>;
+            })}
+            {!results.length && <p role="status">没有找到匹配的功能。</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+    {bootVisible && <BootOverlay onFinish={finishBoot} />}
+  </>;
 }

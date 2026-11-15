@@ -78,7 +78,7 @@ func (p *ClaudeProvider) Chat(ctx context.Context, model string, messages []Mess
 	req.Header.Set("x-api-key", p.apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := p.client.Do(req)
+	resp, err := sendChatRequest(p.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
@@ -89,16 +89,18 @@ func (p *ClaudeProvider) Chat(ctx context.Context, model string, messages []Mess
 		return nil, fmt.Errorf("read: %w", err)
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		limit := len(respBody)
 		if limit > 300 {
 			limit = 300
 		}
-		return nil, fmt.Errorf("upstream %d: %s", resp.StatusCode, string(respBody[:limit]))
+		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: string(respBody[:limit])}
 	}
 
 	var result struct {
+		Model   string `json:"model"`
 		Content []struct {
+			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 		Usage struct {
@@ -110,12 +112,15 @@ func (p *ClaudeProvider) Chat(ctx context.Context, model string, messages []Mess
 		return nil, fmt.Errorf("parse: %w", err)
 	}
 
-	content := ""
-	if len(result.Content) > 0 {
-		content = result.Content[0].Text
+	var content strings.Builder
+	for _, block := range result.Content {
+		if block.Type == "text" || block.Type == "" {
+			content.WriteString(block.Text)
+		}
 	}
 	return &ChatResponse{
-		Content:   content,
+		Content:   content.String(),
+		Model:     result.Model,
 		TokensIn:  result.Usage.InputTokens,
 		TokensOut: result.Usage.OutputTokens,
 	}, nil
@@ -162,14 +167,14 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, model string, messages 
 	req.Header.Set("x-api-key", p.apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := p.client.Do(req)
+	resp, err := sendChatRequest(p.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
-		return nil, fmt.Errorf("upstream %d: %s", resp.StatusCode, string(b))
+		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: string(b)}
 	}
 
 	ch := make(chan StreamChunk, 64)
@@ -296,16 +301,18 @@ func (p *GeminiProvider) Chat(ctx context.Context, model string, messages []Mess
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s",
-		strings.TrimRight(p.baseURL, "/"), model, p.apiKey)
+	url := GeminiGenerateURL(p.baseURL, model)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if p.apiKey != "" {
+		req.Header.Set("x-goog-api-key", p.apiKey)
+	}
 
-	resp, err := p.client.Do(req)
+	resp, err := sendChatRequest(p.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
@@ -316,16 +323,17 @@ func (p *GeminiProvider) Chat(ctx context.Context, model string, messages []Mess
 		return nil, fmt.Errorf("read: %w", err)
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		limit := len(respBody)
 		if limit > 300 {
 			limit = 300
 		}
-		return nil, fmt.Errorf("upstream %d: %s", resp.StatusCode, string(respBody[:limit]))
+		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: string(respBody[:limit])}
 	}
 
 	var result struct {
-		Candidates []struct {
+		ModelVersion string `json:"modelVersion"`
+		Candidates   []struct {
 			Content struct {
 				Parts []struct {
 					Text string `json:"text"`
@@ -354,6 +362,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, model string, messages []Mess
 
 	return &ChatResponse{
 		Content:   content,
+		Model:     result.ModelVersion,
 		TokensIn:  tokensIn,
 		TokensOut: tokensOut,
 	}, nil

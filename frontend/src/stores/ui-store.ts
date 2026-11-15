@@ -16,6 +16,8 @@ interface UiState {
   /** 项目路径 (CodeLens 索引 / RAG 上下文共享) */
   projectPath: string;
   projectId: string;
+  projectPickerOpen: boolean;
+  setProjectPickerOpen: (open: boolean) => void;
   setProjectIndex: (path: string, id: string) => void;
   setRoute: (r: RouteId) => void;
   setProjectPath: (p: string) => void;
@@ -26,6 +28,8 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   // 由用户选择项目；不把开发者机器上的绝对路径固化进发布包。
   projectPath: "",
   projectId: "",
+  projectPickerOpen: false,
+  setProjectPickerOpen: (projectPickerOpen) => set({ projectPickerOpen }),
   setProjectIndex: (path, id) => set((state) => state.projectPath === path ? { projectId: id } : {}),
   setRoute: (route) => set({ route }),
   setProjectPath: (projectPath) => set((state) => ({ projectPath, projectId: state.projectPath === projectPath ? state.projectId : '' })),

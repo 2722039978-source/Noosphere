@@ -108,6 +108,6 @@ export function HardwareAdvisor({ hardware, ram }: { hardware: HardwareInventory
       <p className="ns-lab-muted">按单模型、单并发、全部权重驻留估算。文件体积、缓存精度、实际卸载和驱动开销会影响结果。常规注意力的缓存可按 2 × 层数 × KV 头数 × 头维度 × 每元素字节数估算。</p>
       <div className="ns-lab-actions"><Link to={`/model-lab?model=${encodeURIComponent(model.id)}`}>用此版本做单模型测评 →</Link><Button size="sm" variant="outline" disabled={busy} onClick={() => setRequested(`${workspace}/${model.id}`)}>{busy ? '正在读取…' : '读取实测记录'}</Button></div>
       {observation ? <p><Link to={`/evaluation-reports/${encodeURIComponent(observation.reportID)}`}>查看此版本的实测报告</Link> · 上下文 {observation.contextTokens ?? '未知'} · {observation.generation.value.toFixed(1)} tok/s · 工作集采样峰值 {hardwareCapacity(observation.workingSetPeak)} · 独占显存采样峰值 {hardwareCapacity(observation.dedicatedPeak)}</p> : observation === null && <p className="ns-lab-muted">当前工作区还没有此注册版本的完整实测记录。</p>}
-    </> : <p>在 <Link to="/model-hub">Model Hub</Link> 注册本地模型版本后即可估算。</p>}
+    </> : <p>在<Link to="/model-hub/config">高级管理</Link>注册模型版本后即可估算。</p>}
   </section>;
 }

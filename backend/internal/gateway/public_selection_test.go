@@ -184,6 +184,11 @@ func TestPublicModelSelectionProviderRouting(t *testing.T) {
 	var mu sync.Mutex
 	var calls []providerRequest
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, "{\"data\":[{\"id\":\"explicit\"},{\"id\":\"global\"},{\"id\":\"unauthorized\"},{\"id\":\"empty\"},{\"id\":\"slow\"}]}")
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
 			t.Errorf("意外的本地请求：%s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusBadRequest)
@@ -205,6 +210,7 @@ func TestPublicModelSelectionProviderRouting(t *testing.T) {
 			return
 		case "not-found":
 			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, "{\"error\":{\"code\":\"model_not_found\",\"message\":\"Model not found\"}}")
 			return
 		case "empty":
 			content = ""
@@ -277,11 +283,11 @@ func TestPublicModelSelectionProviderRouting(t *testing.T) {
 		t.Fatalf("对话任务未记录切换前后的模型 ID：%+v", runs)
 	}
 
-	for _, failure := range []struct{ modelID, message string }{
-		{"unauthorized", "HTTP 401"},
-		{"not-found", "HTTP 404"},
-		{"empty", "模型连接验证失败"},
-		{"slow", "模型连接验证超时"},
+	for _, failure := range []struct{ modelID, code string }{
+		{"unauthorized", "AUTHENTICATION_FAILED"},
+		{"not-found", "MODEL_NOT_FOUND"},
+		{"empty", "EMPTY_ANSWER"},
+		{"slow", "REQUEST_TIMEOUT"},
 	} {
 		t.Run(failure.modelID, func(t *testing.T) {
 			ctx := context.Background()
@@ -291,7 +297,10 @@ func TestPublicModelSelectionProviderRouting(t *testing.T) {
 				ctx = deadline
 			}
 			w := selectModel(ctx, failure.modelID)
-			if w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), failure.message) {
+			var response struct {
+				Diagnostic ModelDiagnostic
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || w.Code != http.StatusBadGateway || response.Diagnostic.Code != failure.code {
 				t.Fatalf("意外的连接验证结果：%d %s", w.Code, w.Body.String())
 			}
 			requirePublicSessionModel(t, g, "local", "routing", "", "global")

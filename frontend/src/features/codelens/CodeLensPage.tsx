@@ -137,19 +137,17 @@ export function CodeLensPage() {
 
   return (
     <div className="ns-codelens-workspace flex-1 overflow-y-auto" data-workspace-page="codelens">
-      <div className="ns-page-wrap ns-codelens-page">
+      <div id="codelens-start" className="ns-page-wrap ns-codelens-page">
         <PageHeader
           icon={<Code2 size={20} />}
           accent="var(--acc-codelens)"
-          title="CodeLens"
-          subtitle="在当前项目内搜索文字、追踪源码关系和分析编译产物"
+          title="代码"
         />
 
-        <div className="ns-task-path" aria-label="代码工作流程"><strong>01 建立项目索引</strong><span aria-hidden="true">→</span><span>02 搜索代码</span><span aria-hidden="true">→</span><span>03 查看文件结构</span></div>
         <div className="ns-codelens-grid">
         {/* 项目索引 */}
         <Surface className="ns-codelens-stage" data-codelens-stage="index" role="region" aria-labelledby="codelens-index-title">
-          <SectionTitle id="codelens-index-title" step="01" description="选择本地项目，建立可供代码搜索与 AI 对话使用的索引。" icon={<FolderOpen size={15} />} accent="text-acc-codelens">
+          <SectionTitle id="codelens-index-title" description="先选择并索引项目文件夹。" icon={<FolderOpen size={15} />} accent="text-acc-codelens">
             项目索引
           </SectionTitle>
           <form className="ns-codelens-form-row" onSubmit={event => { event.preventDefault(); void handleIndex(); }}>
@@ -203,7 +201,7 @@ export function CodeLensPage() {
 
         {/* 代码搜索 */}
         <Surface className="ns-codelens-stage" data-codelens-stage="search" role="region" aria-labelledby="codelens-search-title">
-          <SectionTitle id="codelens-search-title" step="02" description="检索函数、类型或关键词，展开结果查看代码片段。" icon={<Search size={15} />} accent="text-acc-codelens">
+          <SectionTitle id="codelens-search-title" description="搜索函数名、类型或关键词。" icon={<Search size={15} />} accent="text-acc-codelens">
             代码搜索
           </SectionTitle>
           <form className="ns-codelens-form-row" onSubmit={event => { event.preventDefault(); void handleSearch(); }}>
@@ -244,7 +242,7 @@ export function CodeLensPage() {
 
         {/* 文件分析 */}
         <Surface id="file-analysis" className="ns-codelens-stage" data-codelens-stage="analysis" role="region" aria-labelledby="codelens-analysis-title">
-          <SectionTitle id="codelens-analysis-title" step="03" description="从检索结果打开文件，或输入相对路径，查看函数与类型的位置。" icon={<FileCode2 size={15} />} accent="text-acc-codelens">
+          <SectionTitle id="codelens-analysis-title" description="输入文件的相对路径。" icon={<FileCode2 size={15} />} accent="text-acc-codelens">
             文件分析（AST）
           </SectionTitle>
           <form className="ns-codelens-form-row" onSubmit={event => { event.preventDefault(); void handleAnalyze(); }}>
@@ -294,13 +292,12 @@ export function CodeLensPage() {
 }
 
 function SectionTitle({
-  id, step, description,
+  id, description,
   icon,
   accent,
   children,
 }: {
   id: string;
-  step: string;
   description: string;
   icon: React.ReactNode;
   accent?: string;
@@ -308,7 +305,6 @@ function SectionTitle({
 }) {
   return (
     <div className="ns-section-heading">
-      <span className="ns-section-number">{step}</span>
       <div><h2 id={id} className="flex items-center gap-2"><span className={accent}>{icon}</span>{children}</h2><p>{description}</p></div>
     </div>
   );

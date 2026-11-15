@@ -1,3 +1,5 @@
+import type { ChatAttachmentTurn } from '@/lib/api';
+
 export type RunPhase = "preparing" | "waiting" | "streaming";
 export type RunStatus = "completed" | "cancelled" | "failed";
 export interface RunIdentity { requestId: string; sessionId: string; messageId: string; workspaceId?: string; projectId?: string }
@@ -11,6 +13,8 @@ export interface RunEvent {
 }
 export interface RunInput extends RunIdentity {
   agentMode?: boolean;
+  goalText?: string;
+  attachmentTurn?: ChatAttachmentTurn;
   reviewedActions?: boolean;
   modelId: string;
   begin: () => void;

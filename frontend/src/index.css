@@ -208,9 +208,12 @@ html.dark {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
-.ns-desktop-titlebar { display:flex; height:32px; flex:none; background:var(--bg-app,#f8f7f3); color:var(--text-2,#44443d); border-bottom:1px solid var(--border-soft,#e4e1d9); user-select:none; }
-.ns-desktop-drag { display:flex; align-items:center; gap:8px; flex:1; padding-left:12px; font-size:12px; }
-.ns-desktop-drag img { width:16px; height:16px; pointer-events:none; }
+.ns-desktop-titlebar { display:flex; height:clamp(40px, 3.45vw, 55px); flex:none; background:light-dark(#f3efeb,#191817); color:var(--text-1); user-select:none; }
+.ns-titlebar-brand { display:flex; flex-shrink:0; align-items:center; gap:clamp(12px, 1.5vw, 24px); padding-inline:clamp(17px, 1.85vw, 29px) 14px; font-size:clamp(14px, 1.25vw, 19px); font-weight:600; letter-spacing:-.034em; }
+.ns-titlebar-brand svg { color:light-dark(#96633a,#c99a6d); }
+.ns-titlebar-brand:hover { color:var(--brand-bright); }
+.ns-titlebar-brand:focus-visible { outline:2px solid var(--brand); outline-offset:-3px; }
+.ns-desktop-drag { flex:1; }
 .ns-desktop-controls { display:flex; }
 .ns-desktop-controls button { width:46px; display:grid; place-items:center; background:transparent; color:inherit; border:0; }
 .ns-desktop-controls button:hover { background:#b4946030; color:var(--text-1,#20211e); }

@@ -11,9 +11,9 @@ export function ChatBackupPanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const disabled = !ready || generating || busy;
-  return <Surface className="px-6 py-5">
+  return <Surface id="chat-backup" className="px-6 py-5">
     <h2 className="text-[15px] font-semibold text-text-1">会话备份</h2>
-    <p className="mt-2 text-[13px] text-text-2">会话按条保存到本机数据库。导入会合并新会话，同 ID 的本机会话优先保留；旧版本迁移时保留原始备份。</p>
+    <p className="mt-2 text-[13px] text-text-2">导入会合并新会话，保留已有会话。</p>
     <div className="mt-4 flex flex-wrap gap-3">
       <Button variant="outline" disabled={disabled} onClick={() => {
         try {

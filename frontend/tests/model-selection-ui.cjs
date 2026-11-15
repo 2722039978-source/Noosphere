@@ -15,15 +15,15 @@ const disabledModel = {...localModel,id:'disabled',name:'Disabled fixture',model
 async function checkDefaultOption(browser) {
   const globalModel = {...apiModel,is_default:true};
   const fixtures = [
-    {models:[disabledModel,localModel,apiModel], label:'自动回退 · Local fixture'},
-    {models:[localModel,globalModel], label:'全局默认 · API fixture'},
-    {models:[localModel,globalModel], workspaceDefault:'local-model', label:'工作区默认 · Local fixture'},
-    {models:[{...disabledModel,is_default:true},localModel], label:'自动回退 · Local fixture'},
-    {models:[globalModel,disabledModel], workspaceDefault:'disabled', label:'工作区默认 · Disabled fixture · 已禁用'},
-    {models:[globalModel], workspaceDefault:'missing', label:'工作区默认 · 模型不可用'},
-    {models:[{...localModel,name:''}], label:'自动回退 · fixture-local'},
-    {models:[{...disabledModel,is_default:true}], workspaceDefault:'disabled', label:'未配置可用模型'},
-    {models:[], label:'未配置可用模型'},
+    {models:[disabledModel,localModel,apiModel], label:'Local fixture'},
+    {models:[localModel,globalModel], label:'API fixture'},
+    {models:[localModel,globalModel], workspaceDefault:'local-model', label:'Local fixture'},
+    {models:[{...disabledModel,is_default:true},localModel], label:'Local fixture'},
+    {models:[globalModel,disabledModel], workspaceDefault:'disabled', label:'模型已停用'},
+    {models:[globalModel], workspaceDefault:'missing', label:'选择模型'},
+    {models:[{...localModel,name:''}], label:'fixture-local'},
+    {models:[{...disabledModel,is_default:true}], workspaceDefault:'disabled', label:'模型已停用'},
+    {models:[], label:'连接模型'},
   ];
   const context = await createContext(browser, {width:1440,height:960});
   try {
@@ -35,17 +35,25 @@ async function checkDefaultOption(browser) {
         window.__TAURI_INTERNALS__.invoke = async (command, payload) => command === 'get_models' ? {models} : invoke(command, payload);
       }, {models, workspaceDefault});
       await page.goto(base + '#/chat');
-      const selector = page.getByRole('combobox');
+      if (!models.length) {
+        await page.getByRole('button', {name:'连接模型',exact:true}).click();
+        const wizard = page.getByRole('dialog', {name:'选择模型',exact:true});
+        await wizard.getByRole('heading', {name:'本机模型',exact:true}).waitFor();
+        await wizard.getByRole('button', {name:'重新扫描',exact:true}).waitFor();
+        await wizard.locator('summary').filter({hasText:/高级选项/}).waitFor();
+        await page.close();
+        continue;
+      }
+      const selector = page.getByRole('combobox', { name: '选择对话模型' });
+      await selector.getByText(label, { exact: true }).waitFor();
       await selector.click();
-      const options = page.getByRole('option');
-      await options.nth(models.length).waitFor();
-      assert.equal(await options.first().textContent(), label);
+      await page.getByRole('option', { name: '查找本地模型…' }).waitFor();
+      assert.equal(await page.getByRole('option', { name: /自动回退|全局默认|工作区默认/ }).count(), 0);
       await page.keyboard.press('Escape');
-      await selector.getByText(label, {exact:true}).waitFor();
       await page.close();
     }
   } finally { await context.close(); }
-  console.log('PASS chat selector labels for workspace/global defaults, automatic fallback and unavailable models');
+  console.log('PASS resolved workspace/global defaults show a single model and lead to local discovery');
 }
 
 (async()=>{
@@ -56,6 +64,7 @@ async function checkDefaultOption(browser) {
   await context.addInitScript(({localModel,apiModel,disabledModel})=>{
    const invoke=window.__TAURI_INTERNALS__.invoke;
    const models=[{...localModel,is_default:true},apiModel,disabledModel];
+   window.qa.workspaces.push({...window.qa.workspaces[0],id:'other',name:'Other workspace',project_path:'fixture-other'});
    window.qa.selectionMode='hold';
    window.__TAURI_INTERNALS__.invoke=async(command,payload)=>{
     if(command==='get_models')return {models};
@@ -85,23 +94,25 @@ async function checkDefaultOption(browser) {
   assert.equal(await page.getByRole('option',{name:/Disabled fixture/}).getAttribute('aria-disabled'),'true');
   await page.keyboard.press('Escape');await page.getByRole('listbox').waitFor({state:'hidden'});
   assert.equal(await page.getByRole('combobox').evaluate(el=>el===document.activeElement),true);
-  await page.getByRole('navigation',{name:'主导航'}).getByRole('link',{name:'模型',exact:true}).click();
-  await page.getByRole('heading',{name:'Model Hub',exact:true}).waitFor();
-  // The Model Hub must switch a session in the current workspace.
-  await page.evaluate(async()=>{
-    const {useWorkspaceStore}=await import('/src/stores/workspace-store.ts');
-    const {useChatStore}=await window.qa.store();const state=useWorkspaceStore.getState();
-    useWorkspaceStore.setState({workspaces:[...state.workspaces,{...state.workspaces[0],id:'other',name:'Other workspace'}]});
-    useWorkspaceStore.getState().select('other');window.qa.otherSession=useChatStore.getState().newSession();
-    useWorkspaceStore.getState().select('local');
+  const sidebar=page.getByRole('complementary',{name:'项目与会话'});
+  await sidebar.getByRole('button',{name:'Other workspace',exact:true}).click();
+  await sidebar.getByRole('button',{name:'新建对话',exact:true}).click();
+  const otherSession = await page.evaluate(async()=>{
+    const {useChatStore}=await window.qa.store();
+    return useChatStore.getState().sessions.find(session=>session.workspaceId==='other')?.id;
   });
+  assert.ok(otherSession);
+  await sidebar.getByRole('button',{name:'本地工作区',exact:true}).click();
+  await page.getByRole('navigation',{name:'主导航'}).getByRole('link',{name:'模型',exact:true}).click();
+  await page.getByRole('navigation',{name:'模型导航'}).getByRole('link',{name:'高级管理',exact:true}).click();
+  await page.getByRole('heading',{name:'高级管理',exact:true}).waitFor();
   const apiCard=page.getByRole('article').filter({has:page.getByRole('button',{name:'查看模型 API fixture',exact:true})});
   await apiCard.getByRole('button',{name:'使用',exact:true}).click();
   await page.getByRole('status').filter({hasText:'正在验证模型连接，确认后切换目标会话'}).waitFor();
   assert.equal(await page.evaluate(async()=>{const {useChatStore}=await window.qa.store();return useChatStore.getState().sessions.find(s=>s.id===useChatStore.getState().activeId).modelId;}),'');
   await page.evaluate(()=>{window.qa.selectionMode='ok';window.qa.releaseSelection();});
   await apiCard.getByRole('button',{name:'当前使用',exact:true}).waitFor();
-  assert.equal(await page.evaluate(async()=>{const {useChatStore}=await window.qa.store();return useChatStore.getState().sessions.find(s=>s.id===window.qa.otherSession).modelId;}),'');
+  assert.equal(await page.evaluate(async id=>{const {useChatStore}=await window.qa.store();return useChatStore.getState().sessions.find(s=>s.id===id).modelId;},otherSession),'');
   await page.getByRole('status').filter({hasText:'当前会话已切换到 API fixture'}).waitFor();
   const localCard=page.getByRole('article').filter({has:page.getByRole('button',{name:'查看模型 Local fixture',exact:true})});
   await page.evaluate(()=>window.qa.selectionMode='fail');
@@ -116,6 +127,12 @@ async function checkDefaultOption(browser) {
   await selector.click();
   await page.getByRole('option',{name:'Local fixture',exact:true}).click();
   const sessionModel=selector.getByText('Local fixture',{exact:true});
+  await sessionModel.waitFor();
+  await selector.click();
+  await page.getByRole('option',{name:/API fixture.*API/}).click();
+  await selector.getByText('API fixture',{exact:true}).waitFor();
+  await selector.click();
+  await page.getByRole('option',{name:'Local fixture',exact:true}).click();
   await sessionModel.waitFor();
   await input.fill('prove outgoing model');await page.getByRole('button',{name:'发送',exact:true}).click();
   await page.waitForFunction(()=>window.qa.runs.length===1);

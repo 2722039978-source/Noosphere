@@ -27,7 +27,7 @@ const driftCaveat = "Tag checks before and after inference cannot atomically pin
 type OllamaProvider struct{ *OpenAIProvider }
 
 func NewOllama(baseURL, apiKey string) (LLMProvider, error) {
-	p, err := NewOpenAI(baseURL, apiKey)
+	p, err := NewOpenAI(OllamaCompatibilityBase(baseURL), apiKey)
 	if err != nil {
 		return nil, err
 	}

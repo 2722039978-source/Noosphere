@@ -11,7 +11,6 @@ const sizes = {
   lg: "size-16",
 };
 
-/** Noosphere orbital node. The source asset lives in public for Tauri/Vite parity. */
 export function BrandMark({ className, size = "md" }: BrandMarkProps) {
   return (
     <span className={cn(sizes[size], "relative inline-flex shrink-0 overflow-hidden", className)}>
@@ -20,7 +19,7 @@ export function BrandMark({ className, size = "md" }: BrandMarkProps) {
         alt=""
         aria-hidden="true"
         draggable={false}
-        className="absolute inset-0 size-full scale-[2.6] object-contain"
+        className="absolute inset-0 size-full object-contain"
       />
     </span>
   );

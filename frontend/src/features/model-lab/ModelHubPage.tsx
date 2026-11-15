@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, ChevronDown, Cloud, Grid2X2, List, Monitor, MoreHorizontal, Plus, Search, X } from 'lucide-react';
 import { useBackend } from '@/hooks/useBackend';
 import { useWorkspaceStore } from '@/stores/workspace-store';
-import { api, errMessage, type ModelConfig } from '@/lib/api';
+import { api, errMessage, type ModelConfig, type ModelDiagnostic } from '@/lib/api';
 import { useChatStore, useChatPersistence } from '@/features/chat/chat-store';
 import { activeWorkspaceSession } from '@/features/chat/chat-backup';
-import { ModelSectionNav } from './ModelSectionNav';
 import { ModelIdentityIcon } from './ModelIdentityIcon';
 import { ModelIdentitySummary } from './ModelIdentitySummary';
 import { resolveModelIdentity } from './model-identity';
@@ -17,8 +16,10 @@ import { modelEngineering } from '@/lib/model-engineering-client';
 import type { EnvironmentSnapshot, ModelDiscovery, ModelRevision } from '@/lib/model-engineering-types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { WorkspaceSignal } from '@/components/WorkspaceSignal';
 import { ModelForm } from '@/features/gateway/ModelForm';
+import { useLocalEngines } from '@/features/gateway/local-engine';
+import { localEngineForModel } from '@/features/gateway/local-model-match';
+import { ConnectionDiagnostics } from '@/features/gateway/ConnectionDiagnostics';
 import { ModelCapabilities } from '@/components/ModelCapabilities';
 import { capabilityFor } from '@/lib/model-capabilities';
 import { JsonView, LabError } from './shared';
@@ -30,8 +31,11 @@ import './model-hub.css';
 /** Gateway configs are immediately usable; optional identity and hardware never gate chat. */
 export function ModelHubPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { models: configs, modelsReady, modelsError, loadModels, deleteModel } = useBackend();
   const workspaceID = useWorkspaceStore(state => state.activeId);
+  const projectPath = useWorkspaceStore(state => state.workspaces.find(w => w.id === state.activeId)?.project_path ?? '');
+  const { engines } = useLocalEngines(projectPath, modelsReady);
   const sessions = useChatStore(state => state.sessions), activeID = useChatStore(state => state.activeId);
   const chatReady = useChatPersistence(state => state.ready), selectionPending = useChatStore(state => state.modelSelection);
   const currentSession = activeWorkspaceSession(sessions, activeID, workspaceID);
@@ -45,6 +49,9 @@ export function ModelHubPage() {
   const [addOpen, setAddOpen] = useState(false), [detailsOpen, setDetailsOpen] = useState(false);
   const [editing, setEditing] = useState(false), [deleting, setDeleting] = useState<ModelConfig>();
   const [actionError, setActionError] = useState(''), [actionStatus, setActionStatus] = useState(''), [busy, setBusy] = useState(false);
+  const [diagnosticTarget, setDiagnosticTarget] = useState<ModelConfig>();
+  const [diagnostic, setDiagnostic] = useState<ModelDiagnostic>();
+  const [diagnosticError, setDiagnosticError] = useState('');
   const [checks, setChecks] = useState<Record<string,string>>({});
   const checkEpoch = useRef<Record<string,number>>({});
   const [performanceState, setPerformanceState] = useState<{key:string; data:HubPerformance|null; loading:boolean; error:string}>({key:'',data:null,loading:false,error:''});
@@ -83,6 +90,11 @@ export function ModelHubPage() {
   const clearCheck = (id:string) => {checkEpoch.current[id]=(checkEpoch.current[id]??0)+1;setChecks(old=>{const next={...old};delete next[id];return next;});};
   const useModel = async (item: ModelConfig) => {
     if (busy || selectionPending || item.enabled === false || sessionBusy || !chatReady) return;
+    const engine = localEngineForModel(engines, item);
+    if (engine && engine.state !== 'online') {
+      navigate(modelChatDestination(item));
+      return;
+    }
     setActionError(''); setActionStatus('');
     const store=useChatStore.getState();
     const target = activeWorkspaceSession(store.sessions,store.activeId,workspaceID);
@@ -98,9 +110,10 @@ export function ModelHubPage() {
   };
   const testConnection = async (item: ModelConfig) => {
     if(busy)return;setBusy(true);setChecks(old=>({...old,[item.id]:'正在测试连接…'}));
+    setDiagnosticTarget(item); setDiagnostic(undefined); setDiagnosticError('');
     const generation=checkEpoch.current[item.id]??0;
-    try {const result=await api.testModel(item.id);if(generation===(checkEpoch.current[item.id]??0))setChecks(old=>({...old,[item.id]:result.status==='ok'?'已验证 · 连接成功':`连接失败：${result.error || '请检查服务、权限与模型配置'}`}));}
-    catch(error) {if(generation===(checkEpoch.current[item.id]??0))setChecks(old=>({...old,[item.id]:`连接失败：${errMessage(error)}`}));}finally{setBusy(false);}
+    try {const result=await api.testModel(item.id);if(generation===(checkEpoch.current[item.id]??0)) {setDiagnostic(result);setChecks(old=>({...old,[item.id]:result.status==='ok'?'已验证 · 连接成功':`连接失败：${result.error || result.code || '无法验证'}`}));}}
+    catch(error) {if(generation===(checkEpoch.current[item.id]??0)) {setDiagnosticError(errMessage(error));setChecks(old=>({...old,[item.id]:`连接失败：${errMessage(error)}`}));}}finally{setBusy(false);}
   };
   const removeModel = async () => {
     if(!deleting||busy)return;setBusy(true);setActionError('');
@@ -136,21 +149,15 @@ export function ModelHubPage() {
   const formTicket=formGeneration.current, editedID=detailModel?.id;
   const missingPerformanceReason = !model ? '尚未配置模型；暂无测评数据。' : !canDiscoverModel(model) ? `${capabilityFor(model, 'native_evaluation')?.reason || '原生测评能力未知，请刷新连接信息。'} 暂无测评数据。` : revision ? '此精确版本暂无真实测评数据；可在 Model Lab 发起测评。' : '尚未注册精确模型版本；暂无测评数据。';
   return <div className="ns-hub-scroll"><div className="ns-model-hub">
-    <div className="ns-hub-heading"><p className="ns-hub-breadcrumb"><img src="/noosphere-mark.png" alt="" /> <span>›</span> 工作台 <span>/</span> MODULE 07 <span>/</span> MODEL HUB</p><h1>Model Hub</h1><p>本地模型版本档案 · 复用 Gateway 连接，保留精确版本与部署证据</p></div>
-    <div className="ns-hub-orbit"><WorkspaceSignal /></div>
-    <ModelSectionNav variant="hub" />
-    <section className="ns-hub-first-evaluation" aria-labelledby="first-evaluation-title">
-      <div><span className="ns-hub-eyebrow">FIRST EVALUATION / 首次测评</span><h2 id="first-evaluation-title">从已接入的本地模型开始</h2><p>{localModel ? `复用 ${localModel.name || localModel.model_name}，无需重复填写连接。` : '在此添加本机 Ollama、llama.cpp 或 OpenVINO 连接，然后注册模型版本。'} 单个版本即可完成基线测评。</p><ol><li>确认连接</li><li>注册版本</li><li>检查环境并执行</li><li>读报告 · 使用模型</li></ol></div>
-      <div className="ns-hub-first-actions">{localModel ? <><button onClick={event => openDetails(localModel, false, event.currentTarget)}>{localRevision ? '核对已注册版本' : '注册本地版本'} <ArrowUpRight size={14}/></button>{localRevision && <Link to={`/model-lab?model=${encodeURIComponent(localRevision.id)}`}>开始首次测评 <ArrowRight size={14}/></Link>}</> : <button onClick={event => openAdd(event.currentTarget)}>配置本地连接 <ArrowRight size={14}/></button>}<small>{localRevision ? '版本已注册，下一步检查测评环境。' : '发现与注册会读取真实模型身份。'}</small></div>
-    </section>
+    <div className="ns-hub-heading"><h1>高级管理</h1><p>调整连接、默认模型与版本。</p></div>
     {actionError && <p role="alert" className="ns-hub-inline-error">{actionError}</p>}
     {(actionStatus || selectionPending) && <p role="status" className="ns-hub-evidence-note">{selectionPending ? '正在验证模型连接，确认后切换目标会话…' : actionStatus}</p>}
-    <section className="ns-hub-feature" aria-label="主模型">
-      <div className="ns-hub-feature-main"><span className="ns-hub-ordinal">01</span><div className="ns-hub-feature-copy"><span className="ns-hub-eyebrow">MAIN MODEL</span><h2>{model?.name || model?.model_name || (currentSession?.modelId ? '当前会话模型不可用' : modelsReady ? '添加你的第一个模型' : '正在读取模型连接…')}</h2>
+    <details className="ns-record-detail my-4"><summary>当前模型与性能</summary>
+    <section className="ns-hub-feature ns-detail-body" aria-label="主模型">
+      <div className="ns-hub-feature-main"><div className="ns-hub-feature-copy"><h2>{model?.name || model?.model_name || (currentSession?.modelId ? '当前会话模型不可用' : modelsReady ? '添加你的第一个模型' : '正在读取模型连接…')}</h2>
         <div className="ns-hub-tags">{model ? <><span>{identity?.family || model.provider}</span>{(revision?.parameter_size || model.metadata?.parameter_size) && <span>{revision?.parameter_size || model.metadata?.parameter_size}</span>}{(revision?.quantization || model.metadata?.quantization) && <span>{revision?.quantization || model.metadata?.quantization}</span>}<span>{identity?.label}</span><span className="ns-hub-default">{currentSession?.modelId === model.id ? '当前会话' : model.id === workspaceDefault ? '工作区默认' : model.is_default ? '全局默认' : '已配置'}</span></> : <span>GATEWAY / MODEL ACCESS</span>}</div>
-        <p className="ns-hub-model-description">{model ? `${model.name || model.model_name} · 通过 ${model.provider} 连接，选择后即可开始对话。` : '连接本机推理服务或 API，让模型进入你的工作空间。'}</p>
         {model && <ModelCapabilities model={model} compact />}
-        <div className="ns-hub-primary-actions">{model && model.enabled !== false ? <Link className="ns-hub-primary" to={modelChatDestination(model)}><ArrowRight size={17} />开始对话</Link> : model ? <button className="ns-hub-primary" onClick={event => openDetails(model,true,event.currentTarget)}>编辑已停用连接</button> : <button className="ns-hub-primary" onClick={event => openAdd(event.currentTarget)}><Plus size={17} />添加模型</button>}<button className="ns-hub-more" onClick={event => openDetails(model,false,event.currentTarget)} aria-label="查看主模型详情"><MoreHorizontal size={19} /></button></div>
+        <div className="ns-hub-primary-actions">{model && model.enabled !== false ? <Link className="ns-hub-primary" to={modelChatDestination(model)}><ArrowRight size={17} />开始对话</Link> : model && <button className="ns-hub-primary" onClick={event => openDetails(model,true,event.currentTarget)}>编辑已停用连接</button>}{model && <button className="ns-hub-more" onClick={event => openDetails(model,false,event.currentTarget)} aria-label="查看主模型详情"><MoreHorizontal size={19} /></button>}</div>
         <dl className="ns-hub-specs"><div><dt>CONTEXT</dt><dd title="当前部署上下文；不是模型架构的理论上限">{model?.context_length ? `${(model.context_length/1024).toLocaleString()}K` : '未提供'}</dd></div><div><dt>PARAMETERS</dt><dd>{revision?.parameter_size || model?.metadata?.parameter_size || '未提供'}</dd></div><div><dt>QUANTIZATION</dt><dd>{revision?.quantization || model?.metadata?.quantization || (identity?.deployment==='api'?'不适用':'未提供')}</dd></div><div><dt>STATUS</dt><dd className="ns-hub-config-status" title={status?.detail} data-disabled={model?.enabled === false} data-state={status?.state}>{status?.label || '待配置'}</dd></div></dl>
       </div></div>
       <aside className="ns-hub-feature-metrics">
@@ -164,18 +171,24 @@ export function ModelHubPage() {
         </dl>{identity?.deployment === 'api' && <p className="ns-hub-metric-note">API 服务不提供本地模型硬件指标。</p>}</div>
         <button onClick={event => openDetails(model, false, event.currentTarget)}>VIEW DETAILS <ArrowUpRight size={13} /></button>
       </aside>
-    </section>
+    </section></details>
     <section className="ns-hub-catalog" aria-labelledby="hub-catalog-title"><div className="ns-hub-catalog-toolbar"><h2 id="hub-catalog-title">使用模型</h2><div className="ns-hub-filters" aria-label="部署方式筛选">{([['all', '全部'], ['local', '本地'], ['api', 'API']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}<span>{counts[value]}</span></button>)}</div>
       <label className="ns-hub-search"><Search size={17} aria-hidden="true" /><input id="hub-model-search" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索模型名称或协议…" aria-label="搜索模型" />{query && <button aria-label="清除搜索" onClick={() => setQuery('')}><X size={14} /></button>}</label>
       <label className="ns-hub-sort"><span className="sr-only">模型排序</span><select aria-label="模型排序" value={sort} onChange={e => setSort(e.target.value as 'name' | 'provider')}><option value="name">按模型名称</option><option value="provider">按接入协议</option></select><ChevronDown size={13} /></label>
-      <div className="ns-hub-view" aria-label="模型视图"><button aria-label="网格视图" aria-pressed={view === 'grid'} onClick={() => setView('grid')}><Grid2X2 size={18} /></button><button aria-label="列表视图" aria-pressed={view === 'list'} onClick={() => setView('list')}><List size={18} /></button></div><button ref={addTrigger} className="ns-hub-add" onClick={event => openAdd(event.currentTarget)}><Plus size={17} />添加模型</button></div>
+      <div className="ns-hub-view" aria-label="模型视图"><button aria-label="网格视图" aria-pressed={view === 'grid'} onClick={() => setView('grid')}><Grid2X2 size={18} /></button><button aria-label="列表视图" aria-pressed={view === 'list'} onClick={() => setView('list')}><List size={18} /></button></div><button ref={addTrigger} className="ns-hub-add" onClick={event => openAdd(event.currentTarget)}><Plus size={17} />手动配置</button></div>
       {modelsError && <p className="ns-hub-inline-error" role="alert">模型连接读取失败：{modelsError} <button onClick={() => void loadModels()}>重试</button></p>}
       <div className={`ns-hub-models is-${view}`}>{view === 'list' && <div className="ns-hub-table-head"><span>模型名称 / 别名</span><span>类型</span><span>部署方式</span><span>来源 / 地址</span><span>参数 / 量化</span><span>状态</span><span>操作</span></div>}
         {visible.map(item => <HubModelRow key={item.id} model={item} revision={matchingRevision(item, revisions)} defaultLabel={item.id === workspaceDefault ? "工作区默认" : item.is_default ? "全局默认" : ""} selected={currentSession?.modelId === item.id} disabled={busy || !!selectionPending || !!sessionBusy || !chatReady} running={Boolean(sessionBusy && currentSession?.modelId===item.id)} check={checks[item.id]} onUse={() => void useModel(item)} onDetails={trigger => openDetails(item,false,trigger)} onEdit={trigger => openDetails(item,true,trigger)} onTest={() => void testConnection(item)} onDefault={scope => void setDefault(item,scope)} onDelete={trigger => {returnFocus.current=trigger;deleteGeneration.current++;setDeleting(item);}} />)}
         {!visible.length && <div className="ns-hub-empty" role="status">{!modelsReady ? '正在读取 Gateway 模型连接…' : configs.length ? '没有符合筛选条件的模型。' : '尚未配置模型连接。添加模型后即可在这里选择并开始对话。'}{configs.length > 0 && <button onClick={() => { setFilter('all'); setQuery(''); }}>清除筛选</button>}</div>}
-      </div><p className="ns-hub-evidence-note">“已配置”表示保存了连接；“已验证”表示最近一次连接成功；“当前使用”表示会话绑定；仅实际推理时显示“正在运行”。没有对应版本的性能记录时显示“暂无测评数据”，API 硬件指标显示“不适用”。</p>
+      </div>
     </section>
-    <Dialog open={addOpen} onOpenChange={open=>{if(!open)closeAdd();}}><DialogContent onCloseAutoFocus={restoreFocus} className="ns-hub-dialog" aria-describedby="hub-add-description"><DialogTitle>添加模型</DialogTitle><DialogDescription id="hub-add-description">保存 Gateway 连接，在当前工作台直接选择使用。</DialogDescription>{addOpen && <ModelForm key={formTicket} onSaved={() => {if(formTicket===formGeneration.current)closeAdd();}} onCancel={closeAdd} />}</DialogContent></Dialog>
+    {localModel && <details className="ns-record-detail mt-3"><summary>本地版本与测评</summary><div className="ns-detail-body flex flex-wrap gap-2"><Button variant="outline" onClick={event => openDetails(localModel, false, event.currentTarget)}>{localRevision ? '核对已注册版本' : '注册本地版本'}</Button>{localRevision && <Button asChild variant="outline"><Link to={`/model-lab?model=${encodeURIComponent(localRevision.id)}`}>开始首次测评</Link></Button>}</div></details>}
+    <Dialog open={addOpen} onOpenChange={open=>{if(!open)closeAdd();}}><DialogContent onCloseAutoFocus={restoreFocus} className="ns-hub-dialog ns-model-connection-dialog"><DialogTitle>手动配置模型</DialogTitle><DialogDescription className="sr-only">填写模型连接信息。</DialogDescription>{addOpen && <ModelForm key={formTicket} onSaved={() => { if (formTicket === formGeneration.current) closeAdd(); }} onCancel={closeAdd} />}</DialogContent></Dialog>
+    <Dialog open={!!diagnosticTarget} onOpenChange={open => { if (!open) setDiagnosticTarget(undefined); }}><DialogContent className="ns-hub-dialog ns-model-connection-dialog"><DialogTitle>连接诊断</DialogTitle><DialogDescription>{diagnosticTarget?.name} · {diagnosticTarget?.model_name}</DialogDescription>
+      {busy && <p role="status" className="text-sm text-text-2">正在验证服务、模型与推理…</p>}
+      {diagnostic && <ConnectionDiagnostics result={diagnostic} />}{diagnosticError && <p role="alert" className="ns-form-error">{diagnosticError}</p>}
+      <div className="flex flex-wrap gap-2"><Button disabled={busy} variant="outline" onClick={() => { if (diagnosticTarget) void testConnection(diagnosticTarget); }}>重试</Button><Button disabled={busy} variant="outline" onClick={event => { setDiagnosticTarget(undefined); openDetails(diagnosticTarget, true, event.currentTarget); }}>编辑配置</Button>{diagnosticTarget && localEngineForModel(engines, diagnosticTarget) && <Button asChild variant="outline"><Link to={'/model-hub?model=' + encodeURIComponent(diagnosticTarget.id)}>启动模型</Link></Button>}</div>
+    </DialogContent></Dialog>
     <Dialog open={detailsOpen} onOpenChange={open=>{if(!open)closeDetails();}}><DialogContent onCloseAutoFocus={restoreFocus} className="ns-hub-dialog ns-hub-drawer" aria-describedby="hub-details-description"><DialogTitle>{editing ? '编辑模型' : detailModel?.name || '模型与本机详情'}</DialogTitle><DialogDescription id="hub-details-description">模型档案 / {editing ? '编辑连接配置' : '连接、模型身份与本机硬件；显式发现操作才会读取本地模型身份'}</DialogDescription>{detailsOpen && (editing && detailModel ? <ModelForm key={`${detailModel.id}-${formTicket}`} initial={detailModel} onSaved={() => {if(editedID)clearCheck(editedID);if(formTicket===formGeneration.current)closeDetails();}} onCancel={closeDetails}/> : <><ModelIdentityDetails key={detailModel?.id ?? 'none'} configs={configs} initialID={detailModel?.id ?? ''} revisions={revisions} revisionCursor={revisionCursor} onLoadMore={loadMoreRevisions} onRegistered={item => setRevisions(old => [item, ...old.filter(m => m.id !== item.id)])} /><LabError error={metadataError} /><HardwarePanel environment={environment} load={false} /></>)}</DialogContent></Dialog>
     <Dialog open={!!deleting} onOpenChange={open => {if(!open)closeDelete();}}><DialogContent role="alertdialog" onCloseAutoFocus={restoreFocus} onOpenAutoFocus={event => {event.preventDefault();cancelDelete.current?.focus();}}><DialogTitle>删除模型配置？</DialogTitle><DialogDescription>将删除「{deleting?.name}」的连接配置。使用该配置的会话需要重新选择模型。</DialogDescription><div className="flex justify-end gap-2"><Button ref={cancelDelete} variant="outline" onClick={closeDelete}>取消</Button><Button disabled={busy} onClick={() => void removeModel()}>确认删除</Button></div></DialogContent></Dialog>
   </div></div>;

@@ -60,14 +60,15 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Messages     []map[string]string `json:"messages"`
-		ModelID      string              `json:"model_id"`
-		WorkspaceID  string              `json:"workspace_id"`
-		SessionID    string              `json:"session_id"`
-		Project      string              `json:"project"`
-		SystemPrompt string              `json:"system_prompt"`
-		Temperature  float64             `json:"temperature"`
-		MaxTokens    int                 `json:"max_tokens"`
+		Messages       []map[string]string       `json:"messages"`
+		ModelID        string                    `json:"model_id"`
+		WorkspaceID    string                    `json:"workspace_id"`
+		SessionID      string                    `json:"session_id"`
+		Project        string                    `json:"project"`
+		SystemPrompt   string                    `json:"system_prompt"`
+		Temperature    float64                   `json:"temperature"`
+		MaxTokens      int                       `json:"max_tokens"`
+		AttachmentTurn workspaces.AttachmentTurn `json:"attachment_turn"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "invalid request body"))
@@ -80,6 +81,11 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	messages, attachments, attachmentErr := g.resolveChatAttachments(ctx, body.WorkspaceID, body.SessionID, body.AttachmentTurn, body.Messages)
+	if attachmentErr != nil {
+		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, attachmentErr.Error()))
+		return
+	}
 	var execution *workspaces.Execution
 	if body.SessionID != "" && g.workspaceManager != nil {
 		var err error
@@ -88,12 +94,15 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 			selectionFailure(w, err)
 			return
 		}
+		if len(attachments.Citations) > 0 {
+			execution.Emit("attachments", "已准备附件引用", attachments)
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	start := time.Now()
-	content, tokensIn, tokensOut, callErr := g.callLLMContext(ctx, model, body.Messages, body.SystemPrompt, body.Temperature, body.MaxTokens)
+	content, tokensIn, tokensOut, callErr := g.callLLMContext(ctx, model, messages, body.SystemPrompt, body.Temperature, body.MaxTokens)
 	if ctx.Err() != nil {
 		callErr = ctx.Err()
 	}

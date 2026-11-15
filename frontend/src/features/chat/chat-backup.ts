@@ -30,14 +30,20 @@ export function validateChatSnapshot(value: unknown): ChatSnapshot {
     const messages = new Set<string>();
     for (const message of session.messages) {
       if (!message || typeof message.id !== 'string' || !message.id || messages.has(message.id) || !['user','assistant'].includes(message.role) || typeof message.content !== 'string' || !Number.isFinite(message.createdAt)) throw new Error('消息数据无效。');
+      if (message.sourceProjectPath !== undefined && (typeof message.sourceProjectPath !== 'string' || message.sourceProjectPath.length > 32767)) throw new Error('消息来源项目无效。');
+      if (message.attachments !== undefined && (!Array.isArray(message.attachments) || message.attachments.length > 3 || message.attachments.some(file =>
+        !file || typeof file.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(file.id) || typeof file.name !== 'string' || file.name.length > 1040 ||
+        typeof file.source_hash !== 'string' || !/^[a-f0-9]{64}$/.test(file.source_hash) || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > 8 * 1024 * 1024))) throw new Error('附件引用格式无效。');
+      if (message.memoryCandidateDismissed !== undefined && typeof message.memoryCandidateDismissed !== 'boolean') throw new Error('记忆候选状态无效。');
       if (message.retrievalMode !== undefined && !['lexical', 'semantic'].includes(message.retrievalMode)) throw new Error('检索模式无效。');
       if (message.contextWarnings !== undefined && (!Array.isArray(message.contextWarnings) || message.contextWarnings.length > 8 || message.contextWarnings.some(w => typeof w !== 'string' || w.length > 8192))) throw new Error('引用提示格式无效。');
-      if (message.citations !== undefined && (!Array.isArray(message.citations) || message.citations.length > 9 || message.citations.some(c => {
-        if (!c || !['code', 'memory', 'artifact'].includes(c.kind)) return true;
+      if (message.citations !== undefined && (!Array.isArray(message.citations) || message.citations.length > 12 || message.citations.some(c => {
+        if (!c || !['code', 'memory', 'artifact', 'attachment'].includes(c.kind)) return true;
         if (c.kind === 'artifact' && (typeof c.artifact_id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(c.artifact_id))) return true;
+        if (c.kind === 'attachment' && (typeof c.attachment_id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(c.attachment_id))) return true;
         for (const key of ['id', 'title', 'excerpt', 'workspace_id'] as const) if (typeof c[key] !== 'string' || c[key].length > 20000) return true;
         for (const key of ['file', 'source_hash', 'symbol', 'memory_id', 'project_id'] as const) if (c[key] !== undefined && (typeof c[key] !== 'string' || c[key]!.length > 20000)) return true;
-        for (const key of ['start_line', 'end_line', 'revision'] as const) if (c[key] !== undefined && (!Number.isSafeInteger(c[key]) || c[key]! < 0)) return true;
+        for (const key of ['start_line', 'end_line', 'revision', 'page'] as const) if (c[key] !== undefined && (!Number.isSafeInteger(c[key]) || c[key]! < 0)) return true;
         return false;
       }))) throw new Error('引用快照格式无效。');
       messages.add(message.id);

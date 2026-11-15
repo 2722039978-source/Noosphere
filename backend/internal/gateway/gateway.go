@@ -291,18 +291,19 @@ func (g *Gateway) HandleDeleteModel(w http.ResponseWriter, r *http.Request) {
 // (matched by ID).
 func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID            string         `json:"id"`
-		Name          string         `json:"name"`
-		Provider      string         `json:"provider"`
-		BaseURL       string         `json:"base_url"`
-		APIKey        string         `json:"api_key"`
-		ModelName     string         `json:"model_name"`
-		Vendor        string         `json:"vendor"`
-		ModelFamily   string         `json:"model_family"`
-		Deployment    string         `json:"deployment"`
-		ContextLength int            `json:"context_length"`
-		Metadata      *ModelMetadata `json:"metadata"`
-		IsDefault     bool           `json:"is_default"`
+		ID                     string         `json:"id"`
+		Name                   string         `json:"name"`
+		Provider               string         `json:"provider"`
+		BaseURL                string         `json:"base_url"`
+		APIKey                 string         `json:"api_key"`
+		ModelName              string         `json:"model_name"`
+		Vendor                 string         `json:"vendor"`
+		ModelFamily            string         `json:"model_family"`
+		Deployment             string         `json:"deployment"`
+		ContextLength          int            `json:"context_length"`
+		Metadata               *ModelMetadata `json:"metadata"`
+		IsDefault              bool           `json:"is_default"`
+		StrictCredentialOrigin bool           `json:"strict_credential_origin"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "invalid request body"))
@@ -320,7 +321,7 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	found := false
 	for i, m := range g.config.Models {
 		if m.ID == body.ID {
-			if body.APIKey == "" {
+			if body.APIKey == "" && reuseModelCredential(&m, &ModelConfig{Provider: body.Provider, BaseURL: body.BaseURL}, !body.StrictCredentialOrigin) {
 				body.APIKey = m.APIKey
 			}
 			identityChanged := body.Provider != m.Provider || strings.TrimRight(body.BaseURL, "/") != strings.TrimRight(m.BaseURL, "/") || body.ModelName != m.ModelName
@@ -398,23 +399,6 @@ func (g *Gateway) HandleLogs(w http.ResponseWriter, r *http.Request) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	json.NewEncoder(w).Encode(map[string]interface{}{"logs": g.logs, "count": len(g.logs)})
-}
-
-func (g *Gateway) testModel(model *ModelConfig) map[string]interface{} {
-	return g.testModelContext(context.Background(), model)
-}
-
-func (g *Gateway) testModelContext(ctx context.Context, model *ModelConfig) map[string]interface{} {
-	start := time.Now()
-	content, _, _, err := g.callLLMContext(ctx, model, []map[string]string{{"role": "user", "content": "Reply with OK only."}}, "", 0, 128)
-	latency := time.Since(start).Seconds() * 1000
-	if err != nil {
-		return map[string]interface{}{"status": "error", "model": model.ModelName, "latency_ms": latency, "error": err.Error()}
-	}
-	if strings.TrimSpace(content) == "" {
-		return map[string]interface{}{"status": "error", "model": model.ModelName, "error": "模型未返回正文，请检查模型与输出设置"}
-	}
-	return map[string]interface{}{"status": "ok", "model": model.ModelName, "provider": model.Provider, "latency_ms": latency}
 }
 
 func (g *Gateway) callLLM(model *ModelConfig, messages []map[string]string, sysPrompt string, temp float64, maxTokens int) (string, int, int, error) {

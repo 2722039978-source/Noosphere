@@ -585,13 +585,13 @@ impl Drop for OwnedProcess {
 }
 
 #[cfg(windows)]
-struct ProcessJob {
+pub(crate) struct ProcessJob {
     _handle: std::os::windows::io::OwnedHandle,
 }
 
 #[cfg(windows)]
 impl ProcessJob {
-    fn attach(child: &Child) -> std::io::Result<Self> {
+    pub(crate) fn attach(child: &Child) -> std::io::Result<Self> {
         use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
         use windows_sys::Win32::System::JobObjects::{
             AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,

@@ -66,24 +66,38 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		RequestID    string              `json:"request_id"`
-		WorkspaceID  string              `json:"workspace_id"`
-		SessionID    string              `json:"session_id"`
-		Messages     []map[string]string `json:"messages"`
-		ModelID      string              `json:"model_id"`
-		Project      string              `json:"project"`
-		SystemPrompt string              `json:"system_prompt"`
-		Temperature  float64             `json:"temperature"`
-		MaxTokens    int                 `json:"max_tokens"`
+		RequestID      string                    `json:"request_id"`
+		WorkspaceID    string                    `json:"workspace_id"`
+		SessionID      string                    `json:"session_id"`
+		Messages       []map[string]string       `json:"messages"`
+		ModelID        string                    `json:"model_id"`
+		Project        string                    `json:"project"`
+		SystemPrompt   string                    `json:"system_prompt"`
+		Temperature    float64                   `json:"temperature"`
+		MaxTokens      int                       `json:"max_tokens"`
+		AttachmentTurn workspaces.AttachmentTurn `json:"attachment_turn"`
+		Preview        bool                      `json:"preview"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "invalid request body"))
+		return
+	}
+	if body.Preview && (strings.TrimSpace(body.ModelID) == "" || body.SessionID != "" || body.AttachmentTurn.MessageID != "" ||
+		len(body.AttachmentTurn.IDs) != 0 || body.AttachmentTurn.Question != "") {
+		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "模型试聊需要明确选择模型，且仅接收文本"))
 		return
 	}
 	model, modelErr := g.SessionModel(body.WorkspaceID, body.SessionID, body.ModelID)
 	if modelErr != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, modelErr.Error()))
 		return
+	}
+	if body.Preview {
+		endpoints, problem := connectionEndpoints(model)
+		if problem != "" || !endpoints.local {
+			errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "试聊仅支持本机回环模型，请重新选择连接"))
+			return
+		}
 	}
 	if _, ok := w.(http.Flusher); !ok {
 		errors.WriteHTTP(w, r, errors.Internal(errors.CatGateway, "streaming not supported"))
@@ -92,11 +106,16 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
+	messages, attachments, err := g.resolveChatAttachments(ctx, body.WorkspaceID, body.SessionID, body.AttachmentTurn, body.Messages)
+	if err != nil {
+		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, err.Error()))
+		return
+	}
 	start := time.Now()
 	var full strings.Builder
 	var callErr error
 	var execution *workspaces.Execution
-	if g.workspaceManager != nil {
+	if g.workspaceManager != nil && !body.Preview {
 		var err error
 		ctx, execution, err = g.workspaceManager.Start(ctx, workspaces.Run{ID: body.RequestID, WorkspaceID: body.WorkspaceID, SessionID: body.SessionID, Kind: "chat", Title: "AI 对话", ModelID: model.ID})
 		if err != nil {
@@ -104,25 +123,30 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		execution.Emit("queued", "等待模型调用额度", nil)
+		if len(attachments.Citations) > 0 {
+			execution.Emit("attachments", "已准备附件引用", attachments)
+		}
 		defer func() {
 			if err := execution.Finish(map[string]any{"content": full.String(), "model_id": model.ID}, callErr); err != nil {
 				log.Printf("[workspaces] could not finish chat task %s: %v", execution.ID, err)
 			}
 		}()
 	}
-	defer func() {
-		entry := CallLog{
-			ID:      fmt.Sprintf("log-%d", time.Now().UnixNano()),
-			ModelID: model.ID, Provider: model.Provider, Project: body.Project,
-			RequestPreview: g.preview(body.Messages), ResponsePreview: previewText(full.String()),
-			Status: streamLogStatus(callErr), LatencyMs: float64(time.Since(start)) / float64(time.Millisecond),
-			Timestamp: time.Now().Format(time.RFC3339),
-		}
-		if callErr != nil {
-			entry.Error = callErr.Error()
-		}
-		g.appendLog(entry)
-	}()
+	if !body.Preview {
+		defer func() {
+			entry := CallLog{
+				ID:      fmt.Sprintf("log-%d", time.Now().UnixNano()),
+				ModelID: model.ID, Provider: model.Provider, Project: body.Project,
+				RequestPreview: g.preview(body.Messages), ResponsePreview: previewText(full.String()),
+				Status: streamLogStatus(callErr), LatencyMs: float64(time.Since(start)) / float64(time.Millisecond),
+				Timestamp: time.Now().Format(time.RFC3339),
+			}
+			if callErr != nil {
+				entry.Error = callErr.Error()
+			}
+			g.appendLog(entry)
+		}()
+	}
 
 	foregroundDone, err := g.beginInteractive(ctx)
 	if err != nil {
@@ -149,8 +173,8 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		errors.WriteHTTP(w, r, errors.Wrap(err, errors.ErrInternal, errors.CatGateway, "provider init failed"))
 		return
 	}
-	pMsgs := make([]providers.Message, len(body.Messages))
-	for i, m := range body.Messages {
+	pMsgs := make([]providers.Message, len(messages))
+	for i, m := range messages {
 		pMsgs[i] = providers.Message{Role: m["role"], Content: m["content"]}
 	}
 	temp, maxT := body.Temperature, body.MaxTokens
@@ -163,8 +187,14 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 	if model.MaxTokens > 0 {
 		maxT = model.MaxTokens
 	}
+	if body.Preview && (maxT < 1 || maxT > 768) {
+		maxT = 768
+	}
 	finishInference := g.countInference(false)
 	streamCtx, stopStream := context.WithCancel(ctx)
+	if body.Preview {
+		streamCtx = providers.ConnectionProbeContext(streamCtx)
+	}
 	ch, err := provider.ChatStream(streamCtx, model.ModelName, pMsgs, providers.ChatOptions{
 		SystemPrompt: body.SystemPrompt, Temperature: temp, MaxTokens: maxT,
 	})

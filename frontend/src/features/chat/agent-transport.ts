@@ -1,8 +1,8 @@
-import type { WorkspaceRun, RunEvent as TaskEvent } from '@/lib/api';
+import type { ChatAttachmentTurn, WorkspaceRun, RunEvent as TaskEvent } from '@/lib/api';
 import type { RunEvent } from './stream-runner';
 
 interface Client {
-  submit(workspaceId: string, goal: string, modelId: string, sessionId: string, reviewedActions?: boolean): Promise<WorkspaceRun>;
+  submit(workspaceId: string, goal: string, modelId: string, sessionId: string, reviewedActions?: boolean, displayGoal?: string, attachmentTurn?: ChatAttachmentTurn): Promise<WorkspaceRun>;
   get(id: string): Promise<WorkspaceRun>;
   events(id: string, after: number): Promise<{ events: TaskEvent[] }>;
   cancel(id: string): Promise<unknown>;
@@ -20,8 +20,8 @@ export function createAgentTransport(client: Client, callbacks: { update?(id: st
   }
   return {
     has: (id: string) => entries.has(id), cancel,
-    async start(id: string, workspaceId: string, sessionId: string, modelId: string, goal: string, receive: (event: RunEvent) => void, onUpdate: (patch: Patch) => void = patch => callbacks.update?.(id, patch), reviewedActions = false) {
-      const run = await client.submit(workspaceId, goal, modelId, sessionId, reviewedActions);
+    async start(id: string, workspaceId: string, sessionId: string, modelId: string, goal: string, receive: (event: RunEvent) => void, onUpdate: (patch: Patch) => void = patch => callbacks.update?.(id, patch), reviewedActions = false, displayGoal?: string, attachmentTurn?: ChatAttachmentTurn) {
+      const run = await client.submit(workspaceId, goal, modelId, sessionId, reviewedActions, displayGoal, attachmentTurn);
       const entry: Entry = { runId: run.id, stopped: false }; entries.set(id, entry);
       onUpdate({ agentRunId: run.id, agentProgress: 'Agent 已提交，正在等待执行。' });
       let after = 0;

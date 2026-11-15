@@ -1,6 +1,7 @@
 mod commands;
 mod runtime;
 mod local_auth;
+mod local_engines;
 mod updates;
 use commands::services::ServiceState;
 use tauri::Manager;
@@ -20,6 +21,7 @@ pub fn run() {
     }
     let app = builder
         .manage(ServiceState::default())
+        .manage(local_engines::LocalEngines::default())
         .manage(commands::stream::StreamTasks::default())
         .invoke_handler(tauri::generate_handler![
             commands::services::start_backend,
@@ -29,11 +31,19 @@ pub fn run() {
             commands::gateway::add_model,
             commands::gateway::delete_model,
             commands::gateway::test_model,
+            commands::gateway::probe_model,
+            local_engines::list_local_engines,
+            local_engines::control_local_engine,
+            local_engines::local_engine_log,
             commands::model_selection::select_model,
             commands::model_selection::get_model_selection,
             commands::gateway::gateway_chat,
             commands::gateway::gateway_chat_stream,
             commands::gateway::gateway_chat_cancel,
+            commands::attachments::stage_chat_attachment,
+            commands::attachments::discard_chat_attachment,
+            commands::attachments::prepare_chat_attachments,
+            commands::attachments::delete_session_attachments,
             commands::gateway::gateway_stats,
             commands::nebula::list_sessions,
             commands::nebula::create_session,
@@ -56,8 +66,13 @@ pub fn run() {
             commands::codelens::codelens_inspect_artifact,
             commands::codelens::codelens_get_artifact,
             commands::workspaces::list_workspaces,
+            commands::projects::project_launch_candidate,
+            commands::projects::pick_project_folder,
+            commands::projects::open_project_workspace,
             commands::workspaces::list_knowledge,
             commands::workspaces::save_knowledge,
+            commands::workspaces::suggest_knowledge_revision,
+            commands::workspaces::delete_knowledge,
             commands::workspaces::prepare_context,
             commands::workspaces::save_workspace,
             commands::workspaces::list_workspace_runs,
@@ -88,6 +103,7 @@ pub fn run() {
                 if let Some(state) = window.app_handle().try_state::<ServiceState>() {
                     state.shutdown();
                 }
+                window.app_handle().state::<local_engines::LocalEngines>().shutdown();
             }
         })
         .build(tauri::generate_context!())
@@ -97,6 +113,7 @@ pub fn run() {
         if let tauri::RunEvent::Exit = event {
             app.state::<commands::stream::StreamTasks>().cancel_all();
             app.state::<ServiceState>().shutdown();
+            app.state::<local_engines::LocalEngines>().shutdown();
         }
     });
 }

@@ -52,6 +52,22 @@ pub async fn list_knowledge(workspace_id:String)->Result<Value,ApiError>{validat
 #[tauri::command]
 pub async fn save_knowledge(workspace_id:String,memory:Value)->Result<Value,ApiError>{validate_id(&workspace_id)?;request(format!("/api/workspaces/{workspace_id}/knowledge"),Some(memory)).await}
 #[tauri::command]
+pub async fn suggest_knowledge_revision(workspace_id: String, memory_id: String, input: Value) -> Result<Value, ApiError> {
+    validate_id(&workspace_id)?;
+    validate_id(&memory_id)?;
+    request_with_timeout(
+        format!("/api/workspaces/{workspace_id}/knowledge/{memory_id}/suggest"),
+        Some(input),
+        Duration::from_secs(90),
+    ).await
+}
+#[tauri::command]
+pub async fn delete_knowledge(workspace_id: String, memory_id: String, input: Value) -> Result<Value, ApiError> {
+    validate_id(&workspace_id)?;
+    validate_id(&memory_id)?;
+    request(format!("/api/workspaces/{workspace_id}/knowledge/{memory_id}/delete"), Some(input)).await
+}
+#[tauri::command]
 pub async fn prepare_context(workspace_id:String,query:String)->Result<Value,ApiError>{validate_id(&workspace_id)?;request(format!("/api/workspaces/{workspace_id}/context"),Some(serde_json::json!({"query":query,"top_k":8}))).await}
 #[tauri::command]
 pub async fn save_workspace(workspace:Value)->Result<Value,ApiError>{
@@ -59,7 +75,10 @@ pub async fn save_workspace(workspace:Value)->Result<Value,ApiError>{
     request("/api/workspaces".into(),Some(workspace)).await
 }
 #[tauri::command]
-pub async fn list_workspace_runs(workspace_id:String)->Result<Value,ApiError>{validate_id(&workspace_id)?;request(format!("/api/workspaces/{workspace_id}/runs"),None).await}
+pub async fn list_workspace_runs(workspace_id: String, tasks_only: Option<bool>) -> Result<Value, ApiError> {
+    validate_id(&workspace_id)?;
+    request(format!("/api/workspaces/{workspace_id}/runs?tasks_only={}", tasks_only.unwrap_or(false)), None).await
+}
 #[tauri::command]
 pub async fn submit_workspace_run(workspace_id:String,kind:String,title:String,input:Value)->Result<Value,ApiError>{
     validate_id(&workspace_id)?;request(format!("/api/workspaces/{workspace_id}/runs"),Some(serde_json::json!({"kind":kind,"title":title,"input":input}))).await

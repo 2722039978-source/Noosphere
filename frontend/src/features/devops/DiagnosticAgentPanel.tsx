@@ -42,15 +42,15 @@ export function DiagnosticAgentPanel() {
     finally{setCancelling(false);}
   };
   return <Surface className="px-6 py-5">
-    <h2 className="text-[15px] font-semibold text-text-1">诊断 Agent</h2>
-    <p className="mt-2 text-[13px] text-text-2">描述问题及服务名或日志路径。最多执行 5 步只读检查，完成后显示工具结果与诊断。</p>
+    <h2 className="text-[15px] font-semibold text-text-1">按问题诊断</h2>
+    <p className="mt-2 text-[13px] text-text-2">描述故障，运行只读检查。</p>
     <div className="mt-4 flex flex-wrap gap-3">
       <Input aria-label="诊断问题" value={issue} disabled={busy} maxLength={4000} onChange={e=>setIssue(e.target.value)} placeholder="例如：检查 Spooler 服务的状态" className="min-w-48 flex-1" />
       <Button disabled={busy||!issue.trim()} onClick={()=>void run()}>{busy?'诊断中…':'开始诊断'}</Button>
       {task && isRunActive(task) && <Button variant="outline" disabled={cancelling} onClick={()=>void cancel()}>{cancelling?'取消中…':'取消诊断'}</Button>}
     </div>
     {error && <p role="alert" className="mt-3 text-xs text-err">{error}</p>}
-    {busy && <p role="status" className="ns-result-status">{task ? RUN_STATUS_LABEL[task.status] : '正在提交'} · 可切换页面，后台继续诊断；进度与结果保存在顶部“工作区与任务”。</p>}
+    {busy && <p role="status" className="ns-result-status">{task ? RUN_STATUS_LABEL[task.status] : '正在提交'} · 可在对话侧栏查看任务</p>}
     {result && <div className="ns-enter mt-4 space-y-3">
       <p className="whitespace-pre-wrap text-sm text-text-1">{result.answer}</p>
       {(result.trace || []).map((step,index)=><details key={index} className="ns-record-detail">

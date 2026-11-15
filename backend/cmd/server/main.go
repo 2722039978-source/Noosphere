@@ -7,14 +7,21 @@ import (
 	"log"
 	"os"
 
+	"github.com/noosphere/backend/internal/attachmentfile"
 	"github.com/noosphere/backend/internal/config"
 	"github.com/noosphere/backend/internal/logging"
 )
 
 // Version is the canonical build version. Overridden by -ldflags at build time.
-var Version = "0.7.0" // canonical source: root VERSION file
+var Version = "0.8.0" // canonical source: root VERSION file
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == attachmentfile.PDFWorkerFlag {
+		if err := attachmentfile.RunPDFWorker(os.Stdin, os.Stdout); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 

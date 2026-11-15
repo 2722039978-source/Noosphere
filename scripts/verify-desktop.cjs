@@ -12,6 +12,7 @@ const exe = path.resolve(process.argv[2] || 'release', process.argv[3] || 'Noosp
 const root = mkdtempSync(path.join(tmpdir(), 'noosphere delivery '));
 const data = path.join(root, '用户 数据');
 const project = path.join(root, '测试 项目');
+const evidence = process.env.NOOSPHERE_VERIFY_SCREENSHOTS && path.resolve(process.env.NOOSPHERE_VERIFY_SCREENSHOTS);
 const listen = server => new Promise((resolve, reject) => {
   server.once('error', reject);
   server.listen(0, '127.0.0.1', () => resolve(server.address().port));
@@ -42,9 +43,31 @@ function running(pid) {
   }
 }
 
+function textPDF(value) {
+  const stream = `BT /F1 11 Tf 40 750 Td (${value}) Tj ET`;
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
+  let body = '%PDF-1.4\n';
+  const offsets = objects.map((object, i) => {
+    const offset = body.length;
+    body += `${i + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = body.length;
+  body += `xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`;
+  body += offsets.map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  return Buffer.from(`${body}trailer\n<< /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+}
+
 const modelCalls = [];
 const upstream = createServer(async (request, response) => {
   try {
+    if (request.method === 'GET' && request.url === '/v1/models') {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ data: [{ id: 'fixture-model' }] }));
+      return;
+    }
     assert.equal(request.url, '/v1/chat/completions');
     const data = [];
     for await (const chunk of request) data.push(chunk);
@@ -127,6 +150,36 @@ async function main() {
     };
     const first = await waitFor(healthy, 'owned backend and source worker readiness', 60000);
     assert.ok(first.instance_id);
+    const diagnostic = await ipc('probe_model', { model: { id: 'missing-check', name: 'Missing fixture', provider: 'openai_compatible', model_name: 'missing', base_url: `http://127.0.0.1:${modelPort}/v1`, enabled: true }, infer: false });
+    assert.equal(diagnostic.service, 'online');
+    assert.equal(diagnostic.model_discovery, 'missing');
+    assert.equal(diagnostic.stage, 'enumeration');
+    assert.ok(diagnostic.error && diagnostic.endpoint && diagnostic.code);
+    console.log('PASS structured model failure survives native IPC');
+    if (evidence) {
+      mkdirSync(evidence, { recursive: true });
+      await page.setViewportSize({ width: 1585, height: 992 });
+      await page.getByRole('heading', { name: '开始对话', exact: true }).waitFor();
+      await page.getByText('后端在线', { exact: true }).waitFor({ state: 'attached' });
+      await page.screenshot({ path: path.join(evidence, '10-final-windows-workbench.png') });
+      const operations = page.getByRole('link', { name: '系统', exact: true });
+      await operations.hover();
+      await page.getByRole('tooltip', { name: '系统', exact: true }).waitFor();
+      await page.screenshot({ path: path.join(evidence, '11-final-windows-icon-hover.png') });
+      await page.setViewportSize({ width: 1280, height: 800 });
+    }
+    const initialRuns = await ipc('list_workspace_runs', { workspaceId: 'local' });
+    await page.getByRole('link', { name: '测评', exact: true }).click();
+    await page.getByRole('heading', { name: '模型试聊', exact: true }).waitFor();
+    await page.getByRole('textbox', { name: '输入试聊问题', exact: true }).fill('Synthetic isolated preview');
+    await page.getByRole('button', { name: '发送试聊', exact: true }).click();
+    await page.getByLabel('试聊记录', { exact: true }).getByText(/delivery fixture/).waitFor();
+    assert.equal((await ipc('list_workspace_runs', { workspaceId: 'local' })).runs.length, initialRuns.runs.length);
+    if (evidence) await page.screenshot({ path: path.join(evidence, '14-final-windows-model-check.png') });
+    await page.getByRole('link', { name: '对话', exact: true }).click();
+    await page.getByRole('textbox', { name: '输入问题', exact: true }).waitFor();
+    assert.equal(await page.getByText('Synthetic isolated preview', { exact: true }).count(), 0);
+    console.log('PASS isolated native model preview and unchanged main conversation');
     const state = JSON.parse(readFileSync(path.join(data, 'data-version.json'), 'utf8'));
     assert.equal(state.app_version, first.version);
     const backupRoot = path.join(data, 'upgrade-backups');
@@ -181,6 +234,7 @@ async function main() {
     assert.equal(terminal.status, 'completed', JSON.stringify(chunks));
     assert.equal(terminal.content, 'delivery fixture');
     const agent = await run('agent', { goal: 'Propose the specified synthetic change to the fixture file.',
+      display_goal: 'Review the fixture file',
       session_id: 'delivery-agent', reviewed_actions: true, model_id: 'fixture' });
     assert.equal(agent.status, 'completed', JSON.stringify(agent));
     const proposals = await ipc('list_agent_actions', { workspaceId: ws.id, runId: agent.id });
@@ -191,6 +245,71 @@ async function main() {
     await waitFor(() => readFileSync(source, 'utf8').includes('"after"'), 'approved file change');
     assert.ok(modelCalls.some(call => call.stream) && modelCalls.some(call => call.tools?.length));
     console.log('PASS real streaming and Agent proposal/approval through a synthetic loopback model');
+
+    await page.reload();
+    await page.getByRole('button', { name: 'Delivery fixture', exact: true }).click();
+    await page.getByRole('link', { name: '打开任务 Delivery agent', exact: true }).click();
+    await page.getByRole('heading', { name: '任务目标', exact: true }).waitFor();
+    await page.getByText('Review the fixture file', { exact: true }).waitFor();
+    await page.getByRole('heading', { name: '任务结果', exact: true }).waitFor();
+    await page.getByRole('region', { name: 'Agent 操作审批' }).waitFor();
+    if (evidence) await page.screenshot({ path: path.join(evidence, '12-final-windows-task-record.png') });
+    await page.getByRole('button', { name: '继续对话', exact: true }).click();
+    await page.getByRole('textbox', { name: '输入问题', exact: true }).waitFor();
+    await page.getByRole('link', { name: '新建任务', exact: true }).click();
+    await page.getByRole('heading', { name: '新建任务', exact: true }).waitFor();
+    await page.setViewportSize({ width: 900, height: 600 });
+    const openSidebar = page.getByRole('button', { name: '打开项目侧栏', exact: true });
+    await openSidebar.focus();
+    await page.keyboard.press('Enter');
+    const sidebar = page.getByRole('dialog', { name: '项目与会话' });
+    await sidebar.getByRole('link', { name: '新建任务', exact: true }).waitFor();
+    if (evidence) await page.screenshot({ path: path.join(evidence, '13-final-windows-narrow-sidebar.png') });
+    await page.keyboard.press('Escape');
+    await sidebar.waitFor({ state: 'hidden' });
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.getByRole('button', { name: '本地工作区', exact: true }).click();
+    await page.getByText('任务 · 只读', { exact: true }).waitFor({ state: 'hidden' });
+    console.log('PASS sidebar task history, conversation continuation, and keyboard navigation at 900×600');
+
+    await page.evaluate(() => { window.location.hash = '/chat'; });
+    const input = page.getByLabel('对话附件', { exact: true });
+    const picker = page.getByRole('button', { name: '选择附件', exact: true });
+    await picker.waitFor();
+    await waitFor(() => picker.isEnabled(), 'chat composer ready');
+    const draft = page.getByTestId('chat-attachments');
+    await input.setInputFiles({ name: '图片.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
+    await draft.getByText(/无法读取图片/).waitFor();
+    await draft.getByRole('button', { name: '移除附件 图片.png' }).click();
+    await input.setInputFiles({ name: '文本证据.txt', mimeType: 'text/plain',
+      buffer: Buffer.from('ordinary fixture line\n'.repeat(800) + 'file_evidence satori-742\n') });
+    await draft.getByText('可以发送').waitFor();
+    const question = page.getByRole('textbox', { name: '输入问题' });
+    await question.evaluate((target, bytes) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([new Uint8Array(bytes)], '页码证据.pdf', { type: 'application/pdf' }));
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, [...textPDF('pdf_evidence paper-853')]);
+    await waitFor(async () => await draft.getByText('可以发送').count() === 2, 'text/PDF staged through native IPC');
+    await question.fill('Give me the exact file_evidence and pdf_evidence values.');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await page.getByRole('list', { name: '消息附件' }).getByText('文本证据.txt').waitFor();
+    await waitFor(() => modelCalls.find(call => call.stream && call.messages.at(-1)?.content.includes('pdf_evidence paper-853')), 'PDF excerpt reached text-only model');
+    const attachedPrompt = modelCalls.find(call => call.stream && call.messages.at(-1)?.content.includes('pdf_evidence paper-853')).messages.at(-1).content;
+    assert.match(attachedPrompt, /file_evidence satori-742/);
+    assert.match(attachedPrompt, /页码证据\.pdf.*page 1/);
+    assert.ok(attachedPrompt.length < 3000, 'entire original file leaked into model call');
+    await page.getByRole('button', { name: '重新生成', exact: true }).waitFor();
+    await page.getByText(/本次提供给模型的依据/).click();
+    await page.getByText(/页码证据\.pdf.*第 1 页/).waitFor();
+    const attachmentRun = (await ipc('list_workspace_runs', { workspaceId: 'local' })).runs.find(item => item.kind === 'chat' && item.session_id !== 'delivery-native');
+    assert.ok(attachmentRun);
+    const attachmentEvent = (await ipc('get_run_events', { id: attachmentRun.id, after: 0 })).events.find(event => event.phase === 'attachments');
+    assert.ok(attachmentEvent?.data?.citations?.some(citation => citation.page === 1));
+    const turn = { message_id: 'delivery-proof', question: 'file_evidence', ids: [...new Set(attachmentEvent.data.citations.map(citation => citation.attachment_id))] };
+    await assert.rejects(() => ipc('prepare_chat_attachments', { workspaceId: other.id, sessionId: attachmentRun.session_id, turn }), /找不到此附件/);
+    await assert.rejects(() => ipc('prepare_chat_attachments', { workspaceId: 'local', sessionId: 'foreign-session', turn }), /找不到此附件/);
+    console.log('PASS native text/PDF attachments, DOM drop, page/line provenance, bounded model context and workspace/session isolation');
 
     const backend = () => children(child.pid).find(process => process.Name === 'noosphere-backend.exe')?.ProcessId;
     const oldGo = await waitFor(backend, 'desktop child');
@@ -206,6 +325,8 @@ async function main() {
       return current && current.instance_id !== first.instance_id;
     }, 'backend restart and worker recovery', 60000);
     assert.equal((await ipc('get_workspace_run', { id: indexed.id })).status, 'completed');
+    const retained = await ipc('prepare_chat_attachments', { workspaceId: 'local', sessionId: attachmentRun.session_id, turn });
+    assert.ok(retained.citations.some(citation => citation.excerpt.includes('satori-742')));
     const newGo = await waitFor(backend, 'new backend child');
     const newPython = await waitFor(() => children(newGo).find(process => /python/i.test(process.Name))?.ProcessId, 'new worker child');
     try { await ipc('plugin:window|close', { label: 'main' }); } catch (error) {
@@ -218,7 +339,6 @@ async function main() {
     await browser?.close().catch(() => {});
     if (child.exitCode === null && child.pid) child.kill();
     for (const server of occupied) server.close();
-    console.log(`Desktop exit code: ${child.exitCode ?? 'running at fixture cleanup'}`);
     console.log(`Desktop smoke fixture and logs: ${root}`);
   }
 }

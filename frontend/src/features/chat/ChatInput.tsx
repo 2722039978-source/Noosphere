@@ -1,27 +1,30 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Box, Paperclip, Send, Square, X } from "lucide-react";
+import { AtSign, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { ModelConfig } from "@/hooks/useBackend";
-import { agentCapability, chatCapabilityBlocker, selectedChatModel } from "@/lib/model-capabilities";
-import type { ContextCitation } from '@/lib/api';
+import { agentCapability, chatCapabilityBlocker } from "@/lib/model-capabilities";
+import { LocalModelPicker } from '@/features/gateway/LocalModelPicker';
+import type { LocalModelChoice } from '@/features/gateway/local-model-match';
+import type { ChatAttachment, ContextCitation } from '@/lib/api';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useUiStore } from '@/stores/ui-store';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useEvidenceDraft } from '@/features/codelens/evidence-draft';
+import { useChatAttachments } from './chat-attachments';
+import { useChatStore } from './chat-store';
 
 interface Props {
-  models: ModelConfig[];
-  modelId: string;
-  defaultModelId?: string;
-  onModelChange: (id: string) => void;
+  modelChoices: LocalModelChoice[];
+  selectedModel?: ModelConfig;
+  attachmentSessionId?: string;
+  onModelChange: (choice: LocalModelChoice) => void;
+  onConfigureModel: () => void;
+  modelBusy?: boolean;
+  initialAgentMode?: boolean;
+  initialText?: string;
   streaming: boolean;
   busy?: boolean;
+  blocked?: boolean;
   onSend: (text: string, options: ChatSubmitOptions) => boolean;
   onStop: () => void;
 }
@@ -29,41 +32,43 @@ interface Props {
 export interface ChatSubmitOptions {
   agentMode: boolean;
   reviewedActions?: boolean;
-  attachments: { name: string; content: string }[];
+  attachments: ChatAttachment[];
   artifact?: ContextCitation;
 }
 
-const MAX_ATTACHMENT_CHARS = 12_000;
-
 /** 概念稿输入框: 紧凑移动布局、宽阔桌面布局，底部附件/模式 + 右侧发送 */
-export function ChatInput({ models, modelId, defaultModelId, onModelChange, streaming, busy, onSend, onStop }: Props) {
-  const [text, setText] = useState("");
-  const [agentMode, setAgentMode] = useState(false);
+export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '', onModelChange, onConfigureModel, modelBusy, initialAgentMode = false, initialText = '', streaming, busy, blocked, onSend, onStop }: Props) {
+  const [text, setText] = useState(initialText);
+  const [agentMode, setAgentMode] = useState(initialAgentMode);
   const [reviewedActions, setReviewedActions] = useState(false);
-  const [files, setFiles] = useState<File[]>([]);
-  const [reading, setReading] = useState(false);
-  const [fileError, setFileError] = useState("");
+  const [dragging, setDragging] = useState(false);
   const workspaceId = useWorkspaceStore(state => state.activeId);
+  const workspaceName = useWorkspaceStore(state => state.workspaces.find(workspace => workspace.id === state.activeId)?.name ?? '项目');
+  const workspaceReady = useWorkspaceStore(state => state.hydrated);
   const projectPath = useWorkspaceStore(state => state.workspaces.find(workspace => workspace.id === state.activeId)?.project_path);
   const artifact = useEvidenceDraft(state => state.artifact?.citation.workspace_id === workspaceId && state.artifact.projectPath === projectPath ? state.artifact : null);
-  const readingRef = useRef(false);
-  const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const attachmentDraft = useChatAttachments(workspaceId, attachmentSessionId, projectPath ?? '');
+  const [reuseMessageId, setReuseMessageId] = useState<string>();
+  const previousFiles = useChatStore(state => {
+    const messages = state.sessions.find(session => session.id === attachmentSessionId && (session.workspaceId ?? 'local') === workspaceId)?.messages;
+    if (!messages) return undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message.role === 'user' && message.attachments?.length && message.sourceProjectPath === (projectPath ?? '')) return message;
+    }
+  });
+  const reuse = previousFiles && previousFiles.id === reuseMessageId && !attachmentDraft.files.length;
   const [compact, setCompact] = useState(() => window.matchMedia("(max-width: 639px)").matches);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const defaultModel = selectedChatModel(models, '', defaultModelId);
-  const selectedModel = modelId ? selectedChatModel(models, modelId) : defaultModel;
-  let defaultOptionLabel = '未配置可用模型';
-  if (models.some(model => model.enabled !== false)) {
-    const source = defaultModelId ? '工作区默认' : defaultModel?.is_default ? '全局默认' : '自动回退';
-    const name = defaultModel ? defaultModel.name || defaultModel.model_name : '模型不可用';
-    const disabled = defaultModel?.enabled === false ? ' · 已禁用' : '';
-    defaultOptionLabel = `${source} · ${name}${disabled}`;
-  }
   const agentSupport = agentCapability(selectedModel);
   const capabilityBlocked = chatCapabilityBlocker(selectedModel, agentMode);
   const capabilityReason = capabilityBlocked || (agentMode ? agentSupport.reason : '');
+
+  useEffect(() => {
+    setAgentMode(initialAgentMode);
+    setReviewedActions(false);
+  }, [initialAgentMode]);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 639px)");
@@ -80,62 +85,84 @@ export function ChatInput({ models, modelId, defaultModelId, onModelChange, stre
     el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
   };
 
-  const submit = async () => {
+  const submit = () => {
     const t = text.trim();
-    if (!t || streaming || busy || capabilityBlocked || readingRef.current) return;
-    readingRef.current = true;
-    setReading(true);
-    setFileError("");
-    try {
-      const attachments = await Promise.all(files.map(async (file) => ({
-        name: file.name, content: (await file.slice(0, MAX_ATTACHMENT_CHARS * 4).text()).slice(0, MAX_ATTACHMENT_CHARS),
-      })));
-      if (!mounted.current) return;
-      if (artifact) {
-        const workspace = useWorkspaceStore.getState();
-        if (workspace.activeId !== workspaceId || workspace.workspaces.find(item => item.id === workspaceId)?.project_path !== artifact.projectPath || useEvidenceDraft.getState().artifact !== artifact) {
-          setFileError('项目或附件已变化，请确认后重新发送。');
-          return;
-        }
-      }
-      if (onSend(t, { agentMode, reviewedActions: agentMode && reviewedActions, attachments, artifact: artifact?.citation })) {
-        if (artifact) useEvidenceDraft.getState().remove(artifact);
-        setText(""); setFiles([]);
-        if (fileRef.current) fileRef.current.value = "";
-        requestAnimationFrame(() => { if (ref.current) ref.current.style.height = "auto"; });
-      }
-    } catch { setFileError("附件读取失败，请重新选择文件。"); }
-    finally { readingRef.current = false; setReading(false); }
+    if (!t || streaming || busy || blocked || capabilityBlocked || attachmentDraft.blocked) return;
+    const workspace = useWorkspaceStore.getState();
+    if (workspace.activeId !== workspaceId || workspace.workspaces.find(item => item.id === workspaceId)?.project_path !== projectPath ||
+        (artifact && useEvidenceDraft.getState().artifact !== artifact)) {
+      attachmentDraft.show('项目或附件已变化，请确认后重新发送。');
+      return;
+    }
+    if (onSend(t, { agentMode, reviewedActions: agentMode && reviewedActions, attachments: reuse ? previousFiles.attachments ?? [] : attachmentDraft.attachments, artifact: artifact?.citation })) {
+      if (artifact) useEvidenceDraft.getState().remove(artifact);
+      setText('');
+      setReuseMessageId(undefined);
+      attachmentDraft.markSent();
+      requestAnimationFrame(() => { if (ref.current) ref.current.style.height = 'auto'; });
+    }
   };
 
-  const canSend = !!text.trim() && !capabilityBlocked && !streaming && !busy && !reading;
+  const canSend = !!text.trim() && !capabilityBlocked && !streaming && !busy && !blocked && !attachmentDraft.blocked;
+  const canAttach = !!attachmentSessionId && !streaming && !busy;
 
   return (
     <div className="ns-chat-composer shrink-0">
       <div className="ns-chat-rail">
-        <div className="ns-chat-input-frame border border-border-strong bg-bg-elevated transition-colors focus-within:border-brand">
-          {fileError && <p role="alert" className="px-4 pt-3 text-xs text-err">{fileError}</p>}
-          {(capabilityBlocked || agentMode && !agentSupport.known || !agentMode && agentSupport.blocked) && <p role="status" className="px-4 pt-3 text-xs text-text-2" data-testid="chat-capability-note">{!agentMode && agentSupport.blocked && !capabilityBlocked ? `Agent 不可用：${agentSupport.reason}` : capabilityReason}</p>}
-          {files.length > 0 || artifact ? (
-            <div className="flex flex-wrap gap-2 border-b border-border-subtle px-3 py-2.5">
+        <div className={`ns-chat-input-frame border bg-bg-elevated transition-colors focus-within:border-brand/55 ${dragging ? 'border-brand' : 'border-border-strong'}`}
+          onDragOver={event => {
+            if (!event.dataTransfer.types.includes('Files')) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = canAttach ? 'copy' : 'none';
+            setDragging(canAttach);
+          }}
+          onDragLeave={event => {
+            if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDragging(false);
+          }}
+          onDrop={event => {
+            if (!event.dataTransfer.types.includes('Files')) return;
+            event.preventDefault();
+            setDragging(false);
+            if (canAttach) attachmentDraft.add(Array.from(event.dataTransfer.files));
+          }}>
+          {dragging && <p className="px-4 pt-3 text-xs text-brand-bright">拖放到此处添加附件</p>}
+          {attachmentDraft.error && <p role="alert" className="px-4 pt-3 text-xs text-err">{attachmentDraft.error}</p>}
+          {previousFiles && !attachmentDraft.files.length && !streaming && <div className="flex flex-wrap items-center gap-x-2 px-4 pt-2 text-xs text-text-3">
+            <button type="button" className="underline underline-offset-4" aria-pressed={!!reuse} onClick={() => setReuseMessageId(reuse ? undefined : previousFiles.id)}>
+              {reuse ? '移除上次附件' : '使用上次附件'}
+            </button>
+            {reuse && <span className="max-w-full truncate">{previousFiles.attachments?.map(file => file.name).join('、')} · 本次发送会引用文字节选</span>}
+          </div>}
+          {selectedModel && (capabilityBlocked || agentMode && !agentSupport.known) && <p role="status" className="px-4 pt-3 text-xs text-text-2" data-testid="chat-capability-note">{capabilityReason}</p>}
+          {attachmentDraft.files.length > 0 || artifact ? (
+            <div className="flex flex-wrap gap-2 border-b border-border-subtle px-3 py-2.5" data-testid="chat-attachments">
               {artifact && <span className="flex max-w-full items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-xs text-text-2">
                 <span className="max-w-52 truncate">REA · {artifact.citation.title}</span>
                 <button type="button" aria-label="移除 REA 记录" onClick={() => useEvidenceDraft.getState().remove(artifact)}><X aria-hidden="true" className="size-3" /></button>
               </span>}
-              {files.map((file) => (
-                <span key={`${file.name}-${file.lastModified}`} className="flex max-w-full items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-xs text-text-2">
+              {attachmentDraft.files.map(({ file, id, state }) => {
+                const processing = state.phase === 'reading' || state.phase === 'processing';
+                return <div key={id} className="flex max-w-full flex-wrap items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-xs text-text-2">
                   <Paperclip aria-hidden="true" className="size-3.5" />
-                  <span className="max-w-48 truncate">{file.name}</span>
+                  <span className="max-w-48 truncate" title={file.name}>{file.name}</span>
+                  {state.phase === 'reading' && <progress className="h-2 w-14" aria-label={`读取 ${file.name}`} value={state.progress} max={100} />}
+                  {state.phase === 'processing' && <span role="status">正在提取文字…</span>}
+                  {state.phase === 'ready' && <span role="status">可以发送</span>}
+                  {state.phase === 'failed' && <>
+                    <span role="alert" className="text-err">{state.message}</span>
+                    {state.retry && <button type="button" onClick={() => attachmentDraft.retry(id)} className="underline underline-offset-4" aria-label={`重试附件 ${file.name}`}>重试</button>}
+                  </>}
                   <button
                     type="button"
-                    aria-label={`移除附件 ${file.name}`}
+                    aria-label={`${processing ? '取消' : '移除'}附件 ${file.name}`}
                     className="text-text-3 hover:text-text-1"
-                    onClick={() => setFiles((current) => current.filter((item) => item !== file))}
+                    onClick={() => attachmentDraft.remove(id)}
                   >
                     <X aria-hidden="true" className="size-3" />
                   </button>
-                </span>
-              ))}
+                </div>;
+              })}
+              {attachmentDraft.attachments.length > 0 && <p className="w-full px-1 text-xs text-text-3">相关文字节选会随消息发送给所选模型。</p>}
             </div>
           ) : null}
           <textarea
@@ -143,7 +170,7 @@ export function ChatInput({ models, modelId, defaultModelId, onModelChange, stre
             ref={ref}
             value={text}
             rows={1}
-            placeholder={compact ? "输入问题" : "输入问题，Enter 发送 · Shift+Enter 换行"}
+            placeholder={agentMode ? '描述你希望完成的任务…' : compact ? '输入问题…' : '输入问题，或从下方选择功能…'}
             className="ns-chat-input block w-full resize-none bg-transparent text-text-1 placeholder:text-text-3 outline-none"
             onChange={(e) => {
               setText(e.target.value);
@@ -163,57 +190,45 @@ export function ChatInput({ models, modelId, defaultModelId, onModelChange, stre
             aria-label="对话附件"
             multiple
             className="sr-only"
-            accept=".txt,.md,.json,.yaml,.yml,.ts,.tsx,.js,.jsx,.go,.py,.rs"
-            onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+            tabIndex={-1}
+            onChange={event => {
+              if (canAttach) attachmentDraft.add(Array.from(event.currentTarget.files ?? []));
+              event.currentTarget.value = '';
+            }}
           />
 
-          <div className="ns-chat-input-tools flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="ns-chat-input-tools flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="ns-composer-icon" aria-label="对话功能" title="对话功能"><Plus aria-hidden="true" /></Button></DropdownMenuTrigger>
+                <DropdownMenuContent align="start" side="top">
+                  <DropdownMenuItem disabled={streaming || !agentMode && (agentSupport.blocked || !selectedModel || selectedModel.enabled === false)} onSelect={() => setAgentMode(value => !value)}>{agentMode ? '切回普通对话' : '转为任务'}</DropdownMenuItem>
+                  {agentMode && <DropdownMenuCheckboxItem checked={reviewedActions} disabled={streaming} onCheckedChange={setReviewedActions}>操作提案</DropdownMenuCheckboxItem>}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button
                 type="button"
-                variant="outline"
-                size="sm"
+                variant="ghost"
+                size="icon"
                 aria-label="选择附件"
-                className="h-9 px-2.5 font-normal text-text-2 has-[>svg]:px-2.5"
+                title="文本、代码或有文字层的 PDF，每份最多 8 MB"
+                disabled={!canAttach}
+                className="ns-composer-icon"
                 onClick={() => fileRef.current?.click()}
               >
                 <Paperclip data-icon="inline-start" aria-hidden="true" />
-                <span>附件</span>
               </Button>
-              <Button
-                type="button"
-                variant={agentMode ? "secondary" : "outline"}
-                size="sm"
-                aria-pressed={agentMode}
-                title={agentSupport.blocked ? agentSupport.reason : "开启后可搜索、读取项目及检查系统状态；最多 6 轮模型、12 次工具、120 秒"}
-                disabled={!agentMode && (agentSupport.blocked || !selectedModel || selectedModel.enabled === false)}
-                className={`h-9 px-2.5 font-normal has-[>svg]:px-2.5 ${agentMode ? "text-brand-bright" : "text-text-2"}`}
-                onClick={() => setAgentMode((value) => !value)}
-              >
-                <Bot data-icon="inline-start" aria-hidden="true" />
-                {agentMode && reviewedActions ? "Agent · 审批" : "只读 Agent"}
-              </Button>
-              {agentMode && <Button type="button" variant={reviewedActions?'secondary':'outline'} size="sm" className="h-9" aria-pressed={reviewedActions} onClick={()=>setReviewedActions(v=>!v)} title="允许生成修改、测试和服务操作预览；每个操作须由你确认执行">操作提案</Button>}
+              <Button type="button" variant="ghost" size="sm" aria-label="对话项目" title={workspaceName} className="ns-composer-project" disabled={!workspaceReady || streaming} onClick={() => useUiStore.getState().setProjectPickerOpen(true)}><AtSign aria-hidden="true" /><span className="truncate">{projectPath ? workspaceName : '项目'}</span></Button>
+              {agentMode && <span className="ns-composer-mode" role="status">{reviewedActions ? '任务 · 操作待审批' : '任务 · 只读'}</span>}
             </div>
-            <div className="flex min-w-0 flex-[1_1_176px] items-center justify-end gap-2">
-              <Select disabled={streaming || busy} value={modelId || '__default__'} onValueChange={(value) => onModelChange(value === '__default__' ? '' : value)}>
-                <SelectTrigger size="sm" className="h-9 min-w-0 flex-[0_1_184px] px-2.5 [&_[data-slot=select-value]]:truncate">
-                  <Box aria-hidden="true" />
-                  <SelectValue placeholder={models.length ? "选择模型" : "未配置模型"} />
-                </SelectTrigger>
-                <SelectContent><SelectGroup><SelectItem value="__default__">{defaultOptionLabel}</SelectItem>
-                  {models.map((m) => (
-                    <SelectItem key={m.id} value={m.id} disabled={m.enabled === false}>
-                      {m.name || m.model_name}{m.enabled === false ? ' · 已禁用' : ''}
-                    </SelectItem>
-                  ))}
-                </SelectGroup></SelectContent>
-              </Select>
+            <div className="ns-composer-model flex min-w-0 items-center justify-end gap-2">
+              <LocalModelPicker choices={modelChoices} current={selectedModel} disabled={streaming || modelBusy} label="选择对话模型"
+                className="ns-composer-model-trigger h-9 flex-[0_1_180px] px-2.5" onSelect={onModelChange} onBrowse={onConfigureModel} />
               {streaming ? (
                 <Button
                   size="icon"
                   variant="secondary"
-                  className="size-9 shrink-0"
+                  className="ns-composer-send shrink-0"
                   onClick={onStop}
                   aria-label="停止生成"
                 >
@@ -222,7 +237,7 @@ export function ChatInput({ models, modelId, defaultModelId, onModelChange, stre
               ) : (
                 <Button
                   size="icon"
-                  className="size-9 shrink-0 disabled:bg-secondary disabled:text-text-3 disabled:opacity-100"
+                  className="ns-composer-send shrink-0"
                   onClick={() => void submit()}
                   disabled={!canSend}
                   aria-label="发送"

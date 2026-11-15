@@ -36,6 +36,7 @@ type Source struct {
 	ProjectPath string `json:"project_path,omitempty"`
 	SessionID   string `json:"session_id,omitempty"`
 	MessageID   string `json:"message_id,omitempty"`
+	Excerpt     string `json:"excerpt,omitempty"`
 }
 type Memory struct {
 	ID                 string `json:"id"`
@@ -82,6 +83,7 @@ type Service struct {
 	eng     *engine.Engine
 	trace   SourceTraceLookup
 	read    SourceTraceExcerpt
+	rewrite ChatRewriter
 }
 
 func New(m *workspaces.Manager, e *engine.Engine) *Service { return &Service{manager: m, eng: e} }
@@ -177,6 +179,10 @@ func (s *Service) List(wsID string) ([]Memory, error) {
 	return items, nil
 }
 func (s *Service) Save(ctx context.Context, wsID string, input Memory) (Memory, error) {
+	return s.save(ctx, wsID, input, nil)
+}
+
+func (s *Service) save(ctx context.Context, wsID string, input Memory, expectedPath *string) (Memory, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	fail := func(err error) (Memory, error) { return Memory{}, err }
@@ -187,10 +193,19 @@ func (s *Service) Save(ctx context.Context, wsID string, input Memory) (Memory, 
 	if err != nil {
 		return fail(err)
 	}
+	if expectedPath != nil && *expectedPath != ws.ProjectPath {
+		return fail(ErrConflict)
+	}
 	items := s.records(wsID)
 	old, exists := items[input.ID]
 	if input.ID != "" && (!exists || input.Revision != old.Revision) {
 		return fail(ErrConflict)
+	}
+	if exists && expectedPath != nil && old.Source.ProjectPath != ws.ProjectPath {
+		return fail(ErrConflict)
+	}
+	if exists && expectedPath != nil && (old.Source.Kind == "chat" || input.Source.Kind == "chat") && input.Source != old.Source {
+		return fail(fmt.Errorf("已记录的对话来源不可修改"))
 	}
 	if exists && old.Status == "superseded" {
 		return fail(fmt.Errorf("已替代记录只读，请新建记录"))
@@ -199,14 +214,19 @@ func (s *Service) Save(ctx context.Context, wsID string, input Memory) (Memory, 
 	if input.Content == "" || len(input.Content) > 16000 {
 		return fail(fmt.Errorf("内容需要 1–16000 字节"))
 	}
-	if !strings.Contains("|convention|decision|preference|solution|", "|"+input.Category+"|") || input.Category == "" {
+	switch input.Category {
+	case "convention", "decision", "preference", "solution":
+	default:
 		return fail(fmt.Errorf("无效记忆分类"))
 	}
 	if input.Status == "" {
 		input.Status = "proposed"
 	}
-	if input.Status != "proposed" && input.Status != "confirmed" && input.Status != "rejected" {
+	if input.Status != "proposed" && input.Status != "confirmed" && input.Status != "rejected" && input.Status != "paused" {
 		return fail(fmt.Errorf("无效记忆状态"))
+	}
+	if input.Status == "paused" && !exists {
+		return fail(fmt.Errorf("仅可暂停已有记忆"))
 	}
 	if input.ValidUntil != "" {
 		if _, err := time.Parse(time.RFC3339, input.ValidUntil); err != nil {
@@ -242,7 +262,7 @@ func (s *Service) Save(ctx context.Context, wsID string, input Memory) (Memory, 
 			input.Source.SourceHash = current
 			input.Source.ProjectPath = ws.ProjectPath
 		case "chat":
-			if input.Source.SessionID == "" || input.Source.MessageID == "" || len(input.Source.SessionID) > 128 || len(input.Source.MessageID) > 128 {
+			if input.Source.SessionID == "" || input.Source.MessageID == "" || len(input.Source.SessionID) > 128 || len(input.Source.MessageID) > 128 || len(input.Source.Excerpt) > 4096 {
 				return fail(fmt.Errorf("会话来源不完整"))
 			}
 		case "note":
@@ -254,6 +274,14 @@ func (s *Service) Save(ctx context.Context, wsID string, input Memory) (Memory, 
 	input.Source.ProjectPath = ws.ProjectPath
 	if exists {
 		input.Source.ProjectPath = old.Source.ProjectPath
+	}
+	if expectedPath != nil && input.Source.Kind == "chat" && !exists && input.Supersedes == "" {
+		for _, record := range items {
+			if record.Source.Kind == "chat" && record.Source.ProjectPath == ws.ProjectPath &&
+				record.Source.SessionID == input.Source.SessionID && record.Source.MessageID == input.Source.MessageID {
+				return record, nil
+			}
+		}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if !exists {
@@ -278,7 +306,7 @@ func (s *Service) Save(ctx context.Context, wsID string, input Memory) (Memory, 
 		if !ok || input.SupersedesRevision != previous.Revision {
 			return fail(ErrConflict)
 		}
-		if !ok || previous.Status == "superseded" || input.Status != "confirmed" {
+		if previous.Source.ProjectPath != ws.ProjectPath || previous.Status == "superseded" || input.Status != "confirmed" {
 			return fail(fmt.Errorf("替代目标不存在或新记录未确认"))
 		}
 		previous.Status = "superseded"
@@ -293,6 +321,13 @@ func (s *Service) Save(ctx context.Context, wsID string, input Memory) (Memory, 
 	input.SupersededBy = ""
 	input.InactiveReason = ""
 	items[input.ID] = input
+	if err := s.publish(ctx, ws, items); err != nil {
+		return fail(err)
+	}
+	return input, nil
+}
+
+func (s *Service) publish(ctx context.Context, ws workspaces.Workspace, items map[string]Memory) error {
 	records := map[string]engine.TextRecord{}
 	for id, m := range items {
 		raw, _ := json.Marshal(m)
@@ -300,17 +335,14 @@ func (s *Service) Save(ctx context.Context, wsID string, input Memory) (Memory, 
 		if m.Status == "confirmed" {
 			text = m.Content
 		}
-		records[prefix(wsID)+id] = engine.TextRecord{Value: raw, Text: text}
+		records[prefix(ws.ID)+id] = engine.TextRecord{Value: raw, Text: text}
 	}
-	latest, err := s.manager.Workspace(wsID)
+	latest, err := s.manager.Workspace(ws.ID)
 	if err != nil || latest.ProjectPath != ws.ProjectPath {
-		return fail(ErrConflict)
+		return ErrConflict
 	}
-	_, err = s.eng.ReplacePrefixContext(ctx, prefix(wsID), records)
-	if err != nil {
-		return fail(err)
-	}
-	return input, nil
+	_, err = s.eng.ReplacePrefixContext(ctx, prefix(ws.ID), records)
+	return err
 }
 
 func (s *Service) Context(ctx context.Context, wsID, query string, topK int) (ContextResult, error) {
@@ -470,15 +502,40 @@ func (s *Service) RegisterRoutes(mux *http.ServeMux) {
 		respond(w, map[string]any{"memories": items}, err)
 	})
 	mux.HandleFunc("POST /api/workspaces/{id}/knowledge", func(w http.ResponseWriter, r *http.Request) {
-		var input Memory
+		var input struct {
+			Memory
+			ExpectedProjectPath *string `json:"expected_project_path"`
+		}
 		if err := decode(w, r, &input); err != nil {
 			respond(w, nil, err)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
-		item, err := s.Save(ctx, r.PathValue("id"), input)
+		item, err := s.save(ctx, r.PathValue("id"), input.Memory, input.ExpectedProjectPath)
 		respond(w, item, err)
+	})
+	mux.HandleFunc("POST /api/workspaces/{id}/knowledge/{memory}/suggest", func(w http.ResponseWriter, r *http.Request) {
+		var input rewriteRequest
+		if err := decode(w, r, &input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 75*time.Second)
+		defer cancel()
+		proposal, err := s.suggest(ctx, r.PathValue("id"), r.PathValue("memory"), input)
+		respond(w, proposal, err)
+	})
+	mux.HandleFunc("POST /api/workspaces/{id}/knowledge/{memory}/delete", func(w http.ResponseWriter, r *http.Request) {
+		var input memoryRevision
+		if err := decode(w, r, &input); err != nil {
+			respond(w, nil, err)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		err := s.remove(ctx, r.PathValue("id"), r.PathValue("memory"), input)
+		respond(w, map[string]bool{"deleted": err == nil}, err)
 	})
 	mux.HandleFunc("POST /api/workspaces/{id}/context", func(w http.ResponseWriter, r *http.Request) {
 		var input struct {

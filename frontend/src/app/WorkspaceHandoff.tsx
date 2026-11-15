@@ -12,5 +12,5 @@ export function WorkspaceHandoff() {
     return () => clearTimeout(timer);
   }, [location.key, location.state]);
   if (!visible || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
-  return <div className="ns-dossier-handoff is-arriving" aria-hidden="true"><span>FILE / {module?.number ?? 'OS'}</span><strong>{module?.name ?? '工作区设置'}</strong><small>WORKSPACE / CONNECTED</small></div>;
+  return <div className="ns-dossier-handoff is-arriving" aria-hidden="true"><strong>{module?.name ?? '设置'}</strong></div>;
 }

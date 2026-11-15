@@ -49,6 +49,8 @@ type Run struct {
 	SessionID           string          `json:"session_id"`
 	Kind                string          `json:"kind"`
 	Title               string          `json:"title"`
+	Goal                string          `json:"goal,omitempty"`
+	Project             *RunProject     `json:"project,omitempty"`
 	Status              string          `json:"status"`
 	Phase               string          `json:"phase"`
 	Error               string          `json:"error"`
@@ -58,6 +60,10 @@ type Run struct {
 	CreatedAt           string          `json:"created_at"`
 	UpdatedAt           string          `json:"updated_at"`
 	Result              json.RawMessage `json:"result"`
+}
+type RunProject struct {
+	Path string `json:"path"`
+	ID   string `json:"id"`
 }
 type Event struct {
 	Seq       int64           `json:"seq"`
@@ -161,6 +167,8 @@ func Open(path string) (*Manager, error) {
 		`CREATE INDEX IF NOT EXISTS workspace_runs ON runs(workspace_id,created_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), phase TEXT NOT NULL, message TEXT NOT NULL, data BLOB NOT NULL, created_at TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS run_events ON events(run_id,seq)`,
+		chatAttachmentSchema,
+		`CREATE INDEX IF NOT EXISTS chat_attachments_session ON chat_attachments(workspace_id, session_id)`,
 	} {
 		if _, e = db.Exec(q); e != nil {
 			return fail(e)
@@ -168,6 +176,10 @@ func Open(path string) (*Manager, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{db: db, ctx: ctx, cancel: cancel, registrations: map[string]registration{}, executions: map[string]*Execution{}, queues: map[string]chan job{}, slots: map[string]chan struct{}{}, pending: map[string]*cancellationOperation{}, closeDone: make(chan struct{})}
+	if err := m.expireAttachmentDrafts(); err != nil {
+		cancel()
+		return fail(err)
+	}
 	stamp := now()
 	local := Workspace{ID: "local", Name: "本地工作区", CreatedAt: stamp, UpdatedAt: stamp}
 	body, _ := json.Marshal(local)
@@ -351,6 +363,40 @@ func (m *Manager) SaveWorkspace(w Workspace) (Workspace, error) {
 	if m.closed {
 		return Workspace{}, ErrClosed
 	}
+	return m.saveWorkspace(w, key)
+}
+
+// OpenProject resolves aliases to the same workspace and keeps its existing data.
+func (m *Manager) OpenProject(path string) (Workspace, error) {
+	if !filepath.IsAbs(path) || len(path) > 32768 {
+		return Workspace{}, fmt.Errorf("%w: 请选择本机项目文件夹", ErrInvalid)
+	}
+	root, key, err := canonicalRoot(path)
+	if err != nil {
+		return Workspace{}, fmt.Errorf("%w: 无法访问所选文件夹，请确认路径和权限", ErrInvalid)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return Workspace{}, ErrClosed
+	}
+	var id string
+	err = m.db.QueryRow(`SELECT id FROM workspaces WHERE root_key=?`, key).Scan(&id)
+	if err == nil {
+		return m.workspace(id)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return Workspace{}, err
+	}
+	name := filepath.Base(root)
+	if name == string(filepath.Separator) {
+		name = filepath.VolumeName(root) + string(filepath.Separator)
+	}
+	return m.saveWorkspace(Workspace{Name: name, ProjectPath: root}, key)
+}
+
+// Caller holds m.mu and has already canonicalized ProjectPath.
+func (m *Manager) saveWorkspace(w Workspace, key string) (Workspace, error) {
 	stamp := now()
 	if w.ID == "" {
 		w.ID = newID()
@@ -366,12 +412,12 @@ func (m *Manager) SaveWorkspace(w Workspace) (Workspace, error) {
 		}
 		w.CreatedAt = old.CreatedAt
 		w.ProjectID = ""
-		if old.ProjectPath == path {
+		if old.ProjectPath == w.ProjectPath {
 			w.ProjectID = old.ProjectID
 		}
 	}
 	var occupied string
-	e = m.db.QueryRow(`SELECT id FROM workspaces WHERE root_key=? AND root_key<>'' AND id<>?`, key, w.ID).Scan(&occupied)
+	e := m.db.QueryRow(`SELECT id FROM workspaces WHERE root_key=? AND root_key<>'' AND id<>?`, key, w.ID).Scan(&occupied)
 	if e == nil {
 		return Workspace{}, fmt.Errorf("%w: project already belongs to a workspace", ErrConflict)
 	}
@@ -477,6 +523,10 @@ func (m *Manager) FindReferencedRun(workspaceID, kind string, reference TaskRefe
 	return m.run(id)
 }
 func (m *Manager) Runs(id string) ([]Run, error) {
+	return m.runs(id, false)
+}
+
+func (m *Manager) runs(id string, tasksOnly bool) ([]Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
@@ -486,7 +536,7 @@ func (m *Manager) Runs(id string) ([]Run, error) {
 		return nil, e
 	}
 	// Poll metadata only. Full results remain available through Run(id).
-	rows, e := m.db.Query(`SELECT json_remove(CAST(body AS TEXT),'$.result') FROM runs WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100`, id)
+	rows, e := m.db.Query(`SELECT json_remove(CAST(body AS TEXT),'$.result','$.goal') FROM runs WHERE workspace_id=? AND (?=0 OR json_extract(CAST(body AS TEXT),'$.kind')<>'chat') ORDER BY created_at DESC,rowid DESC LIMIT 100`, id, tasksOnly)
 	if e != nil {
 		return nil, e
 	}
@@ -543,7 +593,7 @@ func (m *Manager) Events(id string, after int64) ([]Event, error) {
 func referencedKind(kind string) bool { return kind == "evaluation" || kind == "release_simulation" }
 
 func validateRun(r Run) error {
-	if !safeID.MatchString(r.ID) || !safeID.MatchString(r.WorkspaceID) || len(r.SessionID) > 256 || len(r.Title) > 512 || len(r.ModelID) > 256 {
+	if !safeID.MatchString(r.ID) || !safeID.MatchString(r.WorkspaceID) || len(r.SessionID) > 256 || len(r.Title) > 512 || len(r.ModelID) > 256 || len(r.Goal) > 32000 {
 		return ErrInvalid
 	}
 	if r.Kind != "chat" && r.Kind != "index" && r.Kind != "diagnosis" && r.Kind != "agent" && !referencedKind(r.Kind) {
@@ -568,9 +618,11 @@ func (m *Manager) createRun(r Run, status string) (Run, error) {
 	if e := validateRun(r); e != nil {
 		return Run{}, e
 	}
-	if _, e := m.workspace(r.WorkspaceID); e != nil {
+	ws, e := m.workspace(r.WorkspaceID)
+	if e != nil {
 		return Run{}, e
 	}
+	r.Project = &RunProject{Path: ws.ProjectPath, ID: ws.ProjectID}
 	if (r.Kind == "chat" || r.Kind == "agent") && r.SessionID != "" {
 		id, bound, err := m.sessionModel(r.WorkspaceID, r.SessionID)
 		if err != nil {
@@ -710,14 +762,16 @@ func (m *Manager) submit(workspaceID, kind, title string, reference TaskReferenc
 	spec := Run{WorkspaceID: workspaceID, Kind: kind, Title: title, ReferenceID: reference.ID, ReferenceGeneration: reference.Generation}
 	if kind == "agent" {
 		var source struct {
-			SessionID string `json:"session_id"`
-			ModelID   string `json:"model_id"`
+			SessionID   string `json:"session_id"`
+			ModelID     string `json:"model_id"`
+			DisplayGoal string `json:"display_goal"`
 		}
 		if json.Unmarshal(input, &source) != nil {
 			return Run{}, ErrInvalid
 		}
 		spec.SessionID = source.SessionID
 		spec.ModelID = source.ModelID
+		spec.Goal = strings.TrimSpace(source.DisplayGoal)
 		if source.SessionID != "" {
 			id, bound, err := m.sessionModel(workspaceID, source.SessionID)
 			if err != nil {

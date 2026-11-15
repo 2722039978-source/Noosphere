@@ -100,6 +100,7 @@ func bootstrap(cfg *config.AppConfig) *App {
 		gw.SetWorkspaceManager(manager)
 		manager.RegisterRoutes(mux)
 		knowledgeService := knowledge.New(manager, eng)
+		knowledgeService.SetChatRewriter(knowledgeRewriter(manager, gw))
 		if cfg.Modules.CodeLens.Enabled {
 			knowledgeService.SetSourceTrace(app.traceCodeLens, func(ctx context.Context, ws workspaces.Workspace, location codelens.TraceLocation) (string, error) {
 				view, err := agent.ReadProjectSource(ctx, ws, location.File, location.StartLine, min(location.EndLine, location.StartLine+20), location.SourceHash)

@@ -1,16 +1,12 @@
 package gateway
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
-	"time"
 
-	"github.com/noosphere/backend/internal/gateway/providers"
 	"github.com/noosphere/backend/internal/workspaces"
 )
 
@@ -85,19 +81,6 @@ func (g *Gateway) HandleModelSelection(w http.ResponseWriter, r *http.Request) {
 	selectionReply(w, 200, map[string]any{"model_id": id, "bound": bound, "workspace_id": ws, "session_id": session})
 }
 
-func safeSelectionProbeError(err error) string {
-	s := strings.ToLower(err.Error())
-	for _, status := range []string{"401", "403", "402", "404", "429"} {
-		if strings.Contains(s, status) {
-			return "模型连接验证失败（HTTP " + status + "），请检查权限、余额或模型配置"
-		}
-	}
-	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(s, "timeout") {
-		return "模型连接验证超时，请检查服务是否已启动"
-	}
-	return "模型连接验证失败，请检查 Provider 服务、模型名称与连接配置"
-}
-
 func (g *Gateway) HandleSelectModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Scope       string `json:"scope"`
@@ -153,22 +136,12 @@ func (g *Gateway) HandleSelectModel(w http.ResponseWriter, r *http.Request) {
 		selectionReply(w, 400, map[string]string{"error": "模型不存在、已禁用或工作区不可用"})
 		return
 	}
-	if providers.Get(model.Provider) == nil {
-		selectionReply(w, 400, map[string]string{"error": "Provider 协议不受支持，请检查模型配置"})
+	diagnostic := g.testModelContext(r.Context(), model)
+	if diagnostic.Status != "ok" {
+		selectionReply(w, http.StatusBadGateway, map[string]any{"error": diagnostic.Error, "diagnostic": diagnostic})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	content, _, _, err := g.callLLMContext(ctx, model, []map[string]string{{"role": "user", "content": "Reply with OK only."}}, "", 0, 128)
-	if err != nil {
-		selectionReply(w, 502, map[string]string{"error": safeSelectionProbeError(err)})
-		return
-	}
-	if strings.TrimSpace(content) == "" {
-		selectionReply(w, 502, map[string]string{"error": "模型未返回正文，未切换模型"})
-		return
-	}
-	if ctx.Err() != nil {
+	if r.Context().Err() != nil {
 		selectionReply(w, 504, map[string]string{"error": "模型验证已取消或超时，未切换模型"})
 		return
 	}
@@ -211,5 +184,5 @@ func (g *Gateway) HandleSelectModel(w http.ResponseWriter, r *http.Request) {
 		selectionFailure(w, err)
 		return
 	}
-	selectionReply(w, 200, map[string]any{"model_id": model.ID, "bound": true, "scope": body.Scope, "workspace_id": body.WorkspaceID, "session_id": body.SessionID})
+	selectionReply(w, 200, map[string]any{"model_id": model.ID, "bound": true, "scope": body.Scope, "workspace_id": body.WorkspaceID, "session_id": body.SessionID, "diagnostic": diagnostic})
 }

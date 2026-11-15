@@ -30,6 +30,7 @@ foreach ($Forbidden in @('config.yaml', 'models.yaml', 'data', 'logs', 'legacy',
 }
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSE') -Destination $Portable
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'frontend/public/assets/RhineLabUI-LICENSE.txt') -Destination $Portable
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'frontend/public/assets/Attachment-Dependencies-LICENSE.txt') -Destination $Portable
 New-Item -ItemType Directory -Path (Join-Path $Portable 'scripts') | Out-Null
 $OpenVino = Join-Path $Portable 'scripts/openvino'
 New-Item -ItemType Directory -Path $OpenVino | Out-Null

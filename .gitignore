@@ -37,6 +37,7 @@ Thumbs.db
 qa-output/
 .pytest_cache/
 *.lnk
+*.lnk.*.bak
 
 # Local environment credentials (keep distributable examples)
 .env
@@ -61,6 +62,7 @@ desktop/src-tauri/logs/
 *.markdown
 !/README.md
 !/LIMITATIONS.md
+!/CHANGELOG.md
 
 # Local reference checkout and personal planning exports
 /RhineLabUI/
@@ -93,6 +95,9 @@ coverage/
 !/frontend/tests/
 /frontend/tests/*
 !/frontend/tests/model-selection-ui.cjs
+!/frontend/tests/local-model-switch-ui.cjs
+!/frontend/tests/model-check-ui.cjs
+!/frontend/tests/project-knowledge.cjs
 !/frontend/tests/ui-regression.cjs
 !/frontend/tests/load-source.mjs
 **/testdata/
@@ -105,6 +110,7 @@ test_*.py
 !/frontend/tests/chat-workspace-runtime.test.mjs
 *.spec.*
 /scripts/test-*
+/scripts/verify-t11-t12.cjs
 backend/python/codelens/requirements-dev.txt
 !/backend/internal/evalrunner/public_validation_test.go
 !/backend/internal/gateway/public_selection_test.go

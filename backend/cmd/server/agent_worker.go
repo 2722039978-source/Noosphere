@@ -17,10 +17,12 @@ import (
 func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowledgeService *knowledge.Service, systemEnabled bool, actionStores ...*agent.Actions) {
 	manager.Register("agent", "interactive", func(ctx context.Context, ws workspaces.Workspace, input json.RawMessage, emit func(string, string, any)) (any, error) {
 		var args struct {
-			Goal            string `json:"goal"`
-			ModelID         string `json:"model_id"`
-			SessionID       string `json:"session_id"`
-			ReviewedActions bool   `json:"reviewed_actions"`
+			Goal            string                    `json:"goal"`
+			DisplayGoal     string                    `json:"display_goal"`
+			ModelID         string                    `json:"model_id"`
+			SessionID       string                    `json:"session_id"`
+			ReviewedActions bool                      `json:"reviewed_actions"`
+			AttachmentTurn  workspaces.AttachmentTurn `json:"attachment_turn"`
 		}
 		decoder := json.NewDecoder(bytes.NewReader(input))
 		decoder.DisallowUnknownFields()
@@ -90,8 +92,22 @@ func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowl
 		if args.ReviewedActions {
 			modeLabel = "Agent 操作提案模式已启动，执行前需确认"
 		}
+		if err := validate(); err != nil {
+			return nil, err
+		}
+		attachments, err := manager.PrepareAttachments(ctx, ws.ID, args.SessionID, args.AttachmentTurn)
+		if err != nil {
+			return nil, err
+		}
+		goal := args.Goal + attachments.Prompt()
+		if len(goal) > 32_000 {
+			return nil, fmt.Errorf("任务目标与附件节选过长，请缩短目标后重试")
+		}
+		if len(attachments.Citations) > 0 {
+			emit("attachments", "已准备附件引用", attachments)
+		}
 		emit("agent_started", modeLabel, map[string]any{"model_id": model.ID, "workspace_id": ws.ID, "max_model_calls": 6, "max_tool_calls": 12, "timeout_seconds": int(agent.RunTimeout.Seconds()), "model_timeout_seconds": int(agent.ModelTurnTimeout.Seconds())})
-		result, err := agent.Run(ctx, args.Goal, registry, func(ctx context.Context, messages []providers.ToolMessage, definitions []providers.ToolDefinition) (*providers.ToolResponse, error) {
+		result, err := agent.Run(ctx, goal, registry, func(ctx context.Context, messages []providers.ToolMessage, definitions []providers.ToolDefinition) (*providers.ToolResponse, error) {
 			return gw.ChatTools(ctx, model, ws.ID, messages, definitions)
 		}, emit, validate)
 		result.ModelID = model.ID

@@ -1,10 +1,12 @@
 pub mod services;
 pub mod types;
 pub mod gateway;
+pub mod attachments;
 pub(crate) mod stream;
 pub mod nebula;
 pub mod devops;
 pub mod codelens;
 pub mod workspaces;
+pub mod projects;
 pub mod model_engineering;
 pub mod model_selection;

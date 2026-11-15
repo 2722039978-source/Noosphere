@@ -7,19 +7,21 @@ const requireFrontend = createRequire(path.resolve(process.cwd(), 'package.json'
 async function main() {
   const viteEntry = requireFrontend.resolve('vite/package.json');
   const { createServer } = await import(pathToFileURL(path.join(path.dirname(viteEntry), 'dist/node/index.js')).href);
-  const vite = await createServer({ server: { host: '127.0.0.1', port: 0, strictPort: true } });
+  const vite = await createServer({ server: { host: '127.0.0.1', port: 0, strictPort: true, hmr: false, watch: null } });
   await vite.listen();
   try {
     const { port } = vite.httpServer.address();
-    const code = await new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, ['tests/model-selection-ui.cjs'], {
-        env: { ...process.env, QA_URL: `http://127.0.0.1:${port}/`, QA_BROWSER: process.env.QA_BROWSER || 'chromium' },
-        stdio: 'inherit',
+    for (const script of ['tests/model-selection-ui.cjs', 'tests/local-model-switch-ui.cjs', 'tests/model-check-ui.cjs', 'tests/project-knowledge.cjs']) {
+      const code = await new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [script], {
+          env: { ...process.env, QA_URL: `http://127.0.0.1:${port}/`, QA_BROWSER: process.env.QA_BROWSER || 'chromium' },
+          stdio: 'inherit',
+        });
+        child.once('error', reject);
+        child.once('exit', (status, signal) => signal ? reject(Error(signal)) : resolve(status));
       });
-      child.once('error', reject);
-      child.once('exit', (status, signal) => signal ? reject(Error(signal)) : resolve(status));
-    });
-    if (code !== 0) throw Error(`Browser tests exited with ${code}`);
+      if (code !== 0) throw Error(`${script} exited with ${code}`);
+    }
   } finally {
     await vite.close();
   }

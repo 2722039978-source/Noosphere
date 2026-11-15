@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -30,12 +31,15 @@ type OpenAIProvider struct {
 	apiKey         string
 	client         *http.Client
 	directResponse bool
+	openAIEndpoint bool
 }
 
 func NewOpenAI(baseURL, apiKey string) (LLMProvider, error) {
+	endpoint, _ := url.Parse(baseURL)
 	return &OpenAIProvider{
-		baseURL: baseURL,
-		apiKey:  apiKey,
+		baseURL:        baseURL,
+		apiKey:         apiKey,
+		openAIEndpoint: endpoint != nil && strings.EqualFold(endpoint.Hostname(), "api.openai.com"),
 		client: &http.Client{
 			Timeout: 120 * time.Second,
 			Transport: &http.Transport{
@@ -48,6 +52,15 @@ func NewOpenAI(baseURL, apiKey string) (LLMProvider, error) {
 }
 
 func (p *OpenAIProvider) Name() string { return "openai" }
+
+func (p *OpenAIProvider) applyChatOptions(body map[string]interface{}, model string, temperature float64, maxTokens int) {
+	if p.openAIEndpoint && (strings.HasPrefix(model, "o1") || strings.HasPrefix(model, "o3") || strings.HasPrefix(model, "o4") || strings.HasPrefix(model, "gpt-5")) {
+		body["max_completion_tokens"] = maxTokens
+		return
+	}
+	body["max_tokens"] = maxTokens
+	body["temperature"] = temperature
+}
 
 func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Message, opts ChatOptions) (*ChatResponse, error) {
 	msgs := make([]map[string]string, 0)
@@ -69,8 +82,9 @@ func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Mess
 
 	body := map[string]interface{}{
 		"model": model, "messages": msgs,
-		"max_tokens": maxT, "temperature": temp, "stream": false,
+		"stream": false,
 	}
+	p.applyChatOptions(body, model, temp, maxT)
 	if p.directResponse {
 		body["thinking"] = map[string]string{"type": "disabled"}
 	}
@@ -86,7 +100,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Mess
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 
-	resp, err := p.client.Do(req)
+	resp, err := sendChatRequest(p.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
@@ -97,16 +111,17 @@ func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Mess
 		return nil, fmt.Errorf("read: %w", err)
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		message := p.redact(string(respBody))
 		limit := len(message)
 		if limit > 300 {
 			limit = 300
 		}
-		return nil, fmt.Errorf("upstream %d: %s", resp.StatusCode, message[:limit])
+		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: message[:limit]}
 	}
 
 	var result struct {
+		Model   string `json:"model"`
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
@@ -129,7 +144,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Mess
 		return nil, fmt.Errorf("upstream returned no answer content; check model/output settings")
 	}
 	return &ChatResponse{
-		Content: content, TokensIn: result.Usage.PromptTokens,
+		Content: content, Model: result.Model, TokensIn: result.Usage.PromptTokens,
 		TokensOut: result.Usage.CompletionTokens,
 	}, nil
 }
@@ -154,8 +169,9 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, model string, messages 
 
 	body := map[string]interface{}{
 		"model": model, "messages": msgs,
-		"max_tokens": maxT, "temperature": temp, "stream": true,
+		"stream": true,
 	}
+	p.applyChatOptions(body, model, temp, maxT)
 	if p.directResponse {
 		body["thinking"] = map[string]string{"type": "disabled"}
 	}
@@ -171,18 +187,18 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, model string, messages 
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 
-	resp, err := p.client.Do(req)
+	resp, err := sendChatRequest(p.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch: %w", err)
 	}
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, int64(4096+len(p.apiKey))))
 		resp.Body.Close()
 		message := p.redact(string(b))
 		if len(message) > 4096 {
 			message = message[:4096]
 		}
-		return nil, fmt.Errorf("upstream %d: %s", resp.StatusCode, message)
+		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: message}
 	}
 
 	ch := make(chan StreamChunk, 64)

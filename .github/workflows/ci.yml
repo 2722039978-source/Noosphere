@@ -146,5 +146,5 @@ jobs:
             if (-not $Seen.ContainsKey($Name)) { throw "Missing $Name" }
           }
           $Assets = @($Expected | ForEach-Object { $Seen[$_] }) + @($Manifest[0].FullName, (Join-Path $AssetRoot 'build-info.json'))
-          gh release create $env:GITHUB_REF_NAME @Assets --verify-tag --generate-notes
+          gh release create $env:GITHUB_REF_NAME @Assets --verify-tag --notes-from-tag --title "Noosphere v$Version"
           if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed.' }

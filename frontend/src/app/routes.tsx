@@ -1,5 +1,5 @@
-import { lazy, Suspense, type ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppLayout } from "./layout";
 import { LoadingState } from "@/components/ui/feedback";
 import { ArchiveReturn } from './ArchiveReturn';
@@ -11,6 +11,8 @@ const CodeLensPage = lazy(() => import("@/features/codelens/CodeLensPage").then(
 const DevOpsPage = lazy(() => import("@/features/devops/DevOpsPage").then((m) => ({ default: m.DevOpsPage })));
 const SettingsPage = lazy(() => import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const ModelHubPage = lazy(() => import('@/features/model-lab/ModelHubPage').then(m => ({ default: m.ModelHubPage })));
+const LocalModelsPage = lazy(() => import('@/features/gateway/LocalModelsPage').then(m => ({ default: m.LocalModelsPage })));
+const ModelCheckPage = lazy(() => import('@/features/model-lab/ModelCheckPage').then(m => ({ default: m.ModelCheckPage })));
 const ModelLabPage = lazy(() => import('@/features/model-lab/ModelLabPage').then(m => ({ default: m.ModelLabPage })));
 const DatasetManagerPage = lazy(() => import('@/features/model-lab/DatasetManagerPage').then(m => ({ default: m.DatasetManagerPage })));
 const EvaluationReportPage = lazy(() => import('@/features/model-lab/EvaluationReportPage').then(m => ({ default: m.EvaluationReportPage })));
@@ -18,10 +20,20 @@ const EvaluationReportPage = lazy(() => import('@/features/model-lab/EvaluationR
 const ReleaseCenterPage = lazy(() => import('@/features/modelops/ReleaseCenterPage').then(m => ({ default: m.ReleaseCenterPage })));
 const ReleaseDetailPage = lazy(() => import('@/features/modelops/ReleaseDetailPage').then(m => ({ default: m.ReleaseDetailPage })));
 
+function PageAnchor() {
+  const { pathname, hash, key } = useLocation();
+  useEffect(() => {
+    const id = hash.slice(1) || (pathname === '/settings' ? 'settings-start' : pathname === '/codelens' ? 'codelens-start' : '');
+    if (id) document.getElementById(id)?.scrollIntoView({ block: 'start', inline: 'nearest' });
+  }, [pathname, hash, key]);
+  return null;
+}
+
 function Screen({ children }: { children: ReactNode }) {
   return (
     <Suspense fallback={<LoadingState className="h-full" label="正在打开工作区…" />}>
       {children}
+      <PageAnchor />
     </Suspense>
   );
 }
@@ -39,7 +51,9 @@ export function AppRoutes() {
         <Route path="/codelens" element={<Screen><CodeLensPage /></Screen>} />
         <Route path="/devops" element={<Screen><DevOpsPage /></Screen>} />
         <Route path="/settings" element={<Screen><SettingsPage /></Screen>} />
-        <Route path="/model-hub" element={<Screen><ModelHubPage /></Screen>} />
+        <Route path="/model-hub" element={<Screen><LocalModelsPage /></Screen>} />
+        <Route path="/model-hub/config" element={<Screen><ModelHubPage /></Screen>} />
+        <Route path="/model-check" element={<Screen><ModelCheckPage /></Screen>} />
         <Route path="/model-lab" element={<Screen><ModelLabPage /></Screen>} />
         <Route path="/model-lab/datasets" element={<Screen><DatasetManagerPage /></Screen>} />
         <Route path="/evaluation-reports" element={<Screen><EvaluationReportPage /></Screen>} />

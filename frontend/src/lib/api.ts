@@ -2,11 +2,11 @@
  * 类型安全的 Tauri IPC 客户端
  * 类型与 src-tauri/src/commands/types.rs 一一对齐 (Rust serde 直接返回结构化对象)
  */
-import { invoke as desktopInvoke, type Channel } from "@tauri-apps/api/core";
+import { invoke as desktopInvoke, type Channel, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
 
-function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
   if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return Promise.reject(new Error('当前为浏览器预览，请在 Noosphere 桌面应用中连接本地服务。'));
-  return desktopInvoke<T>(command, args);
+  return desktopInvoke<T>(command, args, options);
 }
 
 // ============ 错误 ============
@@ -86,6 +86,23 @@ export interface ModelSelectionResult {
   session_id: string;
   model_id: string;
   bound: boolean;
+}
+
+export interface DiscoveredModel { id: string; name: string; loaded?: boolean; downloaded?: boolean; vision?: boolean }
+export interface ModelDiagnostic {
+  status: 'ok' | 'error'; model: string; provider: string; endpoint: string;
+  service: 'online' | 'offline' | 'unknown'; model_discovery: 'found' | 'missing' | 'unknown';
+  model_loaded: 'loaded' | 'not_loaded' | 'unknown'; inference: 'succeeded' | 'failed' | 'skipped';
+  stage: string; code?: string; error?: string; http_status?: number; latency_ms?: number;
+  reported_model?: string;
+  models?: DiscoveredModel[]; checks?: { stage: string; endpoint: string; status: string; http_status?: number; code?: string }[];
+}
+export type LocalEngineId = 'ollama' | 'lm_studio' | 'bonsai' | 'deepseek_local';
+export type LocalEngineAction = 'start' | 'stop' | 'restart' | 'switch';
+export interface LocalEngine {
+  id: LocalEngineId; name: string; provider: string; base_url: string;
+  installed: boolean; can_start?: boolean; managed: boolean; state: 'missing' | 'stopped' | 'starting' | 'online' | 'unavailable';
+  models: DiscoveredModel[]; version?: string; code?: string; error?: string; log_path?: string; directory?: string;
 }
 
 export interface ChatMessageParam {
@@ -174,19 +191,35 @@ export interface Workspace {
 }
 export interface KnowledgeSource {
   kind: 'note' | 'chat' | 'file'; file?: string; start_line?: number; end_line?: number;
-  source_hash?: string; project_path?: string; session_id?: string; message_id?: string;
+  source_hash?: string; project_path?: string; session_id?: string; message_id?: string; excerpt?: string;
 }
 export interface KnowledgeMemory {
   id: string; workspace_id: string; content: string;
   category: 'convention' | 'decision' | 'preference' | 'solution';
-  status: 'proposed' | 'confirmed' | 'rejected' | 'superseded'; revision: number;
+  status: 'proposed' | 'confirmed' | 'paused' | 'rejected' | 'superseded'; revision: number;
   source: KnowledgeSource; created_at: string; updated_at: string;
   valid_until?: string; supersedes?: string; supersedes_revision?: number; superseded_by?: string; inactive_reason?: string;
 }
+interface KnowledgeRevisionScope {
+  revision: number;
+  expected_project_path: string;
+}
+export interface KnowledgeRevisionProposal {
+  before: KnowledgeMemory;
+  after: string;
+}
 export interface ContextCitation {
-  id: string; kind: 'code' | 'memory' | 'artifact'; title: string; excerpt: string; workspace_id: string;
+  id: string; kind: 'code' | 'memory' | 'artifact' | 'attachment'; title: string; excerpt: string; workspace_id: string;
   project_id?: string; file?: string; start_line?: number; end_line?: number;
   source_hash?: string; symbol?: string; memory_id?: string; revision?: number; artifact_id?: string;
+  attachment_id?: string; page?: number;
+}
+
+export interface ChatAttachment {
+  id: string; name: string; size: number; source_hash: string;
+}
+export interface ChatAttachmentTurn {
+  message_id: string; ids: string[]; question: string;
 }
 
 export interface SourceLocation {
@@ -242,6 +275,8 @@ export interface WorkspaceRun {
   reference_id?: string;
   reference_generation?: number;
   title: string;
+  goal?: string;
+  project?: { path: string; id: string };
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   phase: string;
   error: string;
@@ -268,11 +303,16 @@ export const api = {
   listAgentActions: (workspaceId:string,runId:string) => invoke<{actions:AgentAction[]}>('list_agent_actions',{workspaceId,runId}),
   decideAgentAction: (workspaceId:string,id:string,decision:string) => invoke<AgentAction>('decide_agent_action',{workspaceId,id,decision}),
   listKnowledge: (workspaceId: string) => invoke<{ memories: KnowledgeMemory[] }>('list_knowledge', { workspaceId }),
-  saveKnowledge: (workspaceId: string, memory: Partial<KnowledgeMemory> & Pick<KnowledgeMemory, 'content' | 'category' | 'source'>) => invoke<KnowledgeMemory>('save_knowledge', { workspaceId, memory }),
+  saveKnowledge: (workspaceId: string, memory: Partial<KnowledgeMemory> & Pick<KnowledgeMemory, 'content' | 'category' | 'source'> & { expected_project_path?: string }) => invoke<KnowledgeMemory>('save_knowledge', { workspaceId, memory }),
+  suggestKnowledgeRevision: (workspaceId: string, memoryId: string, input: KnowledgeRevisionScope & { instruction: string; session_id?: string; model_id?: string }) => invoke<KnowledgeRevisionProposal>('suggest_knowledge_revision', { workspaceId, memoryId, input }),
+  deleteKnowledge: (workspaceId: string, memoryId: string, input: KnowledgeRevisionScope) => invoke<{ deleted: boolean }>('delete_knowledge', { workspaceId, memoryId, input }),
   prepareContext: (workspaceId: string, query: string) => invoke<PreparedContext>('prepare_context', { workspaceId, query }),
   listWorkspaces: () => invoke<{ workspaces: Workspace[] }>('list_workspaces'),
+  projectLaunchCandidate: () => invoke<string | null>('project_launch_candidate'),
+  pickProjectFolder: () => invoke<string | null>('pick_project_folder'),
+  openProjectWorkspace: (path: string) => invoke<Workspace>('open_project_workspace', { path }),
   saveWorkspace: (workspace: Partial<Workspace> & Pick<Workspace, 'name' | 'project_path' | 'default_model_id'>) => invoke<Workspace>('save_workspace', { workspace }),
-  listWorkspaceRuns: (workspaceId: string) => invoke<{ runs: WorkspaceRun[] }>('list_workspace_runs', { workspaceId }),
+  listWorkspaceRuns: (workspaceId: string, tasksOnly = false) => invoke<{ runs: WorkspaceRun[] }>('list_workspace_runs', { workspaceId, tasksOnly }),
   submitWorkspaceRun: (workspaceId: string, kind: WorkspaceRun['kind'], title: string, input: unknown) => invoke<WorkspaceRun>('submit_workspace_run', { workspaceId, kind, title, input }),
   getWorkspaceRun: (id: string) => invoke<WorkspaceRun>('get_workspace_run', { id }),
   getRunEvents: (id: string, after = 0) => invoke<{ events: RunEvent[] }>('get_run_events', { id, after }),
@@ -286,7 +326,11 @@ export const api = {
   getModels: () => invoke<ModelsResponse>("get_models"),
   selectModel: (selection: ModelSelection) => invoke<ModelSelectionResult>('select_model', { selection }),
   getModelSelection: (workspaceId: string, sessionId: string) => invoke<ModelSelectionResult>('get_model_selection', { workspaceId, sessionId }),
-  testModel: (id: string) => invoke<{ status: string; latency_ms?: number; error?: string }>("test_model", { id }),
+  testModel: (id: string) => invoke<ModelDiagnostic>("test_model", { id }),
+  probeModel: (model: ModelConfig, infer = true) => invoke<ModelDiagnostic>('probe_model', { model, infer }),
+  listLocalEngines: (workspacePath = '') => invoke<{ engines: LocalEngine[] }>('list_local_engines', { workspacePath }),
+  controlLocalEngine: (engineId: LocalEngineId, action: LocalEngineAction, directory?: string) => invoke<LocalEngine>('control_local_engine', { engineId, action, directory }),
+  localEngineLog: (engineId: LocalEngineId) => invoke<{ path: string; content: string }>('local_engine_log', { engineId }),
   addModel: (model: ModelConfig) => invoke("add_model", { model }),
   deleteModel: (id: string) => invoke("delete_model", { id }),
   chat: (
@@ -356,6 +400,15 @@ export const api = {
   codelensGetArtifact: (workspaceId: string, id: string) =>
     invoke<ArtifactRecord>('codelens_get_artifact', { workspaceId, id }),
 
+  stageChatAttachment: (metadata: { workspace_id: string; session_id: string; project_path: string; id: string; name: string }, bytes: ArrayBuffer) =>
+    invoke<ChatAttachment>('stage_chat_attachment', bytes, { headers: { 'x-noosphere-attachment': encodeURIComponent(JSON.stringify(metadata)) } }),
+  discardChatAttachment: (workspaceId: string, sessionId: string, id: string) =>
+    invoke('discard_chat_attachment', { workspaceId, sessionId, id }),
+  prepareChatAttachments: (workspaceId: string, sessionId: string, turn: ChatAttachmentTurn) =>
+    invoke<{ citations: ContextCitation[] }>('prepare_chat_attachments', { workspaceId, sessionId, turn }),
+  deleteSessionAttachments: (workspaceId: string, sessionId: string) =>
+    invoke('delete_session_attachments', { workspaceId, sessionId }),
+
   // 流式对话: Channel 直接传递结构化 StreamChunk
   chatStream: (
     requestId: string,
@@ -363,8 +416,10 @@ export const api = {
     onEvent: Channel<StreamChunk>,
     modelId?: string,
     workspaceId?: string,
-    sessionId?: string
-  ) => invoke("gateway_chat_stream", { requestId, messages, onEvent, modelId: modelId ?? null, workspaceId: workspaceId ?? null, sessionId: sessionId ?? null }),
+    sessionId?: string,
+    attachmentTurn?: ChatAttachmentTurn,
+    preview?: boolean,
+  ) => invoke("gateway_chat_stream", { requestId, messages, onEvent, modelId: modelId ?? null, workspaceId: workspaceId ?? null, sessionId: sessionId ?? null, attachmentTurn: attachmentTurn ?? null, ...(preview ? { preview } : {}) }),
   cancelChat: (requestId: string) => invoke("gateway_chat_cancel", { requestId }),
 };
 

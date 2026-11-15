@@ -1,0 +1,38 @@
+.ns-workbench { padding: 0 6px 6px 0; background: light-dark(#f3efeb, #191817); color: var(--text-1); }
+html:not(.dark) .ns-reference-shell.ns-workbench {
+  --bg-app: #fbf8f5;
+  --bg-raised: #faf6f2;
+  --bg-elevated: #fdfaf7;
+  --bg-input: #fbf8f5;
+  --border-soft: #e9e0d9;
+  --border-subtle: #eee6df;
+  --border-strong: #ded3ca;
+  --text-1: #27221e;
+  --text-2: #544a42;
+  --text-3: #71655d;
+  --brand: #8d5c35;
+  --brand-bright: #754827;
+  --brand-dim: #ede4dc;
+}
+.ns-workbench-frame { overflow: hidden; min-height: 0; border: 1px solid var(--border-soft); border-radius: 15px; background: var(--bg-app); }
+.ns-tool-rail { width: clamp(54px, 5.15vw, 82px); display: flex; flex: none; flex-direction: column; align-items: center; gap: clamp(8px, 1.65vh, 16px); padding-block: 28px 10px; overflow-y: auto; scrollbar-width: none; }
+.ns-rail-button { display: grid; place-items: center; flex: none; width: clamp(37px, 3.6vw, 49px); height: clamp(37px, 3.6vw, 49px); border-radius: 14px; color: var(--text-1); transition: color 140ms, background 140ms; }
+.ns-rail-button svg { width: clamp(19px, 1.7vw, 25px); height: auto; stroke-width: 1.75; }
+.ns-rail-button:hover, .ns-rail-button:focus-visible { background: var(--brand-dim); }
+.ns-rail-button[aria-current="page"], .ns-rail-button[aria-expanded="true"] { background: var(--brand-dim); color: var(--brand); }
+.ns-rail-button[aria-current="page"] svg { stroke-width: 2.1; }
+.ns-rail-button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.ns-rail-button:disabled { opacity: .45; }
+.ns-workbench .ns-workspace-column { background: var(--bg-app); }
+.ns-workbench .ns-project-mobile-header { min-height: 44px; }
+.ns-section-links { padding-top: 4px; }
+.ns-section-links a { display: flex; align-items: center; min-height: 39px; padding: 6px 12px; border-radius: 9px; color: var(--text-2); font-size: 14px; }
+.ns-section-links a + a { margin-top: 3px; }
+.ns-section-links a:hover { background: var(--bg-app); }
+.ns-section-links a[aria-current="page"] { color: var(--brand-bright); background: var(--brand-dim); font-weight: 550; }
+@media (max-width: 639px) {
+  .ns-workbench { padding: 0 4px 4px 0; }
+  .ns-tool-rail { width: 47px; gap: 6px; padding-top: 8px; }
+  .ns-rail-button { width: 34px; height: 35px; border-radius: 10px; }
+  .ns-workbench-frame { border-radius: 10px; }
+}

@@ -3,7 +3,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
-import { Check, Copy, RefreshCw } from "lucide-react";
+import { Check, Copy, Paperclip, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { ChatMessage } from "./chat-store";
@@ -132,6 +132,11 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
         <div className="ns-message-body whitespace-pre-wrap text-text-1">
           {message.content}
         </div>
+        {!!message.attachments?.length && <ul aria-label="消息附件" className="mt-2 flex flex-wrap gap-2 text-xs text-text-2">
+          {message.attachments.map(file => <li key={file.id} title={file.name} className="flex max-w-full items-center gap-1.5 rounded-md bg-secondary px-2 py-1">
+            <Paperclip aria-hidden="true" className="size-3.5 shrink-0" /><span className="truncate">{file.name}</span>
+          </li>)}
+        </ul>}
       </div>
     );
   }

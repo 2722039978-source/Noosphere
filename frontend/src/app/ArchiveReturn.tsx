@@ -46,9 +46,8 @@ export function ArchiveReturn({ children }: { children: (location: Location) => 
     <div className="ns-return-stage" data-phase={transition?.phase ?? 'idle'} style={{ '--module-accent': source?.accent ?? '#9b754c' } as React.CSSProperties}>
       <div className="ns-return-content" {...(transition ? { inert: '' } : {})}>{children(transition ? displayed : location)}</div>
       {transition && <div className={`ns-dossier-handoff ns-return-handoff is-${transition.phase}`} role="status" aria-live="polite">
-        <span>FILE / {source?.number ?? 'OS'} · RETURN TO ARCHIVE</span>
-        <strong>{source?.name ?? '工作区设置'}</strong>
-        <small>{transition.phase === 'loading' ? '正在恢复工作台…' : '返回工作台'}</small>
+        <strong>功能介绍</strong>
+        {transition.phase === 'loading' && <small>正在加载动画…</small>}
         <i className="ns-return-rule" aria-hidden="true" />
       </div>}
     </div>

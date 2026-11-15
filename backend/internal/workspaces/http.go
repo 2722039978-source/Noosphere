@@ -49,6 +49,7 @@ func decode(w http.ResponseWriter, r *http.Request, value any) error {
 }
 
 func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
+	m.registerAttachmentRoutes(mux)
 	mux.HandleFunc("GET /api/workspaces", func(w http.ResponseWriter, r *http.Request) {
 		items, e := m.Workspaces()
 		if e != nil {
@@ -70,8 +71,23 @@ func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
 		}
 		respond(w, 200, item)
 	})
+	mux.HandleFunc("POST /api/workspaces/open", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Path string `json:"path"`
+		}
+		if err := decode(w, r, &input); err != nil {
+			respondError(w, err)
+			return
+		}
+		item, err := m.OpenProject(input.Path)
+		if err != nil {
+			respondError(w, err)
+			return
+		}
+		respond(w, http.StatusOK, item)
+	})
 	mux.HandleFunc("GET /api/workspaces/{id}/runs", func(w http.ResponseWriter, r *http.Request) {
-		items, e := m.Runs(r.PathValue("id"))
+		items, e := m.runs(r.PathValue("id"), r.URL.Query().Get("tasks_only") == "true")
 		if e != nil {
 			respondError(w, e)
 			return

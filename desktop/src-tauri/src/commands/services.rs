@@ -21,6 +21,10 @@ pub(crate) fn api_get<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {
 }
 
 pub(crate) fn api_post<T: DeserializeOwned>(path: &str, body: &str) -> Result<T, ApiError> {
+    parse_body(&api_post_response(path, body)?)
+}
+
+pub(crate) fn api_post_response(path: &str, body: &str) -> Result<String, ApiError> {
     let connection = crate::runtime::backend_connection()?;
     let resp = crate::runtime::local_agent().post(&format!("{}{path}", connection.base))
         .set("Authorization", &connection.authorization())
@@ -28,10 +32,8 @@ pub(crate) fn api_post<T: DeserializeOwned>(path: &str, body: &str) -> Result<T,
         .timeout(Duration::from_secs(180))
         .send_string(body)
         .map_err(|e| ApiError::new(format!("request failed: {e}")))?;
-    let body = resp
-        .into_string()
-        .map_err(|e| ApiError::new(format!("read body: {e}")))?;
-    parse_body(&body)
+    resp.into_string()
+        .map_err(|e| ApiError::new(format!("read body: {e}")))
 }
 
 pub(crate) fn api_delete<T: DeserializeOwned>(path: &str) -> Result<T, ApiError> {
@@ -45,10 +47,6 @@ pub(crate) fn api_delete<T: DeserializeOwned>(path: &str) -> Result<T, ApiError>
         .into_string()
         .map_err(|e| ApiError::new(format!("read body: {e}")))?;
     parse_body(&body)
-}
-
-fn encode<T: serde::Serialize>(body: &T) -> Result<String, ApiError> {
-    serde_json::to_string(body).map_err(|e| ApiError::new(format!("encode request: {e}")))
 }
 
 #[tauri::command]
@@ -70,8 +68,4 @@ pub fn check_health() -> Result<HealthResponse, ApiError> {
 #[tauri::command]
 pub fn get_backend_status(state: State<ServiceState>) -> Result<BackendStatus, ApiError> {
     Ok(state.status())
-}
-
-pub(crate) fn req_body<T: serde::Serialize>(body: &T) -> String {
-    encode(body).unwrap_or_default()
 }

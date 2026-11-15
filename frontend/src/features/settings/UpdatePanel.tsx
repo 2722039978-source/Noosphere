@@ -67,9 +67,9 @@ export function UpdatePanel() {
   }
 
   return (
-    <Surface className="px-6 py-5">
+    <Surface id="app-update" className="px-6 py-5">
       <h2 className="text-[15px] font-semibold text-text-1">软件更新</h2>
-      <p className="mt-2 text-[13px] text-text-2">从官方 GitHub Release 下载完整安装包。安装前请关闭 Noosphere。</p>
+      <p className="mt-2 text-[13px] text-text-2">安装前请关闭 Noosphere。</p>
       <div className="mt-4 flex flex-wrap gap-3">
         <Button variant="outline" disabled={!!busy} onClick={() => void check()}>{busy === "check" ? "正在检查…" : "检查更新"}</Button>
         {info?.installer_available && (

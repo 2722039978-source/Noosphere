@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from 'react-router-dom';
 import { DiagnosticAgentPanel } from './DiagnosticAgentPanel';
 import {
   Activity,
@@ -36,6 +37,8 @@ interface DiagResult {
 }
 
 export function DevOpsPage() {
+  const [search] = useSearchParams();
+  const diagnostics = search.get('view') === 'diagnostics';
   const backend = useBackend();
   const { diagnose, modules } = backend;
   const [metrics, setMetrics] = useState<SystemMetrics | null>(() => backend.metrics);
@@ -73,11 +76,11 @@ export function DevOpsPage() {
   }, []);
 
   useEffect(() => {
-    if (!automatic) return;
+    if (!automatic || diagnostics) return;
     const initial = window.setTimeout(() => { void refreshMetrics(); }, 0);
     const timer = window.setInterval(() => { if (automaticRef.current && !document.hidden) void refreshMetrics(); }, 5000);
     return () => { window.clearTimeout(initial); window.clearInterval(timer); };
-  }, [automatic, refreshMetrics]);
+  }, [automatic, diagnostics, refreshMetrics]);
 
   const toggleSampling = () => {
     const next = !automaticRef.current;
@@ -99,15 +102,6 @@ export function DevOpsPage() {
     }
   };
 
-  const completeUsage = [metrics?.cpu?.usage_percent, metrics?.memory?.usage_percent, metrics?.disk?.usage_percent].every(isMetric);
-  const healthPct = metrics && completeUsage
-    ? Math.round(
-        metrics.cpu.usage_percent * 0.4 +
-        metrics.memory.usage_percent * 0.4 +
-        metrics.disk.usage_percent * 0.2
-      )
-    : null;
-  const healthVariant = healthPct == null ? 'secondary' : healthPct < 50 ? "ok" : healthPct < 80 ? "warn" : "err";
   const displayTime = updatedAt && !Number.isNaN(Date.parse(updatedAt)) ? new Date(updatedAt).toLocaleTimeString([], { hour12: false }) : null;
 
   return (
@@ -116,28 +110,17 @@ export function DevOpsPage() {
         <PageHeader
           icon={<Activity size={20} />}
           accent="var(--acc-devops)"
-          title="DevOps"
-          subtitle="系统健康中心 · CPU、内存、磁盘、服务与智能诊断"
-          actions={
-            <>
-              <Badge variant={healthVariant} className="text-xs">
-                {healthPct != null ? `综合负载 ${healthPct}%` : metrics ? '指标未完整' : "等待指标"}
-              </Badge>
-              <Button onClick={handleDiagnose} disabled={diagnosing} className="gap-1.5">
-                <Stethoscope size={14} /> {diagnosing ? "诊断中…" : "一键诊断"}
-              </Button>
-            </>
-          }
+          title={diagnostics ? '诊断工具' : '系统资源'}
+          actions={diagnostics && <Button onClick={handleDiagnose} disabled={diagnosing} className="gap-1.5">
+            <Stethoscope size={14} /> {diagnosing ? "诊断中…" : "一键诊断"}
+          </Button>}
         />
 
-        {/* 系统指标 */}
-        <DiagnosticAgentPanel />
-        <section className="ns-devops-monitor" aria-label="系统资源采样">
+        {!diagnostics && <section className="ns-devops-monitor" aria-label="系统资源采样">
           <div className="ns-sampling-toolbar">
-            <div className="ns-sampling-summary"><h2>系统资源</h2><span data-testid="metrics-sampling-state" data-paused={!automatic}>{automatic ? '自动采样 · 每 5 秒' : '自动采样已暂停'}</span><span data-testid="metrics-updated-at">{displayTime ? <>更新于 <time dateTime={updatedAt!}>{displayTime}</time></> : '尚未取得采样'}</span></div>
+            <div className="ns-sampling-summary"><span data-testid="metrics-sampling-state" data-paused={!automatic}>{automatic ? '自动更新' : '已暂停更新'}</span><span data-testid="metrics-updated-at">{displayTime ? <>更新于 <time dateTime={updatedAt!}>{displayTime}</time></> : '等待数据…'}</span></div>
             <div className="ns-sampling-actions"><Button variant="outline" size="sm" aria-label={automatic ? '暂停自动采样' : '恢复自动采样'} onClick={toggleSampling}>{automatic ? <Pause size={13} /> : <Play size={13} />}{automatic ? '暂停采样' : '恢复采样'}</Button><Button variant="outline" size="sm" aria-label="手动刷新系统指标" disabled={refreshing} onClick={() => void refreshMetrics()}><RefreshCw size={13} />{refreshing ? '刷新中…' : '手动刷新'}</Button></div>
           </div>
-          {!automatic && <p className="ns-sampling-note">已停止本页自动采集，当前保留上次样本；可手动刷新。服务健康检查仍继续。</p>}
           {metricsError && <p role="alert" className="ns-form-error">最近一次采样失败{metrics ? '，当前保留上次样本' : ''}：{metricsError}</p>}
         <div className="ns-devops-metrics">
           <MetricCard
@@ -168,12 +151,13 @@ export function DevOpsPage() {
             sub={isMetric(metrics?.process_count) ? '运行中' : '进程数未提供'}
           />
         </div>
-        </section>
+        </section>}
 
-        {/* 智能体模块 */}
-        <Surface className="px-6 py-5">
-          <h2 className="text-[15px] font-semibold text-text-1">智能体模块</h2>
-          <div className="mt-4 flex flex-col gap-1">
+        {diagnostics && <>
+        <DiagnosticAgentPanel />
+        <details className="ns-record-detail">
+          <summary>服务状态</summary>
+          <div className="ns-detail-body flex flex-col gap-1">
             {Object.entries(modules).map(([name, m]) => {
               const running = m.state === "running";
               const errored = m.state === "error";
@@ -198,10 +182,10 @@ export function DevOpsPage() {
               );
             })}
             {Object.keys(modules).length === 0 && (
-              <p className="px-3 py-4 text-xs text-text-3">正在加载模块状态…</p>
+              <p className="px-3 py-4 text-xs text-text-3">正在读取服务状态…</p>
             )}
           </div>
-        </Surface>
+        </details>
 
         {/* 诊断结果 */}
         {diagnosisError && <p role="alert" className="ns-form-error">{diagnosisError}</p>}
@@ -233,6 +217,7 @@ export function DevOpsPage() {
             </div>
           </Surface>
         )}
+        </>}
       </div>
     </div>
   );

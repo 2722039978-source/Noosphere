@@ -1,7 +1,7 @@
 // Route chunks start loading while the selected archive travels into the workspace.
 export const workspaceLoaders = {
   '/chat': () => import('@/features/chat/ChatPage'),
-  '/model-hub': () => import('@/features/model-lab/ModelHubPage'),
+  '/model-hub': () => import('@/features/gateway/LocalModelsPage'),
   '/codelens': () => import('@/features/codelens/CodeLensPage'),
   '/nebula': () => import('@/features/nebula/NebulaPage'),
   '/devops': () => import('@/features/devops/DevOpsPage'),

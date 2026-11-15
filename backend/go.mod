@@ -5,6 +5,11 @@ go 1.26.5
 require gopkg.in/yaml.v3 v3.0.1
 
 require (
+	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
+	golang.org/x/text v0.44.0
+)
+
+require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

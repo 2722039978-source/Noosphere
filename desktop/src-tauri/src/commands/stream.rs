@@ -138,7 +138,10 @@ where
         let text = response.text().await.unwrap_or_default();
         let detail = serde_json::from_str::<Value>(&text)
             .ok()
-            .and_then(|value| value.get("error")?.as_str().map(str::to_owned));
+            .and_then(|value| {
+                let error = value.get("error")?;
+                error.as_str().or_else(|| error.get("message")?.as_str()).map(str::to_owned)
+            });
         return Outcome::Failed(detail.unwrap_or_else(|| format!("stream HTTP {status}")));
     }
 

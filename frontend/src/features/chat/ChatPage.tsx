@@ -1,22 +1,39 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUpRight } from "lucide-react";
+import { ArrowDown, ArrowUpRight, Bookmark, CircleCheck, CodeXml, FolderOpen } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useBackend } from "@/hooks/useBackend";
 import { useChatStore, useChatPersistence } from "./chat-store";
 import { cancelGeneration, sendChat, useGenerationStore } from "./chat-runtime";
 import { ChatInput, type ChatSubmitOptions } from "./ChatInput";
 import { Button } from "@/components/ui/button";
+import { BrandMark } from "@/components/BrandMark";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { LoadingState } from "@/components/ui/feedback";
 import { useWorkspaceStore } from "@/stores/workspace-store";
+import { useUiStore } from '@/stores/ui-store';
 import { activeWorkspaceSession, sessionsInWorkspace } from "./chat-backup";
 import { consumedModelChatState, modelChatSessionPlan, readModelChatIntent, resolveModelChatIntent } from './model-chat-intent';
 import { chatCapabilityBlocker, selectedChatModel } from '@/lib/model-capabilities';
 import { generationLabel } from './chat-progress';
+import { api, errMessage, type ModelConfig } from '@/lib/api';
+import { engineIdentity, useEnginePreferences, useLocalEngines } from '@/features/gateway/local-engine';
+import { isLocalModel, localEngineForModel, localEngineName, localModelChoices, modelConnectionKey, needsModelSetup, portableConflict, type LocalModelChoice, type ModelTarget } from '@/features/gateway/local-model-match';
+import { ConversationMemory, memoryRevisionInstruction, type MemoryRevisionRequest } from './ConversationMemory';
 import './chat-layout.css';
 
 const MessageBubble = lazy(() => import("./MessageBubble").then((module) => ({ default: module.MessageBubble })));
+const ModelConnectionWizard = lazy(() => import('@/features/gateway/ModelConnectionWizard').then(module => ({ default: module.ModelConnectionWizard })));
+const TaskConversation = lazy(() => import('./TaskConversation').then(module => ({ default: module.TaskConversation })));
 
 export function ChatPage() {
+  const location = useLocation();
+  const workspaceId = useWorkspaceStore(state => state.activeId);
+  const task = new URLSearchParams(location.search).get('task');
+  if (task && task !== 'new') return <Suspense fallback={<LoadingState label="正在打开任务…" />}><TaskConversation key={`${workspaceId}:${task}`} runId={task} /></Suspense>;
+  return <ChatConversation taskDraft={task === 'new'} />;
+}
+
+function ChatConversation({ taskDraft }: { taskDraft: boolean }) {
   const ready = useChatPersistence((state) => state.ready);
   const { models, modelsReady, modelsError, loadModels } = useBackend();
   const location = useLocation();
@@ -25,6 +42,7 @@ export function ChatPage() {
   const workspaceId = useWorkspaceStore(state => state.activeId);
   const workspaceReady = useWorkspaceStore(state => state.hydrated);
   const workspaceName = useWorkspaceStore(state => state.workspaces.find(item => item.id === state.activeId)?.name ?? '本地工作区');
+  const projectPath = useWorkspaceStore(state => state.workspaces.find(item => item.id === state.activeId)?.project_path ?? '');
   const workspaceModelId = useWorkspaceStore(state => state.workspaces.find(item => item.id === state.activeId)?.default_model_id ?? '');
   const sessions = useMemo(() => sessionsInWorkspace(allSessions, workspaceId), [allSessions, workspaceId]);
   const activeId = useChatStore((state) => state.activeId);
@@ -53,11 +71,52 @@ export function ChatPage() {
   const intentPending = !!intent && intentResolution.status !== 'consumed';
   const usableModels = useMemo(() => models.filter(model => model.enabled !== false), [models]);
   const session = sessions.find(item => item.id === activeId);
-  const chatKey = `${workspaceId}:${session?.id ?? ''}`;
+  const draftSessionId = useMemo(() => crypto.randomUUID(), [workspaceId, session?.id]);
+  const composerSessionId = session?.id ?? draftSessionId;
+  const chatKey = `${workspaceId}:${composerSessionId}`;
+  const [memoryRevision, setMemoryRevision] = useState<MemoryRevisionRequest>();
+  const [setup, setSetup] = useState<{ preferred?: ModelTarget & { id?: string }; workspaceId: string; sessionId?: string; draftId: string } | null>(null);
+  const setupRef = useRef(setup);
+  setupRef.current = setup;
+  const openSetup = (preferred?: ModelTarget & { id?: string }) => setSetup({ preferred, workspaceId, sessionId: session?.id, draftId: draftSessionId });
+  const { engines, operate, refetch: scanEngines, isFetching: scanningEngines } = useLocalEngines(projectPath, workspaceReady && modelsReady);
+  const effectiveModel = selectedChatModel(models, session?.modelId ?? '', workspaceModelId);
+  const modelChoices = useMemo(() => {
+    const choices = localModelChoices(models, engines, effectiveModel?.id);
+    const candidates = effectiveModel ? [effectiveModel, ...models] : models;
+    const seen = new Set(choices.map(choice => choice.key));
+    for (const config of candidates) {
+      if (isLocalModel(config)) continue;
+      const key = modelConnectionKey(config);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      choices.push({ key, name: config.name || config.model_name, config, target: config });
+    }
+    return choices;
+  }, [models, engines, effectiveModel]);
+  const engine = localEngineForModel(engines, effectiveModel);
+  const competingEngine = portableConflict(engines, engine);
+  const grant = useEnginePreferences(state => effectiveModel && state.grants[effectiveModel.id]);
+  const identity = effectiveModel && engine ? engineIdentity(effectiveModel, engine) : '';
+  const permission = !!grant && grant === identity;
+  const localAttempt = useRef('');
+  const [localOperation, setLocalOperation] = useState<{ key: string; busy: boolean; error: string }>();
   useEffect(() => { setCapabilityError(''); }, [session?.id, session?.modelId, workspaceModelId, models]);
   const streaming = !!generation && generation.sessionId === session?.id;
   const generatingMessage = streaming ? session?.messages.find(message => message.id === generation.messageId) : undefined;
   const otherGeneration = !!generation && !streaming;
+  const localStarting = localOperation?.key === identity && localOperation.busy || engine?.state === 'starting';
+  const localOffline = !!engine && engine.state !== 'online';
+  useEffect(() => {
+    if (!identity) { localAttempt.current = ''; return; }
+    if (!ready || !workspaceReady || !session || restoredSession !== session.id || effectiveModel?.enabled === false || !engine || !(engine.can_start ?? engine.installed) || !permission || setup || generation || competingEngine || localAttempt.current === identity) return;
+    localAttempt.current = identity;
+    if (engine.state !== 'stopped') return;
+    setLocalOperation({ key: identity, busy: true, error: '' });
+    void operate(engine, 'start').then(next => {
+      setLocalOperation({ key: identity, busy: false, error: next.state === 'online' ? '' : next.error || '本地服务未能启动。' });
+    }, error => setLocalOperation({ key: identity, busy: false, error: errMessage(error) }));
+  }, [engine, identity, permission, setup, generation, operate, ready, workspaceReady, session?.id, restoredSession, effectiveModel?.enabled, competingEngine]);
   useEffect(()=>{
     if(!ready||!session||streaming||modelSelection||intentPending)return;
     let current=true;setRestoredSession(null);
@@ -81,6 +140,25 @@ export function ChatPage() {
   }, [intent, intentPending, location.pathname, location.search, location.hash, location.state, navigate, workspaceId]);
 
   useEffect(() => {
+    setMemoryRevision(undefined);
+  }, [workspaceId, projectPath, session?.id]);
+
+  useEffect(() => {
+    if (!ready || !workspaceReady) return;
+    const source = location.state?.memorySource;
+    if (source?.workspaceId === workspaceId && allSessions.some(item => (item.workspaceId ?? 'local') === workspaceId && item.id === source.sessionId && item.messages.some(message => message.id === source.messageId))) {
+      useChatStore.getState().setActive(source.sessionId);
+      navigate('/chat', { replace: true, state: { historySelection: { sessionId: source.sessionId, messageId: source.messageId } } });
+      return;
+    }
+    if (location.state?.memoryWorkspaceId === workspaceId && typeof location.state.memoryId === 'string') {
+      setMemoryRevision({ id: location.key, instruction: '', memoryId: location.state.memoryId });
+      navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: null });
+    }
+  // Handle an explicit navigation handoff once, including after initial store hydration.
+  }, [location.key, ready, workspaceReady, workspaceId]);
+
+  useEffect(() => {
     const selection = location.state?.historySelection;
     if (!selection || selection.sessionId !== useChatStore.getState().activeId) {
       setSearchTarget(null);
@@ -94,9 +172,16 @@ export function ChatPage() {
 
   const acceptModelIntent = useCallback(async (modelId: string) => {
     if (!intent || !ready || !workspaceReady || useWorkspaceStore.getState().activeId !== workspaceId) return;
-    if (!models.some(model => model.id === modelId && model.enabled !== false)) return;
     const state = useChatStore.getState();
     if (state.modelSelection) return;
+    const selected = models.find(model => model.id === modelId && model.enabled !== false);
+    if (!selected) return;
+    const local = modelChoices.find(choice => choice.key === modelConnectionKey(selected));
+    if (local && needsModelSetup(local)) {
+      handledIntents.current.add(intentEntry);
+      setSetup({ preferred: selected, workspaceId, draftId: draftSessionId });
+      return;
+    }
     const current = activeWorkspaceSession(state.sessions, state.activeId, workspaceId);
     const plan = modelChatSessionPlan(current, workspaceId, useGenerationStore.getState().active?.sessionId ?? null);
     const sessionId = plan.create ? state.newSession() : plan.sessionId;
@@ -111,11 +196,11 @@ export function ChatPage() {
     navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, {
       replace: true, state: consumedModelChatState(location.state, intent, workspaceId, sessionId),
     });
-  }, [intent, intentEntry, ready, workspaceReady, workspaceId, models, navigate, location.pathname, location.search, location.hash, location.state]);
+  }, [intent, intentEntry, ready, workspaceReady, workspaceId, models, modelChoices, draftSessionId, navigate, location.pathname, location.search, location.hash, location.state]);
 
   useEffect(() => {
-    if (!modelSelection && intent && intentResolution.status === 'ready' && !handledIntents.current.has(intentEntry)) void acceptModelIntent(intentResolution.model.id);
-  }, [modelSelection, intent, intentEntry, intentResolution.status, intentResolution.model?.id, acceptModelIntent]);
+    if (!scanningEngines && !modelSelection && intent && intentResolution.status === 'ready' && !handledIntents.current.has(intentEntry)) void acceptModelIntent(intentResolution.model.id);
+  }, [scanningEngines, modelSelection, intent, intentEntry, intentResolution.status, intentResolution.model?.id, acceptModelIntent]);
   useEffect(() => {
     if (!ready || !workspaceReady || intentPending || hasSearchTarget) return;
     const frame = requestAnimationFrame(() => pageRef.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="输入问题"]')?.focus({ preventScroll: true }));
@@ -128,21 +213,60 @@ export function ChatPage() {
   }, [session?.messages, activeId, hasSearchTarget, searchTarget]);
 
   const send = useCallback((text: string, options?: Partial<ChatSubmitOptions> & { regenerateFrom?: string }) => {
-    if (!ready || !workspaceReady || !usableModels.length || intentPending || modelSelection || (session && restoredSession !== session.id)) return false;
+    if (!ready || !workspaceReady || !usableModels.length || intentPending || modelSelection || localOffline || localStarting || (session && restoredSession !== session.id)) return false;
     const state = useChatStore.getState(), workspace = useWorkspaceStore.getState();
     const current = state.sessions.find(item => item.id === state.activeId && (item.workspaceId ?? 'local') === workspaceId);
     // Attachments are read asynchronously; recheck the live binding before any
     // history mutation rather than relying on the pre-read render closure.
     if (state.modelSelection || workspace.activeId !== workspaceId || current?.id !== session?.id) return false;
+    const revision = !options?.agentMode && !options?.regenerateFrom && !options?.attachments?.length && !options?.artifact ? memoryRevisionInstruction(text) : null;
+    if (revision !== null) {
+      setMemoryRevision({ id: crypto.randomUUID(), instruction: revision });
+      nearBottom.current = true;
+      return true;
+    }
     const currentDefault = workspace.workspaces.find(item => item.id === workspaceId)?.default_model_id ?? '';
     const blocker = chatCapabilityBlocker(selectedChatModel(models, current?.modelId ?? '', currentDefault), !!options?.agentMode);
     if (blocker) { setCapabilityError(blocker); return false; }
     setCapabilityError('');
-    const id = current?.id ?? state.newSession();
+    const id = current?.id ?? state.newSession(draftSessionId);
     const started = !!id && sendChat(id, text, options);
     if (started) { setSearchTarget(null); nearBottom.current = true; setShowLatest(false); }
     return started;
-  }, [session, models, workspaceId, ready, workspaceReady, usableModels.length, intentPending, modelSelection, restoredSession]);
+  }, [session, models, workspaceId, ready, workspaceReady, usableModels.length, intentPending, modelSelection, restoredSession, draftSessionId, localOffline, localStarting]);
+  async function useSetupModel(model: ModelConfig) {
+    if (!pageMounted.current || !setup || setup !== setupRef.current || useWorkspaceStore.getState().activeId !== setup.workspaceId) throw new Error('工作区已切换，请重新选择模型。');
+    const state = useChatStore.getState();
+    const current = activeWorkspaceSession(state.sessions, state.activeId, workspaceId);
+    let id = setup.sessionId ?? setup.draftId;
+    if (intentPending && current?.messages.length) id = state.newSession(setup.draftId);
+    else if (!current) id = state.newSession(id);
+    else if (current.id !== id) {
+      if (!intentPending) throw new Error('会话已切换，请重新选择。');
+      id = current.id;
+    }
+    if (!id || !await useChatStore.getState().setModel(model.id)) throw new Error(useChatStore.getState().modelSelectionError || '无法切换模型');
+    if (setup !== setupRef.current || useWorkspaceStore.getState().activeId !== workspaceId) return;
+    setSetup(null);
+    void scanEngines();
+    if (intentPending && intent) navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: consumedModelChatState(location.state, intent, workspaceId, id) });
+  }
+  function chooseModel(choice: LocalModelChoice) {
+    if (!choice.config || needsModelSetup(choice)) {
+      openSetup(choice.config ?? choice.target);
+    } else if (intentPending) {
+      void acceptModelIntent(choice.config.id);
+    } else if (session || useChatStore.getState().newSession(draftSessionId)) {
+      void setModel(choice.config.id);
+    }
+  }
+  function dismissSetup() {
+    setSetup(null);
+    if (!intentPending) return;
+    const search = new URLSearchParams(location.search);
+    search.delete('model');
+    navigate({ pathname: location.pathname, search: search.toString() }, { replace: true, state: location.state });
+  }
   const lastAsstId = session ? [...session.messages].reverse().find((message) => message.role === "assistant")?.id : undefined;
   const latest = () => {
     setSearchTarget(null);
@@ -150,24 +274,29 @@ export function ChatPage() {
     setShowLatest(false);
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   };
+  const title = taskDraft && !session?.messages.length ? '新建任务' : session?.messages.length ? session.title : '新对话';
+  const lastUser = session?.messages.slice().reverse().find(message => message.role === 'user');
+  const freshChat = !taskDraft && !session?.messages.length;
   return (
     <div ref={pageRef} className="ns-chat flex h-full min-h-0">
       <div className="ns-chat-column flex min-w-0 flex-1 flex-col">
-        <header className="ns-chat-session-header shrink-0 border-b border-border-soft">
+        {freshChat ? <h1 className="sr-only">新对话</h1> : <header className="ns-chat-session-header shrink-0 border-b border-border-soft">
           <div className="ns-chat-rail">
             <p className="truncate text-xs leading-5 text-text-3">{workspaceName}</p>
-            <h1 className="mt-1 truncate text-text-1" title={session?.title ?? "新对话"}>{session?.title ?? "新对话"}</h1>
+            <h1 className="mt-1 truncate text-text-1" title={title}>{title}</h1>
           </div>
-        </header>
+        </header>}
         {modelSelectionError && <div role="alert" className="ns-chat-rail ns-form-error my-2"><span>{modelSelectionError}</span><Button variant="ghost" size="sm" onClick={()=>{if(intentPending&&intentResolution.status==='ready')void acceptModelIntent(intentResolution.model.id);else setRestoreAttempt(value=>value+1);}}>重试读取或切换</Button></div>}
         {modelSelection && <p role="status" className="ns-chat-rail py-2 text-xs text-text-3">正在验证模型连接…</p>}
+        {(localOffline || localStarting) && <div className="ns-chat-rail flex flex-wrap items-center justify-between gap-2 border-b border-border-soft py-2 text-xs">
+          <span role="status">{localStarting ? '正在启动模型…' : localOperation?.key === identity && localOperation.error || ((engine ? localEngineName(engine) : '模型') + (engine?.state === 'stopped' ? ' 未启动' : ' 暂不可用'))}</span>
+          {!localStarting && <Button size="sm" variant="outline" disabled={!!generation || !!modelSelection} onClick={() => openSetup(effectiveModel)}>启动模型</Button>}
+        </div>}
         {capabilityError && <p role="alert" className="ns-chat-rail ns-form-error my-2">{capabilityError}</p>}
         {intentPending && intentResolution.message && (
           <div role={intentResolution.status === 'loading' ? 'status' : 'alert'} className="ns-chat-rail flex shrink-0 flex-wrap items-center gap-3 border-b border-border-soft py-3 text-xs">
             <span className="min-w-0 flex-1">{intentResolution.message}</span>
-            {intentResolution.status !== 'loading' && ready && workspaceReady && usableModels.length > 0 && <select aria-label="选择可用对话模型" value="" onChange={event => acceptModelIntent(event.target.value)} className="border border-border-soft bg-bg-raised px-2 py-1 text-text-1"><option value="" disabled>选择可用模型</option>{usableModels.map(model => <option key={model.id} value={model.id}>{model.name || model.model_name || model.id}</option>)}</select>}
             {intentResolution.status === 'unavailable' && <Button variant="outline" size="sm" onClick={() => { void loadModels(); }}>重试读取模型</Button>}
-            {intentResolution.status !== 'loading' && <Link to="/model-hub" className="underline underline-offset-4">管理模型</Link>}
           </div>
         )}
         {otherGeneration && generation && (
@@ -189,29 +318,47 @@ export function ChatPage() {
           nearBottom.current = atBottom;
           setShowLatest(!atBottom && !hasSearchTarget);
         }}>
-          {!session || !session.messages.length ? (
+          {!session?.messages.length && !memoryRevision ? (
             <div className="ns-chat-rail ns-chat-empty flex min-h-full flex-col justify-center">
-              <h2 className="text-text-1">开始对话</h2>
-              <p className="mt-2 text-sm leading-6 text-text-2">在下方输入问题，或从侧栏继续已有对话。</p>
-              {modelsReady && !models.length && <p className="mt-3 text-sm text-text-2"><Link to="/model-hub" className="underline underline-offset-4">添加模型</Link>后即可发送消息。</p>}
+              <BrandMark className="ns-welcome-mark" size="lg" />
+              <h2 className="text-text-1">{taskDraft ? '今天要完成什么？' : '开始对话'}</h2>
+              {taskDraft && <p className="mt-2 text-sm text-text-2">写下任务目标，可随时从侧栏查看进度。</p>}
+              {!taskDraft && <>
+                <p className="ns-welcome-description">与 AI 协作，完成代码、任务与项目工作。</p>
+                <div className="ns-welcome-actions" aria-label="对话快捷操作">
+                  <Link to="/codelens"><CodeXml aria-hidden="true" />分析代码</Link>
+                  <button type="button" disabled={!ready || !workspaceReady} onClick={() => {
+                    if (useChatStore.getState().newSession()) navigate('/chat?task=new');
+                  }}><CircleCheck aria-hidden="true" />执行任务</button>
+                  <button type="button" disabled={!workspaceReady} onClick={() => useUiStore.getState().setProjectPickerOpen(true)}><FolderOpen aria-hidden="true" />整理项目</button>
+                  <Link to="/nebula"><Bookmark aria-hidden="true" />管理记忆</Link>
+                </div>
+              </>}
             </div>
           ) : (
             <Suspense fallback={<LoadingState label="正在打开对话…" />}>
               <div className="ns-chat-rail ns-chat-messages" ref={onMessagesMount}>
-                {session.messages.map((message) => (
+                {session?.messages.map((message) => (
                   <MessageBubble key={message.id} message={message} workspaceId={session.workspaceId ?? 'local'} sessionId={session.id} highlightRequest={hasSearchTarget && searchTarget?.messageId === message.id ? searchTarget.request : undefined} scrollContainer={scrollRef}
                     onRegenerate={message.id === lastAsstId && !generation && models.length ? () => send("", { regenerateFrom: message.id, agentMode: message.agentMode, reviewedActions: message.reviewedActions }) : undefined} />
                 ))}
+                <ConversationMemory key={chatKey} workspaceId={workspaceId} projectPath={projectPath} sessionId={session?.id} modelId={effectiveModel?.id} userMessage={lastUser} revisionRequest={memoryRevision} onCloseRevision={() => setMemoryRevision(undefined)} />
               </div>
             </Suspense>
           )}
         </div>
         {showLatest && <div className="flex justify-center"><Button size="sm" variant="outline" onClick={latest}><ArrowDown data-icon="inline-start" />返回最新消息</Button></div>}
         {streaming && generation && <div role="status" className="ns-chat-rail pt-2 text-xs text-text-3"><span className="mr-2 inline-block size-1.5 bg-brand" />{generationLabel(generatingMessage, generation.phase)}</div>}
-        <ChatInput key={`composer:${chatKey}`} models={models} modelId={session?.modelId ?? ""} defaultModelId={workspaceModelId} onModelChange={id => {
-          if (intentPending) { void acceptModelIntent(id); return; }
-          if (session || useChatStore.getState().newSession()) void setModel(id);
-        }} streaming={streaming} busy={otherGeneration || !ready || !workspaceReady || intentPending || !!modelSelection || (!!session && restoredSession !== session.id)} onSend={send} onStop={() => { void cancelGeneration(); }} />
+        <ChatInput key={`composer:${chatKey}`} attachmentSessionId={composerSessionId} modelChoices={modelChoices} selectedModel={effectiveModel}
+          onConfigureModel={() => openSetup(effectiveModel && isLocalModel(effectiveModel) ? effectiveModel : undefined)} initialAgentMode={taskDraft}
+          initialText={taskDraft && location.state?.taskSessionId === session?.id && typeof location.state?.taskGoal === 'string' ? location.state.taskGoal : ''}
+          onModelChange={chooseModel} streaming={streaming} modelBusy={otherGeneration || !ready || !workspaceReady || !modelsReady || !!modelSelection || localStarting}
+          busy={otherGeneration || !ready || !workspaceReady || intentPending || !!modelSelection || localStarting || (!!session && restoredSession !== session.id)} blocked={localOffline} onSend={send} onStop={() => { void cancelGeneration(); }} />
+        <Dialog open={!!setup} onOpenChange={open => { if (!open) dismissSetup(); }}>
+          {setup && <DialogContent className="ns-model-connection-dialog"><DialogTitle>选择模型</DialogTitle><DialogDescription className="sr-only">选择当前对话使用的本地模型。</DialogDescription>
+            <Suspense fallback={<LoadingState label="正在读取本机模型…" />}><ModelConnectionWizard preferred={setup.preferred} onUse={useSetupModel} /></Suspense>
+          </DialogContent>}
+        </Dialog>
       </div>
     </div>
   );

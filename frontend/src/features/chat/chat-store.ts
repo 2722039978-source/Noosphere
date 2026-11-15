@@ -4,7 +4,7 @@ import { createIndexedChatStorage } from "./indexed-chat-storage";
 import { parseChatBackup, mergeChatBackup, validateChatSnapshot, sessionWorkspaceId, automaticSessionTitle } from "./chat-backup";
 import { chooseWorkspaceSession } from './workspace-recency';
 import { useWorkspaceStore } from "@/stores/workspace-store";
-import { api, errMessage, type ContextCitation } from "@/lib/api";
+import { api, errMessage, type ChatAttachment, type ContextCitation } from "@/lib/api";
 
 export type MessageStatus = "preparing" | "streaming" | "completed" | "cancelled" | "failed" | "interrupted";
 
@@ -12,6 +12,9 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  sourceProjectPath?: string;
+  attachments?: ChatAttachment[];
+  memoryCandidateDismissed?: boolean;
   /** 恢复时将未完成生成标记为 interrupted，不自动重新调用模型。 */
   streaming?: boolean;
   status?: MessageStatus;
@@ -43,7 +46,7 @@ interface ChatState {
   sessions: ChatSession[];
   activeId: string | null;
 
-  newSession: () => string;
+  newSession: (draftId?: string) => string;
   removeSession: (id: string) => void;
   setActive: (id: string) => void;
   restoreWorkspaceSession: (workspaceId: string) => void;
@@ -116,10 +119,11 @@ export const useChatStore = create<ChatState>()(
       modelSelection: null,
       modelSelectionError: null,
 
-      newSession: () => {
+      newSession: (draftId) => {
         if (!useChatPersistence.getState().ready) return '';
         const workspace = useWorkspaceStore.getState();
-        const id = uid();
+        const id = draftId ?? uid();
+        if (get().sessions.some(session => session.id === id)) return '';
         const s: ChatSession = {
           id,
           workspaceId: workspace.activeId,
@@ -140,10 +144,17 @@ export const useChatStore = create<ChatState>()(
         if (!removed) return;
         const workspace = useWorkspaceStore.getState();
         const workspaceId = sessionWorkspaceId(removed);
-        if (workspace.lastChatByWorkspace[workspaceId] === id) workspace.rememberChat(workspaceId, null);
-        set(state => ({ sessions: state.sessions.filter(session => session.id !== id) }));
-        if (get().activeId === id) get().restoreWorkspaceSession(workspace.activeId);
-        flushChatPersistence();
+        const remove = () => {
+          const current = useWorkspaceStore.getState();
+          if (current.lastChatByWorkspace[workspaceId] === id) current.rememberChat(workspaceId, null);
+          set(state => ({ sessions: state.sessions.filter(session => session.id !== id) }));
+          if (get().activeId === id) get().restoreWorkspaceSession(current.activeId);
+          flushChatPersistence();
+        };
+        if (!removed.messages.some(message => message.attachments?.length)) { remove(); return; }
+        void api.deleteSessionAttachments(workspaceId, id).then(remove, error => {
+          useChatPersistence.setState({ error: `附件未能清理，已保留会话，可重试删除：${errMessage(error)}` });
+        });
       },
 
       setActive: (activeId) => {

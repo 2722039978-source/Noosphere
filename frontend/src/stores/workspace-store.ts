@@ -19,6 +19,7 @@ interface WorkspaceState {
   select: (id: string) => void;
   rememberChat: (workspaceId: string, sessionId: string | null) => void;
   save: (input: WorkspaceInput) => Promise<Workspace>;
+  openProject: (path: string) => Promise<Workspace>;
 }
 
 function syncProject(workspace: Workspace) {
@@ -72,6 +73,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(persist((set, get) => 
       ? state.workspaces.map(item => item.id === workspace.id ? workspace : item)
       : [...state.workspaces, workspace] }));
     if (get().activeId === workspace.id) syncProject(workspace);
+    return workspace;
+  },
+  openProject: async path => {
+    const workspace = await api.openProjectWorkspace(path);
+    set(state => ({ workspaces: state.workspaces.some(item => item.id === workspace.id)
+      ? state.workspaces.map(item => item.id === workspace.id ? workspace : item)
+      : [...state.workspaces, workspace] }));
     return workspace;
   },
 }), {

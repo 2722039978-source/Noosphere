@@ -22,6 +22,7 @@ type ChatOptions struct {
 // ChatResponse is the result of a non-streaming chat completion.
 type ChatResponse struct {
 	Content   string
+	Model     string
 	TokensIn  int
 	TokensOut int
 }
