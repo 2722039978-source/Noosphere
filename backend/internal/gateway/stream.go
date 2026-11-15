@@ -197,6 +197,7 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	ch, err := provider.ChatStream(streamCtx, model.ModelName, pMsgs, providers.ChatOptions{
 		SystemPrompt: body.SystemPrompt, Temperature: temp, MaxTokens: maxT,
+		MaxTokensField: model.MaxTokensKey(), OmitTemperature: !model.TemperatureEnabled(),
 	})
 	if err != nil {
 		stopStream()

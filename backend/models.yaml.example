@@ -29,6 +29,20 @@ providers:
     #   enabled: true
     #   is_default: false
 
+    # Example: a relay that speaks the newer OpenAI parameter shape but is not
+    # api.openai.com. Without these keys the gateway still retries once after
+    # the upstream names the rejected field; setting them avoids the extra call.
+    # - id: relay
+    #   name: Relay · gpt-5.5
+    #   type: openai_compatible
+    #   base_url: https://relay.example.com/v1
+    #   api_key: ""
+    #   model: gpt-5.5
+    #   max_tokens_field: max_completion_tokens   # or max_tokens (default)
+    #   supports_temperature: false               # omit temperature entirely
+    #   enabled: true
+    #   is_default: false
+
     # Example: Ollama (local, no key needed)
     # - id: ollama
     #   name: Ollama
