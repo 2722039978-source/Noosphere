@@ -284,15 +284,16 @@ mod tests {
 
     #[test]
     fn accepts_formal_tags_and_legacy_date_tags() {
-        assert_eq!(release_version("v0.7.1").unwrap(), Version::new(0, 7, 1));
+        let version = env!("CARGO_PKG_VERSION");
+        assert_eq!(release_version(&format!("v{version}")).unwrap(), Version::parse(version).unwrap());
         assert_eq!(release_version("v0.6.0-20261114").unwrap(), Version::new(0, 6, 0));
-        assert!(release_version("v0.7.1-beta.1").is_none());
-        assert!(release_version("0.7.1").is_none());
+        assert!(release_version(&format!("v{version}-beta.1")).is_none());
+        assert!(release_version(version).is_none());
     }
 
     #[test]
     fn requires_exact_unique_installer_checksum() {
-        let installer = "Noosphere-0.7.0-windows-x64-setup.exe";
+        let installer = concat!("Noosphere-", env!("CARGO_PKG_VERSION"), "-windows-x64-setup.exe");
         let hash = "a".repeat(64);
         let line = format!("{hash}  {installer}");
         assert_eq!(checksum(&line, installer).unwrap(), hash);
@@ -303,7 +304,7 @@ mod tests {
 
     #[test]
     fn rejects_official_path_lookalikes_and_non_https_redirects() {
-        assert!(download_url("v0.7.0", "../Noosphere.exe").is_err());
+        assert!(download_url(concat!("v", env!("CARGO_PKG_VERSION")), "../Noosphere.exe").is_err());
         assert!(!trusted_https("http://github.com/path", &["github.com"]));
         assert!(!trusted_https("https://github.com.example.org/path", &["github.com"]));
         assert!(!trusted_https("https://github.com@other.example/path", &["github.com"]));

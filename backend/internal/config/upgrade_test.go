@@ -50,7 +50,7 @@ func TestUpgradeBacksUpBeforeOpeningStores(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, version := range []string{"0.7.0", "0.7.0", "0.6.0", "0.7.0"} {
+	for _, version := range []string{cfg.App.Version, cfg.App.Version, "0.6.0", cfg.App.Version} {
 		if err := PrepareUpgrade(configPath, cfg, version); err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +89,7 @@ func TestFailedUpgradeBackupLeavesOriginalStateAndRetries(t *testing.T) {
 	if err := os.MkdirAll(database, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareUpgrade(configPath, cfg, "0.7.0"); err == nil {
+	if err := PrepareUpgrade(configPath, cfg, cfg.App.Version); err == nil {
 		t.Fatal("startup should stop until a backup can be written")
 	}
 	var state upgradeState
@@ -107,11 +107,11 @@ func TestFailedUpgradeBackupLeavesOriginalStateAndRetries(t *testing.T) {
 	if err := os.WriteFile(database, []byte("state"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareUpgrade(configPath, cfg, "0.7.0"); err != nil {
+	if err := PrepareUpgrade(configPath, cfg, cfg.App.Version); err != nil {
 		t.Fatal(err)
 	}
 	readJSON(t, filepath.Join(root, "data-version.json"), &state)
-	if state.AppVersion != "0.7.0" {
+	if state.AppVersion != cfg.App.Version {
 		t.Fatalf("retry did not update version: %+v", state)
 	}
 }

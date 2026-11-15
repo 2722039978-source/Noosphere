@@ -110,7 +110,7 @@ func defaults() *AppConfig {
 		ModelLab:      ModelLabSettings{Enabled: true, MaxContext: 8192, MaxOutput: 2048, InferenceTimeoutSeconds: 120, CleanupTimeoutSeconds: 10},
 		App: AppSettings{
 			Name:    "Noosphere",
-			Version: "0.7.0",
+			Version: "0.8.0",
 			DataDir: "./data",
 		},
 		Server: ServerSettings{

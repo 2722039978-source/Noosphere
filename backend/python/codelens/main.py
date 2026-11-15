@@ -21,7 +21,7 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title='CodeLens AI', version='0.7.0', lifespan=lifespan)
+app = FastAPI(title='CodeLens AI', version='0.8.0', lifespan=lifespan)
 
 @app.middleware('http')
 async def worker_auth(request, call_next):
