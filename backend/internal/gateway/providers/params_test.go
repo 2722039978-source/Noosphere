@@ -150,3 +150,63 @@ func TestChatToolsRetriesWithoutTemperature(t *testing.T) {
 		t.Fatalf("retry should omit temperature: %v", bodies[1])
 	}
 }
+
+func TestResponsesInputMapsTurns(t *testing.T) {
+	messages := []ToolMessage{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "call_1", Type: "function", Function: ToolFunction{Name: "project_list_files", Arguments: "{}"}}}},
+		{Role: "tool", ToolCallID: "call_1", Content: `{"ok":true}`},
+	}
+	items := responsesInput(messages)
+	if len(items) != 4 {
+		t.Fatalf("items = %d, want 4: %v", len(items), items)
+	}
+	if items[2]["type"] != "function_call" || items[2]["call_id"] != "call_1" || items[2]["name"] != "project_list_files" {
+		t.Fatalf("unexpected function_call item: %v", items[2])
+	}
+	if items[3]["type"] != "function_call_output" || items[3]["call_id"] != "call_1" {
+		t.Fatalf("unexpected function_call_output item: %v", items[3])
+	}
+}
+
+func TestChatToolsFallsBackToResponses(t *testing.T) {
+	var paths []string
+	var responsesBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if r.URL.Path == "/chat/completions" {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"message":"Function tools with reasoning_effort are not supported for gpt-6-sol in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'."}}`)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&responsesBody)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"output":[{"type":"function_call","call_id":"call_9","name":"project_list_files","arguments":"{}"}],"usage":{"input_tokens":10,"output_tokens":5}}`)
+	}))
+	defer server.Close()
+
+	provider := &OpenAIProvider{baseURL: server.URL, client: server.Client()}
+	tools := []ToolDefinition{{Type: "function", Function: FunctionDefinition{Name: "project_list_files", Description: "list", Parameters: json.RawMessage(`{"type":"object"}`)}}}
+	response, err := provider.ChatTools(context.Background(), "gpt-6-sol", []ToolMessage{{Role: "user", Content: "hi"}}, tools, ChatOptions{MaxTokens: 256})
+	if err != nil {
+		t.Fatalf("ChatTools: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 1 || response.Message.ToolCalls[0].ID != "call_9" {
+		t.Fatalf("tool calls = %+v", response.Message.ToolCalls)
+	}
+	if len(paths) != 2 || paths[0] != "/chat/completions" || paths[1] != "/responses" {
+		t.Fatalf("paths = %v, want chat then responses", paths)
+	}
+	if _, ok := responsesBody["max_output_tokens"]; !ok {
+		t.Fatalf("responses body should carry max_output_tokens: %v", responsesBody)
+	}
+	flat, ok := responsesBody["tools"].([]interface{})
+	if !ok || len(flat) != 1 {
+		t.Fatalf("tools = %v", responsesBody["tools"])
+	}
+	first, _ := flat[0].(map[string]interface{})
+	if first["name"] != "project_list_files" {
+		t.Fatalf("tools should be flattened: %v", first)
+	}
+}

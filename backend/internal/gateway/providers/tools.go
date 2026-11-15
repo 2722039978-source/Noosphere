@@ -52,6 +52,9 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 	if opts.SystemPrompt != "" {
 		messages = append([]ToolMessage{{Role: "system", Content: opts.SystemPrompt}}, messages...)
 	}
+	if strings.EqualFold(opts.ToolTransport, "responses") {
+		return p.chatToolsResponses(ctx, model, messages, tools, opts)
+	}
 	maxTokens := opts.MaxTokens
 	if maxTokens <= 0 || maxTokens > 2048 {
 		maxTokens = 2048
@@ -75,6 +78,10 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
+			// The upstream may only serve function tools over the Responses API.
+			if upstream.Status == 400 && prefersResponses(upstream.Detail) {
+				return p.chatToolsResponses(ctx, model, messages, tools, opts)
+			}
 			return nil, fmt.Errorf("structured tool request failed (HTTP %d); check model tool support and configuration: %s", upstream.Status, upstream.Detail)
 		}
 		return nil, fmt.Errorf("tool request: %s", p.redact(err.Error()))
@@ -109,21 +116,30 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 	}
 	message := choice.Message
 	message.Role = "assistant"
+	if err := validateToolMessage(message); err != nil {
+		return nil, err
+	}
+	return &ToolResponse{Message: message, TokensIn: result.Usage.PromptTokens, TokensOut: result.Usage.CompletionTokens}, nil
+}
+
+// validateToolMessage applies the same limits to both tool transports so a
+// provider cannot return more than the agent loop is prepared to execute.
+func validateToolMessage(message ToolMessage) error {
 	if len(message.ToolCalls) > 12 {
-		return nil, fmt.Errorf("too many tool calls in one response")
+		return fmt.Errorf("too many tool calls in one response")
 	}
 	seen := map[string]bool{}
 	for _, call := range message.ToolCalls {
 		if call.ID == "" || len(call.ID) > 128 || seen[call.ID] || call.Type != "function" || call.Function.Name == "" || len(call.Function.Name) > 64 || len(call.Function.Arguments) > 16000 || !json.Valid([]byte(call.Function.Arguments)) {
-			return nil, fmt.Errorf("invalid structured tool call")
+			return fmt.Errorf("invalid structured tool call")
 		}
 		seen[call.ID] = true
 	}
 	if len(message.ToolCalls) == 0 && strings.TrimSpace(message.Content) == "" {
-		return nil, fmt.Errorf("model returned neither answer nor tool calls")
+		return fmt.Errorf("model returned neither answer nor tool calls")
 	}
 	if len(message.Content) > 32000 {
-		return nil, fmt.Errorf("model answer exceeds limit")
+		return fmt.Errorf("model answer exceeds limit")
 	}
-	return &ToolResponse{Message: message, TokensIn: result.Usage.PromptTokens, TokensOut: result.Usage.CompletionTokens}, nil
+	return nil
 }

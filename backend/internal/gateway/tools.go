@@ -53,6 +53,7 @@ func (g *Gateway) ChatTools(ctx context.Context, model *ModelConfig, workspaceID
 		Temperature:     model.Temperature,
 		MaxTokensField:  model.MaxTokensKey(),
 		OmitTemperature: !model.TemperatureEnabled(),
+		ToolTransport:   model.ToolTransport,
 	})
 	finishInference()
 	entry := CallLog{ID: fmt.Sprintf("tool-%d", time.Now().UnixNano()), ModelID: model.ID, Provider: model.Provider, Project: workspaceID, RequestPreview: "Agent structured tool turn", Status: streamLogStatus(err), LatencyMs: float64(time.Since(start).Milliseconds()), Timestamp: time.Now().UTC().Format(time.RFC3339)}

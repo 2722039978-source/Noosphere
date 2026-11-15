@@ -25,6 +25,9 @@ type ChatOptions struct {
 	// OmitTemperature drops the temperature field entirely. Reasoning-style
 	// models reject any explicit value, and some providers reject the key.
 	OmitTemperature bool
+	// ToolTransport selects the structured-tool endpoint: "chat" (default,
+	// /chat/completions) or "responses" (/v1/responses).
+	ToolTransport string
 }
 
 // ChatResponse is the result of a non-streaming chat completion.
