@@ -6,16 +6,22 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      verified_run:
+        description: Reuse Windows packages from this completed tagged run
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: delivery-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: delivery-${{ inputs.verified_run && format('publish-{0}', inputs.verified_run) || github.ref }}
+  cancel-in-progress: ${{ !inputs.verified_run && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   build:
+    if: inputs.verified_run == ''
     runs-on: windows-2025
     timeout-minutes: 75
     defaults:
@@ -109,27 +115,49 @@ jobs:
 
   publish:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ !cancelled() && ((startsWith(github.ref, 'refs/tags/') && needs.build.result == 'success') || (github.event_name == 'workflow_dispatch' && inputs.verified_run != '')) }}
     runs-on: windows-2025
     permissions:
       contents: write
+      actions: read
     defaults:
       run:
         shell: pwsh
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: noosphere-windows-x64
           path: verified
+          github-token: ${{ inputs.verified_run && github.token || '' }}
+          run-id: ${{ inputs.verified_run || github.run_id }}
       - name: Verify checksums and publish tagged assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          VERIFIED_RUN: ${{ inputs.verified_run }}
         run: |
           $Manifest = @(Get-ChildItem verified -Recurse -Filter SHA256SUMS.txt -File)
           if ($Manifest.Count -ne 1) { throw 'Exactly one release manifest is required.' }
           $AssetRoot = $Manifest[0].Directory.FullName
-          $Version = $env:GITHUB_REF_NAME.Substring(1)
+          $Info = Get-Content -LiteralPath (Join-Path $AssetRoot 'build-info.json') -Raw | ConvertFrom-Json
+          $Version = $Info.version
+          if ($Version -notmatch '^\d+\.\d+\.\d+$' -or $Info.source_dirty -ne $false) { throw 'Expected a clean numeric release build.' }
+          $Tag = "v$Version"
+          $Commit = git rev-parse --verify "refs/tags/$Tag^{}"
+          if ($LASTEXITCODE -ne 0 -or $Commit -cne $Info.source_revision) { throw "Package does not match $Tag." }
+          if ($env:VERIFIED_RUN) {
+            if ($env:VERIFIED_RUN -notmatch '^\d+$') { throw 'Enter a numeric workflow run ID.' }
+            $Run = gh api "repos/$env:GH_REPO/actions/runs/$env:VERIFIED_RUN" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $Run.head_branch -cne $Tag -or $Run.head_sha -cne $Commit -or $Run.status -ne 'completed') { throw 'Expected a completed run for the package tag.' }
+            $Jobs = gh api "repos/$env:GH_REPO/actions/runs/$env:VERIFIED_RUN/jobs" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not ($Jobs.jobs | Where-Object { $_.name -eq 'build' -and $_.conclusion -eq 'success' })) { throw 'The tagged build must have passed verification.' }
+          } elseif ($env:GITHUB_REF_NAME -cne $Tag) {
+            throw "Run tag does not match $Tag."
+          }
           $Expected = @("Noosphere-$Version-windows-x64-setup.exe", "Noosphere-$Version-windows-x64.zip")
           $Seen = @{}
           foreach ($Line in Get-Content -LiteralPath $Manifest[0].FullName) {
@@ -146,5 +174,5 @@ jobs:
             if (-not $Seen.ContainsKey($Name)) { throw "Missing $Name" }
           }
           $Assets = @($Expected | ForEach-Object { $Seen[$_] }) + @($Manifest[0].FullName, (Join-Path $AssetRoot 'build-info.json'))
-          gh release create $env:GITHUB_REF_NAME @Assets --verify-tag --notes-from-tag --title "Noosphere v$Version"
+          gh release create $Tag @Assets --verify-tag --notes-from-tag --title "Noosphere v$Version"
           if ($LASTEXITCODE -ne 0) { throw 'GitHub release publication failed.' }
