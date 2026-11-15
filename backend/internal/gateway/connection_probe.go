@@ -673,7 +673,11 @@ func (g *Gateway) probeInference(ctx context.Context, model *ModelConfig, local,
 	if model.ContextLength > 0 && maxTokens > model.ContextLength/2 {
 		maxTokens = max(32, model.ContextLength/2)
 	}
-	opts := providers.ChatOptions{MaxTokens: maxTokens}
+	opts := providers.ChatOptions{
+		MaxTokens:       maxTokens,
+		MaxTokensField:  model.MaxTokensKey(),
+		OmitTemperature: !model.TemperatureEnabled(),
+	}
 	messages := []providers.Message{{Role: "user", Content: "What is 2 + 2? Please answer briefly."}}
 	ctx = providers.ConnectionProbeContext(ctx)
 	finish := g.countInference(false)

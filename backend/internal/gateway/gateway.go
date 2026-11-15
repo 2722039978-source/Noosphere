@@ -45,7 +45,24 @@ type ModelConfig struct {
 	IsDefault     bool           `json:"is_default" yaml:"is_default"`
 	Temperature   float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`
 	MaxTokens     int            `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	// MaxTokensField overrides the output-budget key for endpoints that only
+	// accept max_completion_tokens. Empty keeps the provider default.
+	MaxTokensField string `json:"max_tokens_field,omitempty" yaml:"max_tokens_field,omitempty"`
+	// SupportsTemperature is nil when unknown; false means the model rejects
+	// any explicit temperature and the field is omitted entirely.
+	SupportsTemperature *bool `json:"supports_temperature,omitempty" yaml:"supports_temperature,omitempty"`
+	// ToolTransport selects how structured tool calls travel: "chat" (default,
+	// /chat/completions) or "responses" (/v1/responses).
+	ToolTransport string `json:"tool_transport,omitempty" yaml:"tool_transport,omitempty"`
 }
+
+// TemperatureEnabled reports whether an explicit temperature may be sent.
+func (m ModelConfig) TemperatureEnabled() bool {
+	return m.SupportsTemperature == nil || *m.SupportsTemperature
+}
+
+// MaxTokensKey returns the configured output-budget field, trimmed.
+func (m ModelConfig) MaxTokensKey() string { return strings.TrimSpace(m.MaxTokensField) }
 
 type GatewayConfig struct {
 	DefaultModel string        `yaml:"default_model"`
@@ -115,21 +132,24 @@ func (g *Gateway) loadConfig() {
 	var raw struct {
 		DefaultModel string `yaml:"default_model"`
 		Providers    []struct {
-			ID            string         `yaml:"id"`
-			Name          string         `yaml:"name"`
-			Type          string         `yaml:"type"`
-			APIKey        string         `yaml:"api_key"`
-			BaseURL       string         `yaml:"base_url"`
-			Model         string         `yaml:"model"`
-			Vendor        string         `yaml:"vendor"`
-			ModelFamily   string         `yaml:"model_family"`
-			Deployment    string         `yaml:"deployment"`
-			ContextLength int            `yaml:"context_length"`
-			Metadata      *ModelMetadata `yaml:"metadata"`
-			Enabled       bool           `yaml:"enabled"`
-			IsDefault     bool           `yaml:"is_default"`
-			Temperature   float64        `yaml:"temperature"`
-			MaxTokens     int            `yaml:"max_tokens"`
+			ID                  string         `yaml:"id"`
+			Name                string         `yaml:"name"`
+			Type                string         `yaml:"type"`
+			APIKey              string         `yaml:"api_key"`
+			BaseURL             string         `yaml:"base_url"`
+			Model               string         `yaml:"model"`
+			Vendor              string         `yaml:"vendor"`
+			ModelFamily         string         `yaml:"model_family"`
+			Deployment          string         `yaml:"deployment"`
+			ContextLength       int            `yaml:"context_length"`
+			Metadata            *ModelMetadata `yaml:"metadata"`
+			Enabled             bool           `yaml:"enabled"`
+			IsDefault           bool           `yaml:"is_default"`
+			Temperature         float64        `yaml:"temperature"`
+			MaxTokens           int            `yaml:"max_tokens"`
+			MaxTokensField      string         `yaml:"max_tokens_field"`
+			SupportsTemperature *bool          `yaml:"supports_temperature"`
+			ToolTransport       string         `yaml:"tool_transport"`
 		} `yaml:"providers"`
 	}
 	if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -152,6 +172,8 @@ func (g *Gateway) loadConfig() {
 			ContextLength: p.ContextLength, Metadata: p.Metadata,
 			Enabled: p.Enabled, IsDefault: p.ID == raw.DefaultModel,
 			Temperature: p.Temperature, MaxTokens: p.MaxTokens,
+			MaxTokensField: p.MaxTokensField, SupportsTemperature: p.SupportsTemperature,
+			ToolTransport: p.ToolTransport,
 		})
 	}
 }
@@ -466,9 +488,11 @@ func (g *Gateway) callLLMOnce(ctx context.Context, model *ModelConfig, messages 
 	finishInference := g.countInference(false)
 	defer finishInference()
 	resp, err := provider.Chat(ctx, model.ModelName, msgs, providers.ChatOptions{
-		SystemPrompt: sysPrompt,
-		Temperature:  temp,
-		MaxTokens:    maxTokens,
+		SystemPrompt:    sysPrompt,
+		Temperature:     temp,
+		MaxTokens:       maxTokens,
+		MaxTokensField:  model.MaxTokensKey(),
+		OmitTemperature: !model.TemperatureEnabled(),
 	})
 	if err != nil {
 		return "", 0, 0, errors.Wrap(err, errors.ErrUnavailable, errors.CatGateway, "provider chat failed")

@@ -17,6 +17,14 @@ type ChatOptions struct {
 	Temperature  float64
 	MaxTokens    int
 	SystemPrompt string
+
+	// MaxTokensField selects the request key for the output budget. Accepted
+	// values are "max_tokens" and "max_completion_tokens"; an empty value lets
+	// the provider choose from the endpoint and model name.
+	MaxTokensField string
+	// OmitTemperature drops the temperature field entirely. Reasoning-style
+	// models reject any explicit value, and some providers reject the key.
+	OmitTemperature bool
 }
 
 // ChatResponse is the result of a non-streaming chat completion.

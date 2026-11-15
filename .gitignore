@@ -118,6 +118,7 @@ backend/python/codelens/requirements-dev.txt
 !/backend/internal/modellab/public_report_test.go
 !/backend/internal/config/upgrade_test.go
 !/backend/cmd/server/server_test.go
+!/backend/internal/gateway/providers/params_test.go
 
 # 本地视频和设计过程记录
 /video/

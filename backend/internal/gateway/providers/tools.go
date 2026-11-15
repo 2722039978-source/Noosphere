@@ -1,12 +1,11 @@
 package providers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
 )
 
@@ -27,6 +26,10 @@ type ToolCall struct {
 	ID       string       `json:"id"`
 	Type     string       `json:"type"`
 	Function ToolFunction `json:"function"`
+	// ExtraContent carries provider-specific data that has to be echoed back on
+	// the next turn (for example Gemini's thought_signature). It is preserved
+	// verbatim so a provider that requires it keeps working.
+	ExtraContent map[string]json.RawMessage `json:"extra_content,omitempty"`
 }
 type ToolMessage struct {
 	Role       string     `json:"role"`
@@ -53,27 +56,27 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 	if maxTokens <= 0 || maxTokens > 2048 {
 		maxTokens = 2048
 	}
-	body := map[string]any{"model": model, "messages": messages, "tools": tools, "tool_choice": "auto", "temperature": 0.1, "max_tokens": maxTokens, "stream": false}
-	if p.directResponse {
-		body["thinking"] = map[string]string{"type": "disabled"}
+	temperature := opts.Temperature
+	if temperature == 0 {
+		temperature = 0.1
 	}
-	encoded, err := json.Marshal(body)
+	build := func(o ChatOptions) map[string]interface{} {
+		body := map[string]interface{}{
+			"model": model, "messages": messages, "tools": tools,
+			"tool_choice": "auto", "stream": false,
+		}
+		p.applyChatOptions(body, model, temperature, maxTokens, o)
+		if p.directResponse {
+			body["thinking"] = map[string]string{"type": "disabled"}
+		}
+		return body
+	}
+	resp, err := p.postChat(ctx, "/chat/completions", build, opts, 256*1024)
 	if err != nil {
-		return nil, err
-	}
-	if len(encoded) > 256*1024 {
-		return nil, fmt.Errorf("Agent model input exceeds 256 KiB")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(p.baseURL, "/")+"/chat/completions", bytes.NewReader(encoded))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if p.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	}
-	resp, err := p.client.Do(req)
-	if err != nil {
+		var upstream *UpstreamHTTPError
+		if errors.As(err, &upstream) {
+			return nil, fmt.Errorf("structured tool request failed (HTTP %d); check model tool support and configuration: %s", upstream.Status, upstream.Detail)
+		}
 		return nil, fmt.Errorf("tool request: %s", p.redact(err.Error()))
 	}
 	defer resp.Body.Close()
@@ -83,9 +86,6 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 	}
 	if len(raw) > 512*1024 {
 		return nil, fmt.Errorf("tool response exceeds 512 KiB")
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("structured tool request failed (HTTP %d); check model tool support and configuration", resp.StatusCode)
 	}
 	var result struct {
 		Choices []struct {
