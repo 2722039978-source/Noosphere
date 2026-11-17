@@ -1,5 +1,8 @@
 import type { ChatSession } from './chat-store';
 
+export const attachmentMaxMiB = 200;
+export const attachmentMaxBytes = attachmentMaxMiB * 1024 * 1024;
+
 export interface ChatSnapshot { sessions: ChatSession[]; activeId: string | null }
 
 export const automaticSessionTitle = (content: string) => content.replace(/\s+/gu, ' ').trim() || '新会话';
@@ -33,7 +36,7 @@ export function validateChatSnapshot(value: unknown): ChatSnapshot {
       if (message.sourceProjectPath !== undefined && (typeof message.sourceProjectPath !== 'string' || message.sourceProjectPath.length > 32767)) throw new Error('消息来源项目无效。');
       if (message.attachments !== undefined && (!Array.isArray(message.attachments) || message.attachments.length > 3 || message.attachments.some(file =>
         !file || typeof file.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(file.id) || typeof file.name !== 'string' || file.name.length > 1040 ||
-        typeof file.source_hash !== 'string' || !/^[a-f0-9]{64}$/.test(file.source_hash) || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > 8 * 1024 * 1024))) throw new Error('附件引用格式无效。');
+        typeof file.source_hash !== 'string' || !/^[a-f0-9]{64}$/.test(file.source_hash) || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > attachmentMaxBytes))) throw new Error('附件引用格式无效。');
       if (message.memoryCandidateDismissed !== undefined && typeof message.memoryCandidateDismissed !== 'boolean') throw new Error('记忆候选状态无效。');
       if (message.retrievalMode !== undefined && !['lexical', 'semantic'].includes(message.retrievalMode)) throw new Error('检索模式无效。');
       if (message.contextWarnings !== undefined && (!Array.isArray(message.contextWarnings) || message.contextWarnings.length > 8 || message.contextWarnings.some(w => typeof w !== 'string' || w.length > 8192))) throw new Error('引用提示格式无效。');

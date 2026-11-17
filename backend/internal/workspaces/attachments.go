@@ -1,13 +1,14 @@
 package workspaces
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
+	"os"
 	"strings"
 	"time"
 	"unicode"
@@ -30,8 +31,8 @@ const chatAttachmentSchema = `CREATE TABLE IF NOT EXISTS chat_attachments (
 
 const (
 	maxTurnFiles    = 3
-	maxSessionBytes = 48 << 20
-	maxStoreBytes   = 512 << 20
+	maxSessionBytes = 640 << 20
+	maxStoreBytes   = 2 << 30
 	draftLifetime   = 24 * time.Hour
 )
 
@@ -113,18 +114,19 @@ type savedAttachment struct {
 	sessionID   string
 	projectPath string
 	cancelled   bool
+	diskBacked  bool
 	metadata    []byte
 	sections    []byte
 }
 
 func (m *Manager) attachment(ctx context.Context, id string, full bool) (savedAttachment, error) {
 	var record savedAttachment
-	columns := "workspace_id,session_id,project_path,cancelled,metadata,NULL"
+	columns := "workspace_id,session_id,project_path,cancelled,original IS NULL,metadata,NULL"
 	if full {
-		columns = "workspace_id,session_id,project_path,cancelled,metadata,sections"
+		columns = "workspace_id,session_id,project_path,cancelled,original IS NULL,metadata,sections"
 	}
 	err := m.db.QueryRowContext(ctx, "SELECT "+columns+" FROM chat_attachments WHERE id=?", id).
-		Scan(&record.workspaceID, &record.sessionID, &record.projectPath, &record.cancelled, &record.metadata, &record.sections)
+		Scan(&record.workspaceID, &record.sessionID, &record.projectPath, &record.cancelled, &record.diskBacked, &record.metadata, &record.sections)
 	return record, err
 }
 
@@ -159,12 +161,26 @@ func (m *Manager) attachmentRetry(ctx context.Context, ws Workspace, scope attac
 	if existing != ref {
 		return false, fmt.Errorf("%w: 重试文件已变化，请重新选择文件", ErrConflict)
 	}
+	if record.diskBacked && !m.attachmentFileExists(ref.ID) {
+		return false, fmt.Errorf("%w: 附件原件不可用，请重新选择文件", ErrConflict)
+	}
 	return true, nil
 }
 
-func (m *Manager) stageAttachment(ctx context.Context, input attachmentUpload, original []byte) (AttachmentRef, error) {
-	ref := AttachmentRef{ID: input.ID, Name: input.Name, Size: len(original), SourceHash: fmt.Sprintf("%x", sha256.Sum256(original))}
+func (m *Manager) checkAttachmentUpload(ctx context.Context, ws Workspace, input attachmentUpload) error {
+	record, err := m.attachment(ctx, input.ID, false)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return checkAttachmentScope(record, ws, input.SessionID)
+}
+
+func (m *Manager) attachmentDraft(ctx context.Context, input attachmentUpload, ref AttachmentRef) (Workspace, bool, error) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	ws, err := m.attachmentWorkspace(input.attachmentScope)
 	if err == nil && ws.ProjectPath != input.ProjectPath {
 		err = fmt.Errorf("%w: 项目目录已变化，请重新选择附件", ErrConflict)
@@ -172,63 +188,91 @@ func (m *Manager) stageAttachment(ctx context.Context, input attachmentUpload, o
 	if err == nil {
 		err = m.expireAttachmentDrafts()
 	}
-	var exists bool
-	if err == nil {
-		exists, err = m.attachmentRetry(ctx, ws, input, ref)
-	}
-	m.mu.Unlock()
-	if err != nil || exists {
-		return ref, err
-	}
-
-	sections, err := attachmentfile.Extract(ctx, input.Name, original)
 	if err != nil {
-		if ctx.Err() != nil {
-			return ref, fmt.Errorf("%w: 附件处理已取消或超时，请重试", ErrConflict)
-		}
-		return ref, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return ws, false, err
 	}
+	exists, err := m.attachmentRetry(ctx, ws, input, ref)
+	return ws, exists, err
+}
+
+func attachmentExtractionError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("%w: 附件处理已取消或超时，请重试", ErrConflict)
+	}
+	return fmt.Errorf("%w: %v", ErrInvalid, err)
+}
+
+func encodeAttachmentSections(sections []attachmentfile.Section) ([]byte, error) {
 	chunks := make([]attachmentfile.Section, 0, len(sections))
 	for _, section := range sections {
 		chunks = append(chunks, splitAttachment(section)...)
 	}
+	return json.Marshal(chunks)
+}
+
+func (m *Manager) stageAttachment(ctx context.Context, input attachmentUpload, original []byte) (AttachmentRef, error) {
+	ref := AttachmentRef{ID: input.ID, Name: input.Name, Size: len(original), SourceHash: fmt.Sprintf("%x", sha256.Sum256(original))}
+	ws, exists, err := m.attachmentDraft(ctx, input, ref)
+	if err != nil || exists {
+		return ref, err
+	}
+	sections, err := attachmentfile.Extract(ctx, input.Name, original)
+	if err != nil {
+		return ref, attachmentExtractionError(ctx, err)
+	}
+	evidence, err := encodeAttachmentSections(sections)
+	if err != nil {
+		return ref, err
+	}
+	return ref, m.saveAttachment(ctx, input, ws, ref, original, evidence, "")
+}
+
+func (m *Manager) saveAttachment(ctx context.Context, input attachmentUpload, ws Workspace, ref AttachmentRef, original, evidence []byte, stagedPath string) error {
 	body, err := json.Marshal(ref)
 	if err != nil {
-		return ref, err
+		return err
 	}
-	evidence, err := json.Marshal(chunks)
-	if err != nil {
-		return ref, err
-	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return ref, fmt.Errorf("%w: 附件处理已取消或超时，请重试", ErrConflict)
+		return fmt.Errorf("%w: 附件处理已取消或超时，请重试", ErrConflict)
 	}
 	current, err := m.attachmentWorkspace(input.attachmentScope)
 	if err != nil {
-		return ref, err
+		return err
 	}
 	if current.ProjectPath != ws.ProjectPath {
-		return ref, fmt.Errorf("%w: 项目目录已变化，请重新选择附件", ErrConflict)
+		return fmt.Errorf("%w: 项目目录已变化，请重新选择附件", ErrConflict)
 	}
-	if exists, err = m.attachmentRetry(ctx, current, input, ref); err != nil || exists {
-		return ref, err
+	if exists, err := m.attachmentRetry(ctx, current, input, ref); err != nil || exists {
+		return err
 	}
 	var total, session int64
-	err = m.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(length(original) + length(sections)),0), COALESCE(SUM(CASE WHEN workspace_id=? AND session_id=? THEN length(original) + length(sections) ELSE 0 END),0) FROM chat_attachments", ws.ID, input.SessionID).
-		Scan(&total, &session)
+	const fileBytes = "COALESCE(length(original), json_extract(metadata, '$.size'), 0) + COALESCE(length(sections), 0)"
+	err = m.db.QueryRowContext(ctx, "SELECT COALESCE(SUM("+fileBytes+"),0), COALESCE(SUM(CASE WHEN workspace_id=? AND session_id=? THEN "+fileBytes+" ELSE 0 END),0) FROM chat_attachments", ws.ID, input.SessionID).Scan(&total, &session)
 	if err != nil {
-		return ref, err
+		return err
 	}
-	required := int64(len(original) + len(evidence))
+	required := int64(ref.Size + len(evidence))
 	if total+required > maxStoreBytes || session+required > maxSessionBytes {
-		return ref, fmt.Errorf("%w: 附件存储已满，请移除草稿附件或删除不再需要的会话", ErrBusy)
+		return fmt.Errorf("%w: 附件存储已满，请移除草稿附件或删除不再需要的会话", ErrBusy)
+	}
+	var storedOriginal any = original
+	if stagedPath != "" {
+		if err := os.Rename(stagedPath, m.attachmentPath(ref.ID)); err != nil {
+			return err
+		}
+		storedOriginal = nil
 	}
 	_, err = m.db.ExecContext(ctx, "INSERT INTO chat_attachments (id,workspace_id,session_id,project_path,created_at,metadata,original,sections) VALUES (?,?,?,?,?,?,?,?)",
-		input.ID, ws.ID, input.SessionID, ws.ProjectPath, time.Now().Unix(), body, original, evidence)
-	return ref, err
+		input.ID, ws.ID, input.SessionID, ws.ProjectPath, time.Now().Unix(), body, storedOriginal, evidence)
+	if err != nil && stagedPath != "" {
+		// Resolve an ambiguous commit before discarding its original.
+		if _, lookup := m.attachment(context.Background(), ref.ID, false); errors.Is(lookup, sql.ErrNoRows) {
+			_ = m.removeAttachmentFile(ref.ID)
+		}
+	}
+	return err
 }
 
 // A cancelled ID remains reserved for the draft lifetime. This closes the race
@@ -243,6 +287,7 @@ func (m *Manager) discardAttachment(ctx context.Context, scope attachmentScope, 
 	if err = m.expireAttachmentDrafts(); err != nil {
 		return err
 	}
+	m.removePendingAttachment(uploadKey{scope, id})
 	record, err := m.attachment(ctx, id, false)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -252,14 +297,21 @@ func (m *Manager) discardAttachment(ctx context.Context, scope attachmentScope, 
 	case record.workspaceID != ws.ID || record.sessionID != scope.SessionID:
 		return ErrNotFound
 	default:
-		_, err = m.db.ExecContext(ctx, "UPDATE chat_attachments SET metadata=NULL,original=NULL,sections=NULL,cancelled=1,created_at=? WHERE id=? AND message_id=''", time.Now().Unix(), id)
+		var result sql.Result
+		result, err = m.db.ExecContext(ctx, "UPDATE chat_attachments SET metadata=NULL,original=NULL,sections=NULL,cancelled=1,created_at=? WHERE id=? AND message_id=''", time.Now().Unix(), id)
+		if err == nil && record.diskBacked && !record.cancelled {
+			if removed, countErr := result.RowsAffected(); countErr != nil {
+				err = countErr
+			} else if removed > 0 {
+				err = m.removeAttachmentFile(id)
+			}
+		}
 	}
 	return err
 }
 
 func (m *Manager) expireAttachmentDrafts() error {
-	_, err := m.db.Exec("DELETE FROM chat_attachments WHERE message_id='' AND created_at<?", time.Now().Add(-draftLifetime).Unix())
-	return err
+	return m.deleteAttachments(context.Background(), "message_id='' AND created_at<?", time.Now().Add(-draftLifetime).Unix())
 }
 
 func (m *Manager) deleteSessionAttachments(ctx context.Context, scope attachmentScope) error {
@@ -268,7 +320,37 @@ func (m *Manager) deleteSessionAttachments(ctx context.Context, scope attachment
 	if _, err := m.attachmentWorkspace(scope); err != nil {
 		return err
 	}
-	_, err := m.db.ExecContext(ctx, "DELETE FROM chat_attachments WHERE workspace_id=? AND session_id=?", scope.WorkspaceID, scope.SessionID)
+	for key := range m.attachmentUploads {
+		if key.attachmentScope == scope {
+			m.removePendingAttachment(key)
+		}
+	}
+	return m.deleteAttachments(ctx, "workspace_id=? AND session_id=?", scope.WorkspaceID, scope.SessionID)
+}
+
+func (m *Manager) deleteAttachments(ctx context.Context, filter string, args ...any) error {
+	rows, err := m.db.QueryContext(ctx, "DELETE FROM chat_attachments WHERE "+filter+" RETURNING id, original IS NULL AND cancelled=0", args...)
+	if err != nil {
+		return err
+	}
+	var files []string
+	for rows.Next() {
+		var id string
+		var diskBacked bool
+		if err := rows.Scan(&id, &diskBacked); err != nil {
+			rows.Close()
+			return err
+		}
+		if diskBacked {
+			files = append(files, id)
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, id := range files {
+		err = errors.Join(err, m.removeAttachmentFile(id))
+	}
 	return err
 }
 
@@ -280,46 +362,47 @@ func (m *Manager) PrepareAttachments(ctx context.Context, workspaceID, sessionID
 	if len(turn.IDs) > maxTurnFiles || !safeID.MatchString(turn.MessageID) || len(turn.Question) > 32_000 {
 		return out, fmt.Errorf("%w: 单次最多发送 3 份附件，附带问题最多 32000 字节", ErrInvalid)
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	ws, err := m.attachmentWorkspace(attachmentScope{WorkspaceID: workspaceID, SessionID: sessionID})
+	scope := attachmentScope{WorkspaceID: workspaceID, SessionID: sessionID}
+	ws, records, err := m.attachmentSnapshots(ctx, scope, turn.IDs)
 	if err != nil {
 		return out, err
 	}
-	if err = m.expireAttachmentDrafts(); err != nil {
-		return out, err
-	}
 	terms := attachmentTerms(turn.Question)
-	seen := make(map[string]bool, len(turn.IDs))
-	for _, id := range turn.IDs {
-		if !safeID.MatchString(id) || seen[id] {
-			return out, fmt.Errorf("%w: 附件标识无效或重复", ErrInvalid)
-		}
-		seen[id] = true
-		record, err := m.attachment(ctx, id, true)
-		if errors.Is(err, sql.ErrNoRows) {
-			return out, fmt.Errorf("%w: 附件原件不可用或草稿已过期，请重新选择文件", ErrNotFound)
-		}
-		if err != nil {
-			return out, err
-		}
-		if err := checkAttachmentScope(record, ws, sessionID); err != nil {
-			return out, err
-		}
+	perFile := 1
+	if len(turn.IDs) == 1 {
+		perFile = 2
+	}
+	for i, id := range turn.IDs {
+		record := records[i]
 		var ref AttachmentRef
 		if err := json.Unmarshal(record.metadata, &ref); err != nil {
 			return out, err
 		}
-		var sections []attachmentfile.Section
-		if err := json.Unmarshal(record.sections, &sections); err != nil {
-			return out, err
+		matches := attachmentMatches{terms: terms, limit: perFile}
+		if record.diskBacked && !m.attachmentFileExists(id) {
+			return out, fmt.Errorf("%w: 附件原件不可用，请重新选择文件", ErrNotFound)
 		}
-		ranked := rankAttachment(sections, terms)
-		perFile := 1
-		if len(turn.IDs) == 1 {
-			perFile = 2
+		if len(record.sections) > 0 && record.sections[0] == '{' {
+			var index attachmentTextIndex
+			if err := json.Unmarshal(record.sections, &index); err != nil {
+				return out, err
+			}
+			splitter := attachmentSplitter{line: 1, start: 1, yield: matches.add}
+			if err := attachmentfile.ScanTextFile(ctx, m.attachmentPath(id), index.Encoding, splitter.write); err != nil {
+				return out, attachmentExtractionError(ctx, err)
+			}
+			splitter.flush()
+		} else {
+			var sections []attachmentfile.Section
+			if err := json.Unmarshal(record.sections, &sections); err != nil {
+				return out, err
+			}
+			for _, section := range sections {
+				matches.add(section)
+			}
 		}
-		for _, section := range ranked[:min(perFile, len(ranked))] {
+		for _, match := range matches.hits {
+			section := match.section
 			out.Citations = append(out.Citations, AttachmentCitation{
 				ID: fmt.Sprintf("F%d", len(out.Citations)+1), Kind: "attachment",
 				WorkspaceID: workspaceID, AttachmentID: id, Title: ref.Name, Excerpt: section.Text,
@@ -327,10 +410,70 @@ func (m *Manager) PrepareAttachments(ctx context.Context, workspaceID, sessionID
 			})
 		}
 	}
+
+	// Searches may take several seconds. Recheck the project and file records
+	// after releasing the workspace lock so a concurrent deletion cannot bind
+	// results from a file that no longer belongs to this conversation.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current, err := m.attachmentWorkspace(scope)
+	if err != nil {
+		return AttachmentContext{}, err
+	}
+	if current.ProjectPath != ws.ProjectPath {
+		return AttachmentContext{}, fmt.Errorf("%w: 项目目录已变化，请重新选择附件", ErrConflict)
+	}
+	for i, id := range turn.IDs {
+		record, err := m.attachment(ctx, id, false)
+		if errors.Is(err, sql.ErrNoRows) {
+			return AttachmentContext{}, fmt.Errorf("%w: 附件原件不可用，请重新选择文件", ErrNotFound)
+		}
+		if err != nil {
+			return AttachmentContext{}, err
+		}
+		if err := checkAttachmentScope(record, current, sessionID); err != nil {
+			return AttachmentContext{}, err
+		}
+		if !bytes.Equal(record.metadata, records[i].metadata) {
+			return AttachmentContext{}, fmt.Errorf("%w: 附件已变化，请重新选择文件", ErrConflict)
+		}
+	}
 	if err := m.associateAttachments(ctx, turn); err != nil {
 		return AttachmentContext{}, err
 	}
 	return out, nil
+}
+
+func (m *Manager) attachmentSnapshots(ctx context.Context, scope attachmentScope, ids []string) (Workspace, []savedAttachment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ws, err := m.attachmentWorkspace(scope)
+	if err != nil {
+		return ws, nil, err
+	}
+	if err := m.expireAttachmentDrafts(); err != nil {
+		return ws, nil, err
+	}
+	seen := make(map[string]bool, len(ids))
+	records := make([]savedAttachment, 0, len(ids))
+	for _, id := range ids {
+		if !safeID.MatchString(id) || seen[id] {
+			return ws, nil, fmt.Errorf("%w: 附件标识无效或重复", ErrInvalid)
+		}
+		seen[id] = true
+		record, err := m.attachment(ctx, id, true)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ws, nil, fmt.Errorf("%w: 附件原件不可用或草稿已过期，请重新选择文件", ErrNotFound)
+		}
+		if err != nil {
+			return ws, nil, err
+		}
+		if err := checkAttachmentScope(record, ws, scope.SessionID); err != nil {
+			return ws, nil, err
+		}
+		records = append(records, record)
+	}
+	return ws, records, nil
 }
 
 func (m *Manager) associateAttachments(ctx context.Context, turn AttachmentTurn) error {
@@ -350,42 +493,50 @@ func (m *Manager) associateAttachments(ctx context.Context, turn AttachmentTurn)
 // Preserve original line ranges (or PDF page) and keep individual excerpts
 // small enough to pass to a text-only model with a short context window.
 func splitAttachment(section attachmentfile.Section) []attachmentfile.Section {
-	const chunkRunes = 280
 	chunks := []attachmentfile.Section{}
-	var text strings.Builder
-	line := section.StartLine
-	start := line
-	length := 0
-	flush := func(end int) {
-		if s := strings.TrimSpace(text.String()); s != "" {
-			chunks = append(chunks, attachmentfile.Section{Text: s, Page: section.Page, StartLine: start, EndLine: end})
-		}
-		text.Reset()
-		length = 0
+	splitter := attachmentSplitter{
+		line: section.StartLine, start: section.StartLine, page: section.Page,
+		yield: func(chunk attachmentfile.Section) { chunks = append(chunks, chunk) },
 	}
 	for _, r := range section.Text {
-		if length >= chunkRunes {
-			end := line
-			if text.String()[text.Len()-1] == '\n' && section.StartLine > 0 {
-				end--
-			}
-			flush(end)
-			start = line
-		}
-		text.WriteRune(r)
-		length++
-		if r == '\n' && section.StartLine > 0 {
-			line++
-		}
+		splitter.write(r)
 	}
-	if length > 0 {
-		end := line
-		if text.String()[text.Len()-1] == '\n' && section.StartLine > 0 {
-			end--
-		}
-		flush(end)
-	}
+	splitter.flush()
 	return chunks
+}
+
+type attachmentSplitter struct {
+	text                      strings.Builder
+	length, line, start, page int
+	yield                     func(attachmentfile.Section)
+}
+
+func (s *attachmentSplitter) write(r rune) {
+	const chunkRunes = 280
+	if s.length == chunkRunes {
+		s.flush()
+	}
+	s.text.WriteRune(r)
+	s.length++
+	if r == '\n' && s.line > 0 {
+		s.line++
+	}
+}
+
+func (s *attachmentSplitter) flush() {
+	if s.length == 0 {
+		return
+	}
+	raw := s.text.String()
+	end := s.line
+	if end > 0 && raw[len(raw)-1] == '\n' {
+		end--
+	}
+	if text := strings.TrimSpace(raw); text != "" {
+		s.yield(attachmentfile.Section{Text: text, Page: s.page, StartLine: s.start, EndLine: end})
+	}
+	s.text.Reset()
+	s.start, s.length = s.line, 0
 }
 
 func attachmentTerms(query string) []string {
@@ -420,25 +571,38 @@ func attachmentTerms(query string) []string {
 	return terms
 }
 
-func rankAttachment(sections []attachmentfile.Section, terms []string) []attachmentfile.Section {
-	type rankedSection struct {
-		section attachmentfile.Section
-		score   int
-	}
-	ranked := make([]rankedSection, len(sections))
-	for i, section := range sections {
-		s := strings.ToLower(section.Text)
-		ranked[i].section = section
-		for _, term := range terms {
-			if strings.Contains(s, term) {
-				ranked[i].score++
-			}
+type rankedAttachmentSection struct {
+	section attachmentfile.Section
+	score   int
+}
+
+type attachmentMatches struct {
+	terms []string
+	limit int
+	hits  []rankedAttachmentSection
+}
+
+func (m *attachmentMatches) add(section attachmentfile.Section) {
+	text := strings.ToLower(section.Text)
+	score := 0
+	for _, term := range m.terms {
+		if strings.Contains(text, term) {
+			score++
 		}
 	}
-	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].score > ranked[j].score })
-	out := make([]attachmentfile.Section, len(ranked))
-	for i, item := range ranked {
-		out[i] = item.section
+	position := len(m.hits)
+	for i, match := range m.hits {
+		if score > match.score {
+			position = i
+			break
+		}
 	}
-	return out
+	if position >= m.limit {
+		return
+	}
+	if len(m.hits) < m.limit {
+		m.hits = append(m.hits, rankedAttachmentSection{})
+	}
+	copy(m.hits[position+1:], m.hits[position:])
+	m.hits[position] = rankedAttachmentSection{section: section, score: score}
 }

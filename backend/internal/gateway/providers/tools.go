@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -36,6 +37,8 @@ type ToolMessage struct {
 	Content    string     `json:"content,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	// Responses output belongs to the next request on the same transport.
+	responsesOutput []json.RawMessage
 }
 type ToolResponse struct {
 	Message   ToolMessage
@@ -52,7 +55,9 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 	if opts.SystemPrompt != "" {
 		messages = append([]ToolMessage{{Role: "system", Content: opts.SystemPrompt}}, messages...)
 	}
-	if strings.EqualFold(opts.ToolTransport, "responses") {
+	if strings.EqualFold(opts.ToolTransport, "responses") || slices.ContainsFunc(messages, func(message ToolMessage) bool {
+		return len(message.responsesOutput) > 0
+	}) {
 		return p.chatToolsResponses(ctx, model, messages, tools, opts)
 	}
 	maxTokens := opts.MaxTokens

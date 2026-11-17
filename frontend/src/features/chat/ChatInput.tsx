@@ -11,6 +11,7 @@ import { useUiStore } from '@/stores/ui-store';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useEvidenceDraft } from '@/features/codelens/evidence-draft';
 import { useChatAttachments } from './chat-attachments';
+import { attachmentMaxMiB } from './chat-backup';
 import { useChatStore } from './chat-store';
 
 interface Props {
@@ -211,7 +212,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
                 variant="ghost"
                 size="icon"
                 aria-label="选择附件"
-                title="文本、代码或有文字层的 PDF，每份最多 8 MB"
+                title={`文本、代码或有文字层的 PDF，每份最多 ${attachmentMaxMiB} MB`}
                 disabled={!canAttach}
                 className="ns-composer-icon"
                 onClick={() => fileRef.current?.click()}

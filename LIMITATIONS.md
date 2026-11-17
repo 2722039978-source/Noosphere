@@ -14,9 +14,11 @@ Model Hub 分别显示对话、Agent 工具和原生测评的能力状态。`sup
 
 ## 对话附件
 
-每条消息可添加 3 份附件，每份最多 8 MB。文本和代码支持 UTF-8、带 BOM 的 UTF-16 和 GB18030。PDF 提取最多 100 页的文字层，每份最多提取 1 MB 文本。图片或扫描 PDF 可先在本机转换为文字。
+每条消息最多添加 3 个文件，每个文件不超过 200 MB（209,715,200 字节）。原件和索引合计每个会话最多 640 MiB，整个应用最多 2 GiB。文本和代码支持 UTF-8、带 BOM 的 UTF-16 和 GB18030。PDF 支持最多 100 页的文字层，每份最多提取 1 MB 文本。图片与扫描 PDF 可先在本机 OCR，再粘贴文字或添加为文本文件。
 
-附件按工作区、项目和会话管理。模型收到与当前问题相关的节选，来源保留文件名、SHA-256 及页码或行号。会话导出包含文件引用和用过的节选。备份附件原件时请使用应用数据目录备份。
+附件只读取用户选择或拖入的文件。原件保存在应用数据目录，按工作区、项目目录和会话隔离。发送时，模型收到为当前问题选取的文字节选，引用保留文件名、SHA-256 和页码或行号。使用远程模型时，节选随对话请求发送。发送后可以按需引用上次附件。
+
+移除或取消草稿会清理其数据。未使用草稿 24 小时后到期，在应用启动或下一次附件操作时清理。已发送的文件随会话保留，删除会话时清理对应附件。会话 JSON 备份保留文件引用与已用节选。备份原件时请使用应用数据备份，或退出应用后一起保留 `workspace.sqlite`、其对应 WAL 文件和 `chat-attachment-files` 目录。
 
 ## 本地模型测评
 
@@ -75,6 +77,7 @@ Noosphere 的档案界面与三维场景参考并适配 [LBEILC / RhineLabUI](ht
 RhineLabUI 的视觉参考来自《明日方舟》「莱茵生命：访问」终端界面。相关原作名称、标志、设定与视觉设计的权利归各自权利人所有；Noosphere 与原作品、RhineLabUI 作者及相关品牌没有官方关联或背书关系。模型档案的静态建筑美术按参考方向单独生成。
 
 - [REA](https://github.com/morluto/rea)：产物分析组件，使用锁定的 `rea-agents` 版本；上游及其依赖许可证随运行组件分发。
+- 附件 PDF 提取与文本解码的版权及许可见 [Attachment-Dependencies-LICENSE.txt](frontend/public/assets/Attachment-Dependencies-LICENSE.txt)。
 - MiSans：字体版权说明见 [NOTICE.txt](frontend/public/fonts/NOTICE.txt)，许可见 [MiSans-license.pdf](frontend/public/fonts/MiSans-license.pdf)。
 - 模型厂商图标：来源与商标说明见 [NOTICE.txt](frontend/public/model-brands/NOTICE.txt)，许可见 [LICENSE.txt](frontend/public/model-brands/LICENSE.txt)。
 - Noosphere 自有代码使用 [MIT License](LICENSE)。第三方代码、模型、字体、图标及其他素材继续适用各自的许可与版权声明。

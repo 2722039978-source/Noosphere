@@ -16,8 +16,12 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
-const MaxBytes = 8 << 20
+const MaxMiB = 200
+const MaxBytes = MaxMiB << 20
+const StorageDirectory = "chat-attachment-files"
+const UploadDirectory = ".uploads"
 const maxTextBytes = 1 << 20
+const encodingProblem = "无法读取文本编码，请使用 UTF-8、带 BOM 的 UTF-16 或 GB18030"
 
 type Section struct {
 	Text      string
@@ -41,18 +45,14 @@ func Extract(ctx context.Context, name string, raw []byte) ([]Section, error) {
 		return nil, err
 	}
 	if len(raw) == 0 || len(raw) > MaxBytes {
-		return nil, fmt.Errorf("附件为空或大于每份 8 MB 的上限")
+		return nil, fmt.Errorf("附件为空或超过每份 %d MB 的上限", MaxMiB)
 	}
-	switch ext := strings.ToLower(filepath.Ext(name)); ext {
-	case ".pdf":
+	isPDF, err := PDFFormat(name)
+	if err != nil {
+		return nil, err
+	}
+	if isPDF {
 		return runPDF(ctx, raw)
-	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".bmp", ".tif", ".tiff", ".svg":
-		return nil, fmt.Errorf("当前对话接口仅传输文本，无法读取图片；请粘贴图片文字，或先用 OCR 转成文本再添加")
-	default:
-		base := strings.ToLower(name)
-		if !slices.Contains(textExtensions, ext) && !slices.Contains([]string{"readme", "license", "makefile", "dockerfile", "gemfile", "cmakelists"}, base) {
-			return nil, fmt.Errorf("不支持此文件格式，请选择文本、代码或有文字层的 PDF")
-		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -71,8 +71,23 @@ func Extract(ctx context.Context, name string, raw []byte) ([]Section, error) {
 	return []Section{{Text: text, StartLine: 1, EndLine: strings.Count(text, "\n") + 1}}, nil
 }
 
+// PDFFormat distinguishes PDFs from supported text and code attachments.
+func PDFFormat(name string) (bool, error) {
+	switch ext := strings.ToLower(filepath.Ext(name)); ext {
+	case ".pdf":
+		return true, nil
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".bmp", ".tif", ".tiff", ".svg":
+		return false, fmt.Errorf("当前对话接口仅传输文本，无法读取图片；请粘贴图片文字，或先用 OCR 转成文本再添加")
+	default:
+		base := strings.ToLower(name)
+		if !slices.Contains(textExtensions, ext) && !slices.Contains([]string{"readme", "license", "makefile", "dockerfile", "gemfile", "cmakelists"}, base) {
+			return false, fmt.Errorf("不支持此文件格式，请选择文本、代码或有文字层的 PDF")
+		}
+		return false, nil
+	}
+}
+
 func decodeText(raw []byte) (string, error) {
-	const encodingProblem = "无法读取文本编码；请使用 UTF-8、带 BOM 的 UTF-16 或 GB18030"
 	var text string
 	switch {
 	case bytes.HasPrefix(raw, []byte{0xff, 0xfe}), bytes.HasPrefix(raw, []byte{0xfe, 0xff}):

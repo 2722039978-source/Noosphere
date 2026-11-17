@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/noosphere/backend/internal/attachmentfile"
 )
 
 type upgradeState struct {
@@ -119,6 +121,7 @@ func backupUpgrade(root, configPath string, cfg *AppConfig, previous, version st
 		{filepath.Join(dataDir, "agent-actions"), "data/agent-actions"},
 		{filepath.Join(dataDir, "model-engineering", "artifacts"), "data/model-engineering/artifacts"},
 		{filepath.Join(dataDir, "codelens-artifacts"), "data/codelens-artifacts"},
+		{filepath.Join(dataDir, attachmentfile.StorageDirectory), "data/" + attachmentfile.StorageDirectory},
 	} {
 		if path.source == "" {
 			continue
@@ -136,6 +139,7 @@ func backupUpgrade(root, configPath string, cfg *AppConfig, previous, version st
 			}
 			if item.IsDir() {
 				if (path.relative == "data/codelens-artifacts" && relative == "work") ||
+					(path.relative == "data/"+attachmentfile.StorageDirectory && relative == attachmentfile.UploadDirectory) ||
 					(path.relative == "data/nebula" && relative != ".") {
 					return fs.SkipDir
 				}

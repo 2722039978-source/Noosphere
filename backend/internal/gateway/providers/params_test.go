@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
@@ -162,10 +163,12 @@ func TestResponsesInputMapsTurns(t *testing.T) {
 	if len(items) != 4 {
 		t.Fatalf("items = %d, want 4: %v", len(items), items)
 	}
-	if items[2]["type"] != "function_call" || items[2]["call_id"] != "call_1" || items[2]["name"] != "project_list_files" {
+	call, ok := items[2].(map[string]interface{})
+	if !ok || call["type"] != "function_call" || call["call_id"] != "call_1" || call["name"] != "project_list_files" {
 		t.Fatalf("unexpected function_call item: %v", items[2])
 	}
-	if items[3]["type"] != "function_call_output" || items[3]["call_id"] != "call_1" {
+	output, ok := items[3].(map[string]interface{})
+	if !ok || output["type"] != "function_call_output" || output["call_id"] != "call_1" {
 		t.Fatalf("unexpected function_call_output item: %v", items[3])
 	}
 }
@@ -208,5 +211,67 @@ func TestChatToolsFallsBackToResponses(t *testing.T) {
 	first, _ := flat[0].(map[string]interface{})
 	if first["name"] != "project_list_files" {
 		t.Fatalf("tools should be flattened: %v", first)
+	}
+}
+
+func TestChatToolsContinuesResponsesWithOriginalOutputItems(t *testing.T) {
+	var chatCalls, responsesCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/chat/completions" {
+			chatCalls.Add(1)
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"message":"Use /v1/responses with function tools."}}`)
+			return
+		}
+		if r.URL.Path != "/responses" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if responsesCalls.Add(1) == 1 {
+			io.WriteString(w, `{"output":[{"type":"reasoning","id":"rs_fixture","encrypted_content":"opaque-fixture","summary":[]},{"type":"function_call","id":"fc_fixture","call_id":"call_fixture","name":"lookup","arguments":"{}"}]}`)
+			return
+		}
+		var request struct {
+			Input []struct {
+				Type             string `json:"type"`
+				ID               string `json:"id"`
+				EncryptedContent string `json:"encrypted_content"`
+				CallID           string `json:"call_id"`
+				Output           string `json:"output"`
+			} `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		items := request.Input
+		if len(items) != 4 ||
+			items[1].Type != "reasoning" || items[1].ID != "rs_fixture" || items[1].EncryptedContent != "opaque-fixture" ||
+			items[2].Type != "function_call" || items[2].ID != "fc_fixture" || items[2].CallID != "call_fixture" ||
+			items[3].Type != "function_call_output" || items[3].CallID != "call_fixture" || items[3].Output != "local fixture evidence" {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"error":{"message":"Function output requires its original reasoning and call items."}}`)
+			return
+		}
+		io.WriteString(w, `{"output":[{"type":"message","content":[{"type":"output_text","text":"Saw local fixture evidence."}]}]}`)
+	}))
+	defer server.Close()
+
+	p := &OpenAIProvider{baseURL: server.URL, client: server.Client()}
+	messages := []ToolMessage{{Role: "user", Content: "Find the fixture evidence."}}
+	tools := []ToolDefinition{{Type: "function", Function: FunctionDefinition{Name: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)}}}
+	initial, err := p.ChatTools(t.Context(), "fixture", messages, tools, ChatOptions{})
+	if err != nil || len(initial.Message.ToolCalls) != 1 || initial.Message.ToolCalls[0].ID != "call_fixture" {
+		t.Fatalf("initial tool turn: %+v %v", initial, err)
+	}
+	messages = append(messages, initial.Message, ToolMessage{Role: "tool", ToolCallID: "call_fixture", Content: "local fixture evidence"})
+	final, err := p.ChatTools(t.Context(), "fixture", messages, tools, ChatOptions{})
+	if err != nil || final.Message.Content != "Saw local fixture evidence." {
+		t.Fatalf("Responses tool continuation: %+v %v", final, err)
+	}
+	if got := chatCalls.Load(); got != 1 {
+		t.Fatalf("chat transport tried %d times after selecting Responses", got)
 	}
 }

@@ -20,6 +20,9 @@ desktop/src-tauri/target/
 release/
 /artifacts/
 .local/
+/.codex/
+.cache/
+chat-attachment-files/
 *.log
 models.yaml
 !backend/models.yaml.example

@@ -36,6 +36,17 @@ test('backup validation rejects malformed sessions before mutation',()=>{
  assert.throws(()=>parseChatBackup(JSON.stringify({format:'noosphere-chat-backup',version:2,state:sample})));
 });
 
+test('backup accepts a 200 MiB attachment reference and rejects larger sizes', () => {
+ const snapshot = structuredClone(sample);
+ const size = 200 * 1024 * 1024;
+ const attachment = { id: 'large-log', name: 'server.log', size, source_hash: 'a'.repeat(64) };
+ snapshot.sessions[0].messages[0].attachments = [attachment];
+ const backup = () => JSON.stringify({ format: 'noosphere-chat-backup', version: 1, state: snapshot });
+ assert.equal(parseChatBackup(backup()).sessions[0].messages[0].attachments[0].size, size);
+ attachment.size++;
+ assert.throws(() => parseChatBackup(backup()), /附件引用格式无效/);
+});
+
 test('ordinary archive growth past import limit still hydrates',async()=>{
  const large=structuredClone(sample);large.sessions[0].messages[0].content='x'.repeat(21*1024*1024);
  const f=fixture(null);await f.storage.getItem('noosphere-chat-v1');

@@ -25,16 +25,26 @@ type pdfResult struct {
 // PDF parsing takes place in a short-lived child without server credentials.
 // Cancelling the request or exceeding the deadline kills the child.
 func runPDF(parent context.Context, raw []byte) ([]Section, error) {
+	return runPDFWorker(parent, 8*time.Second, bytes.NewReader(raw))
+}
+
+// ExtractPDFFile lets the isolated parser seek through the uploaded file
+// directly, including PDFs larger than the worker's memory budget.
+func ExtractPDFFile(parent context.Context, path string) ([]Section, error) {
+	return runPDFWorker(parent, 45*time.Second, nil, path)
+}
+
+func runPDFWorker(parent context.Context, timeout time.Duration, input io.Reader, args ...string) ([]Section, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("无法打开 PDF 提取组件")
 	}
-	ctx, cancel := context.WithTimeout(parent, 8*time.Second)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, exe, PDFWorkerFlag)
+	cmd := exec.CommandContext(ctx, exe, append([]string{PDFWorkerFlag}, args...)...)
 	hidePDFWindow(cmd)
 	cmd.Env = []string{"GOMEMLIMIT=96MiB", "GOMAXPROCS=2", "SystemRoot=" + os.Getenv("SystemRoot")}
-	cmd.Stdin = bytes.NewReader(raw)
+	cmd.Stdin = input
 	var output limitedWriter
 	cmd.Stdout = &output
 	cmd.WaitDelay = time.Second
@@ -74,17 +84,46 @@ func RunPDFWorker(input io.Reader, output io.Writer) error {
 	return json.NewEncoder(output).Encode(result)
 }
 
-func readPDF(input io.Reader) (result pdfResult) {
+func RunPDFFileWorker(path string, output io.Writer) error {
+	result := pdfResult{}
+	if err := boundPDFProcess(); err != nil {
+		result.Error = "无法为 PDF 提取设置资源限制"
+	} else if file, err := os.Open(path); err != nil {
+		result.Error = "无法打开附件原件，请重新选择文件"
+	} else {
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			result.Error = "附件原件无效，请重新选择文件"
+		} else {
+			result = readPDFAt(file, info.Size())
+		}
+	}
+	return json.NewEncoder(output).Encode(result)
+}
+
+func readPDF(input io.Reader) pdfResult {
+	raw, err := io.ReadAll(io.LimitReader(input, (8<<20)+1))
+	if err != nil || len(raw) > 8<<20 {
+		return pdfResult{Error: "PDF 单次传输过大，请通过桌面分段上传"}
+	}
+	return readPDFAt(bytes.NewReader(raw), int64(len(raw)))
+}
+
+func readPDFAt(input io.ReaderAt, size int64) (result pdfResult) {
 	defer func() {
 		if recover() != nil {
 			result = pdfResult{Error: "PDF 内容无法解析，请尝试导出为文本"}
 		}
 	}()
-	raw, err := io.ReadAll(io.LimitReader(input, MaxBytes+1))
-	if err != nil || len(raw) > MaxBytes || !bytes.Contains(raw[:min(len(raw), 1024)], []byte("%PDF-")) {
-		return pdfResult{Error: "文件不是有效的 PDF，或超过 8 MB"}
+	if size < 1 || size > MaxBytes {
+		return pdfResult{Error: fmt.Sprintf("PDF 为空或超过每份 %d MB 的上限", MaxMiB)}
 	}
-	reader, err := pdf.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	header := make([]byte, min(size, 1024))
+	if _, err := input.ReadAt(header, 0); err != nil || !bytes.Contains(header, []byte("%PDF-")) {
+		return pdfResult{Error: "文件不是有效的 PDF"}
+	}
+	reader, err := pdf.NewReader(input, size)
 	if err != nil {
 		return pdfResult{Error: "无法打开 PDF，文件可能受密码保护或已损坏"}
 	}

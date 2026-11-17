@@ -118,6 +118,49 @@ func TestPublicSessionSelectionPersistsAcrossDefaultsAndRestart(t *testing.T) {
 	requirePublicSessionModel(t, reloaded, "local", "after-restart", "", "explicit")
 }
 
+func TestPublicModelEditPreservesProtocolOverridesForSameTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "models.yaml")
+	config := `default_model: relay
+providers:
+  - id: relay
+    name: Before edit
+    type: openai_compatible
+    base_url: http://127.0.0.1:11434/v1
+    model: fixture-model
+    enabled: true
+    max_tokens_field: max_completion_tokens
+    supports_temperature: false
+    tool_transport: responses
+`
+	if err := os.WriteFile(path, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	g := New(path)
+	if m := g.GetFirstModel(); m == nil || m.MaxTokensKey() != "max_completion_tokens" || m.TemperatureEnabled() || m.ToolTransport != "responses" {
+		t.Fatalf("fixture overrides not loaded: %+v", m)
+	}
+	save := func(baseURL string) *ModelConfig {
+		t.Helper()
+		body := fmt.Sprintf(`{"id":"relay","name":"After edit","provider":"openai_compatible","base_url":%q,"model_name":"fixture-model","is_default":true,"strict_credential_origin":true}`, baseURL)
+		response := httptest.NewRecorder()
+		g.HandleAddModel(response, httptest.NewRequest(http.MethodPost, "/api/gateway/models", strings.NewReader(body)))
+		if response.Code != http.StatusCreated {
+			t.Fatalf("model edit returned %d: %s", response.Code, response.Body.String())
+		}
+		model := New(path).GetFirstModel()
+		if model == nil || model.Name != "After edit" {
+			t.Fatalf("model edit was not persisted: %+v", model)
+		}
+		return model
+	}
+	if m := save("http://127.0.0.1:11434/v1/"); m.MaxTokensKey() != "max_completion_tokens" || m.SupportsTemperature == nil || m.TemperatureEnabled() || m.ToolTransport != "responses" {
+		t.Fatalf("rename lost the model's protocol overrides: %+v", m)
+	}
+	if m := save("http://127.0.0.1:11434/v2"); m.MaxTokensKey() != "" || m.SupportsTemperature != nil || m.ToolTransport != "" {
+		t.Fatalf("new target inherited the old target's protocol overrides: %+v", m)
+	}
+}
+
 func TestPublicModelSelectionRejectsUnavailableModels(t *testing.T) {
 	g, manager, workspace := publicSelectionGateway(t)
 	for _, requested := range []string{"missing", "disabled"} {

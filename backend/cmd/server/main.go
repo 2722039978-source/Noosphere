@@ -13,11 +13,20 @@ import (
 )
 
 // Version is the canonical build version. Overridden by -ldflags at build time.
-var Version = "0.8.0" // canonical source: root VERSION file
+var Version = "0.8.1" // canonical source: root VERSION file
 
 func main() {
-	if len(os.Args) == 2 && os.Args[1] == attachmentfile.PDFWorkerFlag {
-		if err := attachmentfile.RunPDFWorker(os.Stdin, os.Stdout); err != nil {
+	if len(os.Args) >= 2 && os.Args[1] == attachmentfile.PDFWorkerFlag {
+		var err error
+		switch len(os.Args) {
+		case 2:
+			err = attachmentfile.RunPDFWorker(os.Stdin, os.Stdout)
+		case 3:
+			err = attachmentfile.RunPDFFileWorker(os.Args[2], os.Stdout)
+		default:
+			os.Exit(2)
+		}
+		if err != nil {
 			os.Exit(1)
 		}
 		return

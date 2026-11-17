@@ -33,6 +33,9 @@ func (p *OpenAIProvider) chatToolsResponses(ctx context.Context, model string, m
 			"max_output_tokens": maxTokens,
 			"stream":            false,
 		}
+		if p.openAIEndpoint {
+			body["store"] = false
+		}
 		if !o.OmitTemperature && o.Temperature != 0 {
 			body["temperature"] = o.Temperature
 		}
@@ -58,7 +61,19 @@ func (p *OpenAIProvider) chatToolsResponses(ctx context.Context, model string, m
 		return nil, fmt.Errorf("tool response exceeds 512 KiB")
 	}
 	var result struct {
-		Output []struct {
+		Output []json.RawMessage `json:"output"`
+		Usage  struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("invalid structured model response")
+	}
+	message := ToolMessage{Role: "assistant", responsesOutput: result.Output}
+	var answer strings.Builder
+	for _, rawItem := range result.Output {
+		var item struct {
 			Type      string `json:"type"`
 			CallID    string `json:"call_id"`
 			Name      string `json:"name"`
@@ -67,18 +82,10 @@ func (p *OpenAIProvider) chatToolsResponses(ctx context.Context, model string, m
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"content"`
-		} `json:"output"`
-		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, fmt.Errorf("invalid structured model response")
-	}
-	message := ToolMessage{Role: "assistant"}
-	var answer strings.Builder
-	for _, item := range result.Output {
+		}
+		if err := json.Unmarshal(rawItem, &item); err != nil {
+			return nil, fmt.Errorf("invalid structured model output item")
+		}
 		switch item.Type {
 		case "function_call":
 			message.ToolCalls = append(message.ToolCalls, ToolCall{
@@ -101,10 +108,16 @@ func (p *OpenAIProvider) chatToolsResponses(ctx context.Context, model string, m
 }
 
 // responsesInput maps the chat-shaped turn history onto Responses API items.
-func responsesInput(messages []ToolMessage) []map[string]interface{} {
-	items := make([]map[string]interface{}, 0, len(messages))
+func responsesInput(messages []ToolMessage) []any {
+	items := make([]any, 0, len(messages))
 	for _, message := range messages {
 		switch {
+		case len(message.responsesOutput) > 0:
+			// Preserve all provider items in their original order, including
+			// opaque reasoning state and the original function call IDs.
+			for _, item := range message.responsesOutput {
+				items = append(items, item)
+			}
 		case message.Role == "tool":
 			items = append(items, map[string]interface{}{
 				"type": "function_call_output", "call_id": message.ToolCallID, "output": message.Content,

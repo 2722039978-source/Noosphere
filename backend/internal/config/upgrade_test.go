@@ -34,13 +34,15 @@ func TestUpgradeBacksUpBeforeOpeningStores(t *testing.T) {
 	cfg.Gateway.ConfigPath = filepath.Join(root, "models.yaml")
 	configPath := filepath.Join(root, "config.yaml")
 	files := map[string]string{
-		configPath:                                                "app: {name: local}",
-		cfg.Gateway.ConfigPath:                                    "providers: []",
-		filepath.Join(data, "workspace.sqlite"):                   "db",
-		filepath.Join(data, "workspace.sqlite-wal"):               "wal",
-		filepath.Join(data, "agent-actions", "change.json"):       "action",
-		filepath.Join(cfg.Modules.Nebula.DataDir, "nebula.wal"):   "memory",
-		filepath.Join(cfg.Modules.Nebula.DataDir, "vectors.json"): "cache",
+		configPath:                                                                    "app: {name: local}",
+		cfg.Gateway.ConfigPath:                                                        "providers: []",
+		filepath.Join(data, "workspace.sqlite"):                                       "db",
+		filepath.Join(data, "workspace.sqlite-wal"):                                   "wal",
+		filepath.Join(data, "agent-actions", "change.json"):                           "action",
+		filepath.Join(data, "chat-attachment-files", "original.bin"):                  "attachment original",
+		filepath.Join(data, "chat-attachment-files", ".uploads", "upload-incomplete"): "unfinished",
+		filepath.Join(cfg.Modules.Nebula.DataDir, "nebula.wal"):                       "memory",
+		filepath.Join(cfg.Modules.Nebula.DataDir, "vectors.json"):                     "cache",
 	}
 	for path, content := range files {
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -50,7 +52,7 @@ func TestUpgradeBacksUpBeforeOpeningStores(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, version := range []string{cfg.App.Version, cfg.App.Version, "0.6.0", cfg.App.Version} {
+	for _, version := range []string{"0.7.0", "0.7.0", "0.6.0", "0.7.0"} {
 		if err := PrepareUpgrade(configPath, cfg, version); err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +65,9 @@ func TestUpgradeBacksUpBeforeOpeningStores(t *testing.T) {
 		snapshot := filepath.Join(root, "upgrade-backups", entry.Name())
 		var manifest upgradeManifest
 		readJSON(t, filepath.Join(snapshot, "manifest.json"), &manifest)
-		if len(manifest.Files) != len(files)-1 {
+		if len(manifest.Files) != len(files)-2 ||
+			manifest.Files["data/chat-attachment-files/original.bin"] == "" ||
+			manifest.Files["data/chat-attachment-files/.uploads/upload-incomplete"] != "" {
 			t.Fatalf("manifest files: %+v", manifest.Files)
 		}
 		for backup, original := range manifest.Files {
@@ -89,7 +93,7 @@ func TestFailedUpgradeBackupLeavesOriginalStateAndRetries(t *testing.T) {
 	if err := os.MkdirAll(database, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareUpgrade(configPath, cfg, cfg.App.Version); err == nil {
+	if err := PrepareUpgrade(configPath, cfg, "0.7.0"); err == nil {
 		t.Fatal("startup should stop until a backup can be written")
 	}
 	var state upgradeState
@@ -107,11 +111,11 @@ func TestFailedUpgradeBackupLeavesOriginalStateAndRetries(t *testing.T) {
 	if err := os.WriteFile(database, []byte("state"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := PrepareUpgrade(configPath, cfg, cfg.App.Version); err != nil {
+	if err := PrepareUpgrade(configPath, cfg, "0.7.0"); err != nil {
 		t.Fatal(err)
 	}
 	readJSON(t, filepath.Join(root, "data-version.json"), &state)
-	if state.AppVersion != cfg.App.Version {
+	if state.AppVersion != "0.7.0" {
 		t.Fatalf("retry did not update version: %+v", state)
 	}
 }

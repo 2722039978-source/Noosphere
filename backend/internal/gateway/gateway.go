@@ -359,7 +359,7 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 			} else if !identityChanged && body.ContextLength == 0 {
 				body.ContextLength = m.ContextLength
 			}
-			g.config.Models[i] = ModelConfig{
+			saved := ModelConfig{
 				ID: body.ID, Name: body.Name, Provider: body.Provider,
 				BaseURL: body.BaseURL, APIKey: body.APIKey, ModelName: body.ModelName,
 				Vendor: body.Vendor, ModelFamily: body.ModelFamily, Deployment: body.Deployment,
@@ -367,6 +367,12 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 				Enabled: m.Enabled, IsDefault: body.IsDefault,
 				Temperature: m.Temperature, MaxTokens: m.MaxTokens,
 			}
+			if !identityChanged {
+				saved.MaxTokensField = m.MaxTokensField
+				saved.SupportsTemperature = m.SupportsTemperature
+				saved.ToolTransport = m.ToolTransport
+			}
+			g.config.Models[i] = saved
 			found = true
 			break
 		}

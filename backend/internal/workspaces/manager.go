@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/noosphere/backend/internal/attachmentfile"
 	_ "modernc.org/sqlite"
 )
 
@@ -101,21 +102,23 @@ type job struct {
 	handler Handler
 }
 type Manager struct {
-	modelResolver func(workspaceID, sessionID, modelID string) (string, error)
-	mu            sync.Mutex
-	db            *sql.DB
-	closed        bool
-	ctx           context.Context
-	cancel        context.CancelFunc
-	registrations map[string]registration
-	executions    map[string]*Execution
-	queues        map[string]chan job
-	slots         map[string]chan struct{}
-	workers       sync.WaitGroup
-	operations    sync.WaitGroup
-	pending       map[string]*cancellationOperation
-	closeDone     chan struct{}
-	closeErr      error
+	modelResolver     func(workspaceID, sessionID, modelID string) (string, error)
+	mu                sync.Mutex
+	db                *sql.DB
+	closed            bool
+	ctx               context.Context
+	cancel            context.CancelFunc
+	registrations     map[string]registration
+	executions        map[string]*Execution
+	queues            map[string]chan job
+	slots             map[string]chan struct{}
+	workers           sync.WaitGroup
+	operations        sync.WaitGroup
+	pending           map[string]*cancellationOperation
+	closeDone         chan struct{}
+	closeErr          error
+	attachmentDir     string
+	attachmentUploads map[uploadKey]pendingAttachment
 }
 type Execution struct {
 	ID        string
@@ -176,7 +179,13 @@ func Open(path string) (*Manager, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{db: db, ctx: ctx, cancel: cancel, registrations: map[string]registration{}, executions: map[string]*Execution{}, queues: map[string]chan job{}, slots: map[string]chan struct{}{}, pending: map[string]*cancellationOperation{}, closeDone: make(chan struct{})}
+	m.attachmentDir = filepath.Join(filepath.Dir(path), attachmentfile.StorageDirectory)
+	m.attachmentUploads = make(map[uploadKey]pendingAttachment)
 	if err := m.expireAttachmentDrafts(); err != nil {
+		cancel()
+		return fail(err)
+	}
+	if err := m.recoverAttachmentStorage(); err != nil {
 		cancel()
 		return fail(err)
 	}
@@ -259,6 +268,9 @@ func (m *Manager) Close() error {
 	}
 	m.closed = true
 	m.cancel()
+	for key := range m.attachmentUploads {
+		m.removePendingAttachment(key)
+	}
 	for _, ex := range m.executions {
 		ex.cancel()
 	}

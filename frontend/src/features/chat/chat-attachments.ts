@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errMessage, type ChatAttachment } from '@/lib/api';
+import { attachmentMaxBytes, attachmentMaxMiB } from './chat-backup';
 
 const maxFiles = 3;
-const maxBytes = 8 * 1024 * 1024;
+const chunkBytes = 4 * 1024 * 1024;
 
 type AttachmentState =
   | { phase: 'reading'; progress: number }
@@ -22,7 +23,7 @@ interface DraftEntry {
   state: AttachmentState;
 }
 
-function readFile(file: File, signal: AbortSignal, progress: (percent: number) => void): Promise<ArrayBuffer> {
+function readFile(file: Blob, signal: AbortSignal, progress: (loaded: number) => void): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     const abort = () => reader.abort();
@@ -32,7 +33,7 @@ function readFile(file: File, signal: AbortSignal, progress: (percent: number) =
     reader.onerror = () => reject(new Error('无法读取文件，请检查文件权限或重新选择'));
     reader.onabort = () => reject(new Error('附件读取已取消'));
     reader.onprogress = event => {
-      if (event.lengthComputable && event.total > 0) progress(Math.round(event.loaded / event.total * 100));
+      if (event.lengthComputable && event.total > 0) progress(event.loaded);
     };
     reader.onloadend = () => signal.removeEventListener('abort', abort);
     if (signal.aborted) { reject(new Error('附件读取已取消')); return; }
@@ -69,12 +70,20 @@ export function useChatAttachments(workspaceId: string, sessionId: string, proje
     };
     update({ phase: 'reading', progress: 0 });
     try {
-      const bytes = await readFile(entry.file, controller.signal, progress => update({ phase: 'reading', progress }));
-      if (controller.signal.aborted) return;
-      update({ phase: 'processing' });
-      entry.dispatched = true;
-      const attachment = await api.stageChatAttachment({ ...entry.scope, id: entry.id, name: entry.file.name }, bytes);
-      if (attachment.id !== entry.id || attachment.name !== entry.file.name || attachment.size !== entry.file.size ||
+      const { name, size } = entry.file;
+      let attachment: ChatAttachment | undefined;
+      for (let offset = 0; offset < size; offset += chunkBytes) {
+        const end = Math.min(offset + chunkBytes, size);
+        const bytes = await readFile(entry.file.slice(offset, end), controller.signal, loaded =>
+          update({ phase: 'reading', progress: Math.floor((offset + loaded) / size * 100) }));
+        if (controller.signal.aborted) return;
+        if (end === size) update({ phase: 'processing' });
+        entry.dispatched = true;
+        const result = await api.stageChatAttachment({ ...entry.scope, id: entry.id, name, offset, size }, bytes);
+        if (result.received !== end) throw new Error('附件传输未确认，请重试');
+        attachment = result.attachment;
+      }
+      if (!attachment || attachment.id !== entry.id || attachment.name !== name || attachment.size !== size ||
           !/^[0-9a-f]{64}$/.test(attachment.source_hash)) throw new Error('附件确认不完整，请重试');
       update({ phase: 'ready', attachment });
     } catch (error) {
@@ -93,11 +102,11 @@ export function useChatAttachments(workspaceId: string, sessionId: string, proje
     for (const file of picked) {
       if (selected.some(entry => entry.file.name === file.name && entry.file.size === file.size && entry.file.lastModified === file.lastModified)) continue;
       if (selected.length >= maxFiles) { show('每条消息最多添加 3 份文件。'); break; }
-      const invalid = file.size === 0 || file.size > maxBytes;
+      const invalid = file.size === 0 || file.size > attachmentMaxBytes;
       const entry: DraftEntry = {
         id: crypto.randomUUID(), file, scope, key, controller: null, dispatched: false,
         state: invalid
-          ? { phase: 'failed', retry: false, message: file.size === 0 ? '文件为空。' : '文件超过每份 8 MB 上限。' }
+          ? { phase: 'failed', retry: false, message: file.size === 0 ? '文件为空。' : `文件超过每份 ${attachmentMaxMiB} MB 上限。` }
           : { phase: 'reading', progress: 0 },
       };
       entries.current.set(entry.id, entry);

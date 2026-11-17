@@ -3,15 +3,16 @@ use serde_json::{json, Value};
 use std::time::Duration;
 use tauri::ipc::{InvokeBody, Request};
 
-const MAX_FILE_BYTES: usize = 8 << 20;
+const MAX_CHUNK_BYTES: usize = 8 << 20;
 const META: &str = "x-noosphere-attachment";
 
 fn attachment_post(path: &str, body: Vec<u8>, metadata: Option<String>) -> Result<Value, ApiError> {
     let connection = crate::runtime::backend_connection()?;
+    let timeout = if matches!(path, "stage" | "prepare") { 100 } else { 24 };
     let request = crate::runtime::local_agent()
         .post(&format!("{}/api/chat-attachments/{path}", connection.base))
         .set("Authorization", &connection.authorization())
-        .timeout(Duration::from_secs(24));
+        .timeout(Duration::from_secs(timeout));
     let request = match metadata {
         Some(value) => request
             .set(META, &value)
@@ -44,15 +45,15 @@ async fn attachment_command(path: &'static str, body: Vec<u8>, metadata: Option<
 
 #[tauri::command]
 pub async fn stage_chat_attachment(request: Request<'_>) -> Result<Value, ApiError> {
-    let invalid_size = || ApiError::new("附件为空或超过每份 8 MB 上限");
+    let invalid_size = || ApiError::new("附件分段为空或超过单次传输上限，请重新选择文件");
     let invalid_data = || ApiError::new("未收到附件数据，请重新选择文件");
     let bytes = match request.body() {
-        InvokeBody::Raw(bytes) if !bytes.is_empty() && bytes.len() <= MAX_FILE_BYTES => bytes.clone(),
+        InvokeBody::Raw(bytes) if !bytes.is_empty() && bytes.len() <= MAX_CHUNK_BYTES => bytes.clone(),
         InvokeBody::Raw(_) => return Err(invalid_size()),
         // Tauri's WebView postMessage fallback serializes ArrayBuffers as byte arrays.
         InvokeBody::Json(value) => {
             let data = value.as_array().ok_or_else(invalid_data)?;
-            if data.is_empty() || data.len() > MAX_FILE_BYTES {
+            if data.is_empty() || data.len() > MAX_CHUNK_BYTES {
                 return Err(invalid_size());
             }
             data.iter().map(|byte| byte.as_u64().and_then(|value| u8::try_from(value).ok()).ok_or_else(invalid_data))

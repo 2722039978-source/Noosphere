@@ -16,8 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: delivery-${{ inputs.verified_run && format('publish-{0}', inputs.verified_run) || github.ref }}
-  cancel-in-progress: ${{ !inputs.verified_run && !startsWith(github.ref, 'refs/tags/') }}
+  group: delivery-${{ inputs.verified_run != '' && format('publish-{0}', inputs.verified_run) || github.ref }}
+  cancel-in-progress: ${{ inputs.verified_run == '' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   build:

@@ -400,8 +400,8 @@ export const api = {
   codelensGetArtifact: (workspaceId: string, id: string) =>
     invoke<ArtifactRecord>('codelens_get_artifact', { workspaceId, id }),
 
-  stageChatAttachment: (metadata: { workspace_id: string; session_id: string; project_path: string; id: string; name: string }, bytes: ArrayBuffer) =>
-    invoke<ChatAttachment>('stage_chat_attachment', bytes, { headers: { 'x-noosphere-attachment': encodeURIComponent(JSON.stringify(metadata)) } }),
+  stageChatAttachment: (metadata: { workspace_id: string; session_id: string; project_path: string; id: string; name: string; offset: number; size: number }, bytes: ArrayBuffer) =>
+    invoke<{ received: number; attachment?: ChatAttachment }>('stage_chat_attachment', bytes, { headers: { 'x-noosphere-attachment': encodeURIComponent(JSON.stringify(metadata)) } }),
   discardChatAttachment: (workspaceId: string, sessionId: string, id: string) =>
     invoke('discard_chat_attachment', { workspaceId, sessionId, id }),
   prepareChatAttachments: (workspaceId: string, sessionId: string, turn: ChatAttachmentTurn) =>

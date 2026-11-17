@@ -1,7 +1,8 @@
 // Real packaged WebView2 / Rust / Go / CodeLens test. The model endpoint is a fixture.
 const assert = require('node:assert/strict');
 const { spawn, execFileSync } = require('node:child_process');
-const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } = require('node:fs');
+const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync,
+  openSync, writeSync, closeSync, ftruncateSync } = require('node:fs');
 const { createServer } = require('node:http');
 const { createRequire } = require('node:module');
 const { tmpdir } = require('node:os');
@@ -58,6 +59,55 @@ function textPDF(value) {
   body += `xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`;
   body += offsets.map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
   return Buffer.from(`${body}trailer\n<< /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+}
+
+function writeLargeLog(file, size) {
+  const fd = openSync(file, 'w');
+  try {
+    const block = Buffer.alloc(1 << 20, 'ordinary fixture line\n');
+    for (let offset = 0; offset < size; offset += block.length) {
+      const length = Math.min(block.length, size - offset);
+      if (offset + length === size) {
+        const tail = Buffer.from('\nfile_evidence satori-742\n');
+        tail.copy(block, length - tail.length);
+      }
+      writeSync(fd, block, 0, length);
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function writeLargePDF(file, size) {
+  const small = textPDF('pdf_evidence paper-853');
+  const index = small.indexOf('\nxref\n') + 1;
+  const table = small.subarray(index, small.lastIndexOf('startxref\n')).toString('ascii');
+  const offset = size - table.length - String(size).length - 'startxref\n\n%%EOF\n'.length;
+  const trailer = Buffer.from(table + 'startxref\n' + offset + '\n%%EOF\n');
+  assert.equal(offset + trailer.length, size);
+  const fd = openSync(file, 'w');
+  try {
+    writeSync(fd, small.subarray(0, index));
+    writeSync(fd, trailer, 0, trailer.length, offset);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+async function setDesktopFiles(page, files) {
+  // The WebView is local even though Playwright connects over CDP. Have
+  // WebView2 open the actual files without a copy across Playwright's channel.
+  const session = await page.context().newCDPSession(page);
+  try {
+    const { root } = await session.send('DOM.getDocument');
+    const { nodeId } = await session.send('DOM.querySelector', {
+      nodeId: root.nodeId, selector: 'input[aria-label="对话附件"]',
+    });
+    assert.ok(nodeId, 'chat file input exists');
+    await session.send('DOM.setFileInputFiles', { nodeId, files });
+  } finally {
+    await session.detach();
+  }
 }
 
 const modelCalls = [];
@@ -281,16 +331,29 @@ async function main() {
     await input.setInputFiles({ name: '图片.png', mimeType: 'image/png', buffer: Buffer.from([137, 80, 78, 71]) });
     await draft.getByText(/无法读取图片/).waitFor();
     await draft.getByRole('button', { name: '移除附件 图片.png' }).click();
-    await input.setInputFiles({ name: '文本证据.txt', mimeType: 'text/plain',
-      buffer: Buffer.from('ordinary fixture line\n'.repeat(800) + 'file_evidence satori-742\n') });
-    await draft.getByText('可以发送').waitFor();
+    const maxAttachmentBytes = 200 * 1024 * 1024;
+    const overflowFile = path.join(root, '超限.txt');
+    const overflow = openSync(overflowFile, 'w');
+    try { ftruncateSync(overflow, maxAttachmentBytes + 1); } finally { closeSync(overflow); }
+    await setDesktopFiles(page, [overflowFile]);
+    await draft.getByText(/超过每份 200 MB/).waitFor();
+    await draft.getByRole('button', { name: '移除附件 超限.txt' }).click();
+    const logPath = path.join(root, '文本证据.txt');
+    const pdfPath = path.join(root, '页码证据.pdf');
+    writeLargeLog(logPath, maxAttachmentBytes);
+    writeLargePDF(pdfPath, maxAttachmentBytes);
+    await setDesktopFiles(page, [logPath, pdfPath]);
+    await waitFor(async () => {
+      if (await draft.getByText('可以发送').count() === 2) return true;
+      throw Error(await draft.innerText());
+    }, '200 MiB text and PDF staged through native IPC', 120000);
     const question = page.getByRole('textbox', { name: '输入问题' });
     await question.evaluate((target, bytes) => {
       const transfer = new DataTransfer();
-      transfer.items.add(new File([new Uint8Array(bytes)], '页码证据.pdf', { type: 'application/pdf' }));
+      transfer.items.add(new File([new Uint8Array(bytes)], '拖拽证据.pdf', { type: 'application/pdf' }));
       target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    }, [...textPDF('pdf_evidence paper-853')]);
-    await waitFor(async () => await draft.getByText('可以发送').count() === 2, 'text/PDF staged through native IPC');
+    }, [...textPDF('drop evidence')]);
+    await waitFor(async () => await draft.getByText('可以发送').count() === 3, 'PDF drag and drop staged through native IPC');
     await question.fill('Give me the exact file_evidence and pdf_evidence values.');
     await page.getByRole('button', { name: '发送', exact: true }).click();
     await page.getByRole('list', { name: '消息附件' }).getByText('文本证据.txt').waitFor();
@@ -309,7 +372,7 @@ async function main() {
     const turn = { message_id: 'delivery-proof', question: 'file_evidence', ids: [...new Set(attachmentEvent.data.citations.map(citation => citation.attachment_id))] };
     await assert.rejects(() => ipc('prepare_chat_attachments', { workspaceId: other.id, sessionId: attachmentRun.session_id, turn }), /找不到此附件/);
     await assert.rejects(() => ipc('prepare_chat_attachments', { workspaceId: 'local', sessionId: 'foreign-session', turn }), /找不到此附件/);
-    console.log('PASS native text/PDF attachments, DOM drop, page/line provenance, bounded model context and workspace/session isolation');
+    console.log('PASS 200 MiB native text/PDF attachments, oversized rejection, drag and drop, page/line provenance, bounded model context and workspace/session isolation');
 
     const backend = () => children(child.pid).find(process => process.Name === 'noosphere-backend.exe')?.ProcessId;
     const oldGo = await waitFor(backend, 'desktop child');
