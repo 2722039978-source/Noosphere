@@ -74,23 +74,30 @@ jobs:
         run: |
           if ($env:RUNNER_ARCH -ne 'X64') { throw 'Windows packaging requires native x64.' }
           ./scripts/package.ps1
-      - name: Configure WebView2 debugging for the disposable runner
+      - name: Prepare a standard-integrity Windows test launcher
         run: |
-          # Elevated WebView2 hosts ignore environment debugging arguments starting with Runtime 150.
-          $Policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-          $Port = 43873
-          $Arguments = "--remote-debugging-port=$Port --remote-debugging-address=127.0.0.1"
-          New-Item -Path $Policy -Force | Out-Null
-          foreach ($Application in @('Noosphere.exe', 'noosphere-desktop.exe')) {
-            New-ItemProperty -LiteralPath $Policy -Name $Application -Value $Arguments -PropertyType String -Force | Out-Null
+          # WebView2 150+ drops environment overrides from elevated hosts. Test with the
+          # per-user installer's normal integrity and keep the browser profile isolated.
+          $LauncherDir = Join-Path $env:RUNNER_TEMP 'noosphere-gsudo-2.6.1'
+          $Archive = "$LauncherDir.zip"
+          Invoke-WebRequest -Uri 'https://github.com/gerardog/gsudo/releases/download/v2.6.1/gsudo.portable.zip' -OutFile $Archive
+          if ((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash -ne '21130bf178d7b9891207f00bff56f05b6b363ce9cec7b2d084e45fb12ee51f44') {
+            throw 'Unexpected gsudo test launcher hash.'
           }
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value "NOOSPHERE_TEST_WEBVIEW_PORT=$Port"
-      # WebView2 may create the default app profile during portable smoke on elevated runners.
-      # Start the installer test first so its fresh-profile check can stay strict.
+          Expand-Archive -LiteralPath $Archive -DestinationPath $LauncherDir
+          $Launcher = Join-Path $LauncherDir 'x64/gsudo.exe'
+          $WhoAmI = Join-Path $env:SystemRoot 'System32/whoami.exe'
+          $Groups = & $Launcher --direct --integrity Medium $WhoAmI /groups /fo csv /nh
+          if ($LASTEXITCODE -ne 0 -or ($Groups -join "`n") -notmatch '"S-1-16-8192"') {
+            throw 'Could not launch a process at Medium integrity.'
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "NOOSPHERE_CI_GSUDO=$Launcher"
       - name: Verify installed app, uninstall, and reinstall
         run: |
           $Version = (Get-Content VERSION -Raw).Trim()
-          ./scripts/verify-installer.ps1 -Installer "artifacts/$Version/Noosphere-$Version-windows-x64-setup.exe"
+          $PowerShell = (Get-Process -Id $PID).Path
+          & $env:NOOSPHERE_CI_GSUDO --direct --integrity Medium $PowerShell -NoProfile -File ./scripts/verify-installer.ps1 -Installer "artifacts/$Version/Noosphere-$Version-windows-x64-setup.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run Go, Python, Rust, frontend and packaged native tests
         run: |
           $Version = (Get-Content VERSION -Raw).Trim()
@@ -98,12 +105,10 @@ jobs:
           Expand-Archive -LiteralPath "artifacts/$Version/Noosphere-$Version-windows-x64.zip" -DestinationPath $Root
           $Executable = @(Get-ChildItem -LiteralPath $Root -Recurse -Filter 'Noosphere.exe' -File)
           if ($Executable.Count -ne 1) { throw 'Expected exactly one portable desktop executable.' }
-          ./scripts/test.ps1 -Rust -Browser -PackagedRoot $Executable[0].Directory.FullName
-      - name: Remove WebView2 test policy
-        if: always() && env.NOOSPHERE_TEST_WEBVIEW_PORT != ''
-        run: |
-          $Policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-          Remove-ItemProperty -LiteralPath $Policy -Name 'Noosphere.exe', 'noosphere-desktop.exe'
+          ./scripts/test.ps1 -Rust -Browser
+          $Node = (Get-Command node.exe).Source
+          & $env:NOOSPHERE_CI_GSUDO --direct --integrity Medium $Node scripts/verify-desktop.cjs $Executable[0].Directory.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: noosphere-windows-x64

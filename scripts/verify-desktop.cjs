@@ -26,7 +26,8 @@ async function waitFor(check, label, timeout = 30000) {
     try { const value = await check(); if (value) return value; } catch (error) { recent = error; }
     await pause(200);
   }
-  throw Error(`${label} timed out${recent ? ': ' + recent.message : ''}`);
+  const reason = [recent?.message, recent?.cause?.code].filter(Boolean).join(' ');
+  throw Error(`${label} timed out${reason ? ': ' + reason : ''}`);
 }
 
 function children(pid) {
@@ -168,10 +169,11 @@ async function main() {
   if (configuredPort) assert.ok(Number.isInteger(cdpPort) && cdpPort >= 1024 && cdpPort <= 65535);
   else await new Promise(resolve => probe.close(resolve));
   const child = spawn(exe, [], {
-    cwd: path.dirname(exe), windowsHide: true, stdio: 'ignore',
+    cwd: path.dirname(exe), windowsHide: true, stdio: ['ignore', 'ignore', 'inherit'],
     env: { ...process.env,
       PATH: ['System32', '.', 'System32/Wbem'].map(directory => path.resolve(process.env.SystemRoot, directory)).join(';'),
-      NOOSPHERE_DATA_DIR: data, WEBVIEW2_USER_DATA_FOLDER: path.join(root, 'webview'),
+      NOOSPHERE_DATA_DIR: data, NOOSPHERE_RUNTIME_DIAGNOSTICS: '1',
+      WEBVIEW2_USER_DATA_FOLDER: path.join(root, 'webview'),
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort} --remote-debugging-address=127.0.0.1`,
     },
   });
@@ -398,6 +400,16 @@ async function main() {
     await waitFor(() => child.exitCode !== null && !running(newGo) && !running(newPython), 'normal exit and subprocess cleanup');
     console.log('PASS crash recovery, retained task, graceful desktop close and no owned child left');
     assert.ok(existsSync(path.join(data, 'logs')));
+  } catch (error) {
+    console.error('Packaged WebView2 launch', { executable: exe, cdpPort, pid: child.pid, exitCode: child.exitCode });
+    try {
+      if (child.pid && child.exitCode === null) console.error('Desktop child processes', children(child.pid));
+      const services = path.join(data, 'desktop-services.log');
+      if (existsSync(services)) console.error('Packaged runtime log\n' + readFileSync(services, 'utf8').slice(-16000));
+    } catch (diagnosticError) {
+      console.error('Could not collect desktop diagnostics', diagnosticError.message);
+    }
+    throw error;
   } finally {
     await browser?.close().catch(() => {});
     if (child.exitCode === null && child.pid) child.kill();

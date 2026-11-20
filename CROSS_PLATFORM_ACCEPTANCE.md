@@ -57,6 +57,7 @@ Unix 包输出到 `artifacts/<版本>/<目标>/`。用 `node scripts/desktop.mjs
 0.9.0 候选复核修正了凭证降级兼容。新版密文使用独立 YAML 字段，旧客户端不会将其读作 API Key。发布 GitHub 正式版需要先取得原生验收结果，并在受保护的环境中配置 macOS Developer ID、公证和 stapling。
 
 - **已完成**。Windows `a520bac8df26163309cd61791c730da9d33a177f` 的干净 0.9.0 便携包通过七组 WebView2 原生检查和真实 Bonsai SYCL 闭环。该包和配套 NSIS 的哈希及命令保存在本地 `.local/release-0.9.0-evidence/RETEST.md`。修复 CI 固定端口读取后，便携包通过端口策略复测。隔离安装结果以 [候选 CI](https://github.com/2722039978-source/Noosphere/pull/6/checks) 为准。
+- **待验证**。第二轮 Windows CI 已使用固定调试端口，安装后的 WebView2 仍无法连接。CI 改为以验证过的 Medium 完整性运行现有安装、卸载重装和便携包验收，保留测试专用浏览器配置和 loopback 调试。正式二进制的调试行为未改变。 [Microsoft WebView2 权限说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/security) · [WRY 复验方式](https://github.com/tauri-apps/wry/issues/1782)
 - **待验证**。Linux 的打包日志确认 `_tkinter` 依赖 `libtcl9.0.so`，两者都在私有 CPython 中。打包限定库搜索路径后，需从两个最终包分别复跑私有解析和离线启动。**待核实**。AppImage 构建日志报告部分 Ubuntu 系统库的版权文件没有自动找到，须对最终包实际分发的库核对其版权与许可文件。
 - **待验证**。Apple Silicon 的 `.app` 与 DMG 通过私有运行时搬迁和挂载解析，桌面启动需要继续复验。测试将临时目录解析为规范路径，保留 Tauri 对符号链接启动路径的安全检查。最低系统、Dock/Cmd+Q、Keychain 和真实模型需分别取得两种架构的原生证据。
 
