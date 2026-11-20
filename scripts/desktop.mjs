@@ -146,8 +146,10 @@ async function configureBundle(target, env, bundleDir) {
   if (target.os === 'macos') {
     args.push('--no-sign');
   } else {
-    // Keep library bytes intact. linuxdeploy's own strip can reject newer ELF sections.
-    env = { ...env, NO_STRIP: '1' };
+    // linuxdeploy probes each extension with ldd outside the Python interpreter.
+    // Resolve those dependencies from the pinned CPython distribution during bundling only.
+    const pythonLib = join(dirname(dirname(join(tauriRoot, target.components.python.entry))), 'lib');
+    env = { ...env, LD_LIBRARY_PATH: pythonLib, NO_STRIP: '1' };
     args.push('--verbose');
   }
   run(node, args, { cwd: tauriRoot, env });
