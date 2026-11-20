@@ -143,7 +143,13 @@ async function configureBundle(target, env, bundleDir) {
     throw new Error('Use a clean bundle directory for packaging. Existing output: ' + bundleDir);
   }
   const args = [tauriCli, 'bundle', '--target', target.rust_triple, '--bundles', formats, '--ci'];
-  if (target.os === 'macos') args.push('--no-sign');
+  if (target.os === 'macos') {
+    args.push('--no-sign');
+  } else {
+    // Keep library bytes intact. linuxdeploy's own strip can reject newer ELF sections.
+    env = { ...env, NO_STRIP: '1' };
+    args.push('--verbose');
+  }
   run(node, args, { cwd: tauriRoot, env });
 }
 
