@@ -45,6 +45,7 @@ pub(crate) struct RuntimePaths {
     codelens: Option<PathBuf>,
     python: Option<PathBuf>,
     rea: Option<PathBuf>,
+    rea_script: Option<PathBuf>,
     pub(crate) data_dir: PathBuf,
     pub(crate) config: PathBuf,
 }
@@ -59,13 +60,23 @@ impl RuntimePaths {
         }
         let override_dir = std::env::var_os("NOOSPHERE_DATA_DIR").map(PathBuf::from);
         let dev_dir = cfg!(debug_assertions).then(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        let resource_dir = app.path().resource_dir();
         Self::resolve(
             exe_dir,
-            app.path().resource_dir().ok().as_deref(),
+            resource_dir.as_deref().ok(),
             &app_data,
             override_dir.as_deref(),
             dev_dir.as_deref(),
         )
+        .map_err(|error| match resource_dir {
+            Ok(_) => error,
+            Err(resource_error) => {
+                let reason = tauri::utils::platform::current_exe()
+                    .err()
+                    .map_or_else(|| resource_error.to_string(), |error| error.to_string());
+                format!("{error}（应用资源目录不可用: {reason}）")
+            }
+        })
     }
 
     fn resolve(
@@ -75,27 +86,36 @@ impl RuntimePaths {
         override_dir: Option<&Path>,
         dev_dir: Option<&Path>,
     ) -> Result<Self, String> {
+        let target = crate::platform::target()?;
         let mut roots = vec![exe_dir.to_owned()];
+        if !cfg!(windows) {
+            if let Some(root) = resource_dir {
+                roots.insert(0, root.to_owned());
+            }
+        }
         for root in [resource_dir, dev_dir].into_iter().flatten() {
             if !roots.iter().any(|existing| existing == root) {
                 roots.push(root.to_owned());
             }
         }
-        let backend = find_resource(
-            &roots,
-            &["bin/noosphere-backend.exe", "noosphere-backend.exe"],
-        )
-        .ok_or("未找到 bin/noosphere-backend.exe，请使用完整安装包或便携包")?;
-        let codelens = find_resource(&roots, &["codelens-python/main.py"]);
-        let python = find_resource(&roots, &["codelens-runtime/python.exe"]);
-        let rea = find_resource(&roots, &["rea-runtime/node.exe"])
-            .and_then(|node| node.parent().map(Path::to_path_buf));
+        let backend_entry = target.entry("go")?;
+        let legacy_entry = Path::new(backend_entry).file_name()
+            .and_then(|name| name.to_str()).unwrap_or(backend_entry);
+        let candidates = if cfg!(windows) { vec![backend_entry, legacy_entry] } else { vec![backend_entry] };
+        let (root, backend) = roots.iter().find_map(|root| {
+            find_resource(std::slice::from_ref(root), &candidates).map(|backend| (root, backend))
+        }).ok_or_else(|| format!("未找到 {backend_entry}，请使用完整安装包或便携包"))?;
+        let roots = std::slice::from_ref(root);
+        let codelens = find_resource(roots, &[target.entry("codelens")?]);
+        let python = find_resource(roots, &[target.entry("python")?]);
+        let rea = find_resource(roots, &[target.entry("node")?]);
+        let rea_script = find_resource(roots, &[target.entry("rea")?]);
         let data_dir = choose_data_dir(exe_dir, app_data, override_dir)?;
         fs::create_dir_all(&data_dir)
             .map_err(|e| format!("无法创建数据目录 {}: {e}", data_dir.display()))?;
         let config = data_dir.join("config.yaml");
         if !config.is_file() {
-            let defaults = find_resource(&roots, &["config.defaults.yaml"])
+            let defaults = find_resource(roots, &["config.defaults.yaml"])
                 .ok_or("首次启动需要 config.defaults.yaml；没有修改已有配置或模型数据")?;
             copy_initial_config(&defaults, &config)?;
         }
@@ -104,6 +124,7 @@ impl RuntimePaths {
             codelens,
             python,
             rea,
+            rea_script,
             data_dir,
             config,
         })
@@ -120,7 +141,7 @@ fn choose_data_dir(
             return Err("NOOSPHERE_DATA_DIR 必须是绝对路径".into());
         }
         path
-    } else if exe_dir.join("config.yaml").is_file() {
+    } else if cfg!(windows) && exe_dir.join("config.yaml").is_file() {
         exe_dir
     } else {
         app_data
@@ -262,6 +283,9 @@ impl<P: ManagedProcess> Lifecycle<P> {
     }
 
     fn fail(&mut self, error: String, now: Instant) {
+        if std::env::var_os("NOOSPHERE_RUNTIME_DIAGNOSTICS").is_some() {
+            eprintln!("Noosphere backend supervision: {error}");
+        }
         self.ready = false;
         self.error = Some(error);
         self.process.take();
@@ -361,6 +385,9 @@ impl BackendService {
         match paths {
             Ok(paths) => state.paths = Some(paths),
             Err(error) => {
+                if std::env::var_os("NOOSPHERE_RUNTIME_DIAGNOSTICS").is_some() {
+                    eprintln!("Noosphere backend resources: {error}");
+                }
                 state.error = Some(error);
                 return;
             }
@@ -440,6 +467,8 @@ impl Host for RealHost {
             .env_remove("NOOSPHERE_CODELENS_SCRIPT")
             .env_remove("NOOSPHERE_CODELENS_PYTHON")
             .env_remove("NOOSPHERE_REA_RUNTIME")
+            .env_remove("NOOSPHERE_REA_NODE")
+            .env_remove("NOOSPHERE_REA_SCRIPT")
             .env("NOOSPHERE_BACKEND_INSTANCE", instance)
             .env("NOOSPHERE_BACKEND_TOKEN", &token)
             .stdin(Stdio::piped())
@@ -452,8 +481,15 @@ impl Host for RealHost {
             command.env("NOOSPHERE_CODELENS_PYTHON", python);
         }
         if let Some(rea) = &paths.rea {
-            command.env("NOOSPHERE_REA_RUNTIME", rea);
+            command.env("NOOSPHERE_REA_RUNTIME", rea.parent().ok_or("REA 运行时目录无效")?);
+            command.env("NOOSPHERE_REA_NODE", rea);
         }
+        if let Some(script) = &paths.rea_script {
+            command.env("NOOSPHERE_REA_SCRIPT", script);
+        }
+        command.env_remove("PYTHONHOME").env_remove("PYTHONPATH").env_remove("NODE_OPTIONS");
+        #[cfg(unix)]
+        crate::platform::own_process_group(&mut command);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -543,8 +579,7 @@ struct OwnedProcess {
 
 impl ManagedProcess for OwnedProcess {
     fn exit_status(&mut self) -> Result<Option<String>, String> {
-        self.child
-            .try_wait()
+        crate::platform::poll_owned_child(&mut self.child)
             .map(|status| status.map(|status| status.to_string()))
             .map_err(|e| e.to_string())
     }
@@ -561,7 +596,7 @@ impl ManagedProcess for OwnedProcess {
         self.child.stdin.take();
         let deadline = Instant::now() + Duration::from_secs(12);
         while Instant::now() < deadline {
-            match self.child.try_wait() {
+            match crate::platform::poll_owned_child(&mut self.child) {
                 Ok(Some(status)) => return status.success(),
                 Ok(None) => std::thread::sleep(Duration::from_millis(50)),
                 Err(_) => return false,
@@ -579,6 +614,8 @@ impl Drop for OwnedProcess {
     fn drop(&mut self) {
         #[cfg(windows)]
         self.job.take(); // Closing the job also terminates owned descendants.
+        #[cfg(unix)]
+        crate::platform::terminate_process_group(&self.child);
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -643,8 +680,9 @@ mod tests {
             fs::write(path, text).unwrap();
         }
         fn resources(&self) {
-            self.file("app/bin/noosphere-backend.exe", "fixture");
-            self.file("app/codelens-python/main.py", "fixture");
+            let target = crate::platform::target().unwrap();
+            self.file(&format!("app/{}", target.entry("go").unwrap()), "fixture");
+            self.file(&format!("app/{}", target.entry("codelens").unwrap()), "fixture");
             self.file("app/config.defaults.yaml", "safe-default");
         }
         fn resolve(&self, override_dir: Option<&Path>) -> Result<RuntimePaths, String> {
@@ -671,6 +709,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn portable_keeps_existing_configuration_and_data() {
         let f = Fixture::new();
         f.resources();
@@ -723,7 +762,7 @@ mod tests {
         assert!(f
             .resolve(None)
             .unwrap_err()
-            .contains("noosphere-backend.exe"));
+            .contains(crate::platform::target().unwrap().entry("go").unwrap()));
         f.resources();
         assert!(f.resolve(None).is_ok());
     }
@@ -743,7 +782,7 @@ mod tests {
                 development.as_deref(),
             )
             .unwrap();
-            assert_eq!(paths.backend, f.0.join("app/bin/noosphere-backend.exe"));
+            assert_eq!(paths.backend, f.0.join("app").join(crate::platform::target().unwrap().entry("go").unwrap()));
         }
     }
 
@@ -822,6 +861,7 @@ mod tests {
                 codelens: None,
                 python: None,
                 rea: None,
+                rea_script: None,
                 data_dir: PathBuf::new(),
                 config: PathBuf::new(),
             }),

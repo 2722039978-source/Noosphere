@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -10,12 +11,14 @@ import (
 	"github.com/noosphere/backend/internal/attachmentfile"
 	"github.com/noosphere/backend/internal/config"
 	"github.com/noosphere/backend/internal/logging"
+	"github.com/noosphere/backend/internal/ownedprocess"
 )
 
 // Version is the canonical build version. Overridden by -ldflags at build time.
-var Version = "0.8.1" // canonical source: root VERSION file
+var Version = "0.9.0" // canonical source: root VERSION file
 
 func main() {
+	ownedprocess.RunSupervisor()
 	if len(os.Args) >= 2 && os.Args[1] == attachmentfile.PDFWorkerFlag {
 		var err error
 		switch len(os.Args) {
@@ -36,6 +39,7 @@ func main() {
 
 	managed := os.Getenv("NOOSPHERE_DESKTOP_MANAGED") == "1"
 	input := bufio.NewReader(os.Stdin)
+	parent := context.Background()
 	if managed {
 		// The parent releases startup only after it owns the process tree.
 		line, err := input.ReadString('\n')
@@ -43,6 +47,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "managed backend launch authorization failed")
 			os.Exit(1)
 		}
+		parent = watchDesktopParent(input)
 	}
 
 	cfg, err := config.Load(*configPath)
@@ -79,8 +84,11 @@ func main() {
 
 	log.Printf("=== Noosphere Backend v%s ===", Version)
 
-	app := bootstrap(cfg)
-	if err := serve(app, managed, input, os.Stdout); err != nil {
+	if parent.Err() != nil {
+		return
+	}
+	app := bootstrapWithParent(cfg, parent)
+	if err := serveWithParent(app, managed, parent, os.Stdout); err != nil {
 		log.Printf("server error: %v", err)
 		if closer != nil {
 			_ = closer.Close()

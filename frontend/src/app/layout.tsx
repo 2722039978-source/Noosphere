@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bookmark, CodeXml, FlaskConical, FolderOpen, Layers3, Menu, MessageSquare, Settings, Wrench } from 'lucide-react';
 import { Link, Outlet, parsePath, useLocation, useNavigate } from 'react-router-dom';
+import { isTauri } from '@tauri-apps/api/core';
 import { useBackend } from '@/hooks/useBackend';
 import { useUiStore, type RouteId } from '@/stores/ui-store';
 import { SessionSidebar } from '@/features/chat/SessionSidebar';
@@ -80,6 +81,19 @@ export function AppLayout() {
   const panelName = chat ? '项目与会话' : tool?.label ?? '导航';
   const section = modelSection(location.pathname);
   const archive = Boolean(section) && location.pathname !== '/model-hub';
+
+  useEffect(() => {
+    if (!workspaceReady || !isTauri()) return;
+    function openProject(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.repeat ||
+        event.altKey || event.shiftKey || event.ctrlKey === event.metaKey ||
+        event.key.toLowerCase() !== 'o') return;
+      event.preventDefault();
+      setProjectOpen(true);
+    }
+    window.addEventListener('keydown', openProject);
+    return () => window.removeEventListener('keydown', openProject);
+  }, [workspaceReady, setProjectOpen]);
 
   useEffect(() => {
     if (workspaceReady && chatReady) useChatStore.getState().restoreWorkspaceSession(workspaceId);

@@ -1,0 +1,207 @@
+{
+  "schema": 1,
+  "targets": {
+    "windows-x64": {
+      "os": "windows",
+      "arch": "x64",
+      "rust_triple": "x86_64-pc-windows-msvc",
+      "go_os": "windows",
+      "go_arch": "amd64",
+      "node_os": "win32",
+      "node_arch": "x64",
+      "runner": "windows-2025",
+      "minimum_os": "Windows 10 x64 with WebView2",
+      "abi": "MSVC x64; CGO disabled",
+      "packages": {
+        "nsis": "Noosphere-{version}-windows-x64-setup.exe",
+        "zip": "Noosphere-{version}-windows-x64.zip"
+      },
+      "components": {
+        "go": {
+          "entry": "bin/noosphere-backend.exe",
+          "source": "backend/cmd/server",
+          "version_file": "VERSION",
+          "lock": "backend/go.sum"
+        },
+        "codelens": {
+          "entry": "codelens-python/main.py",
+          "source": "backend/python/codelens",
+          "version_file": "VERSION"
+        },
+        "python": {
+          "entry": "codelens-runtime/python.exe",
+          "version": "3.14.7",
+          "archive": "python-3.14.7-embed-amd64.zip",
+          "url": "https://www.python.org/ftp/python/3.14.7/python-3.14.7-embed-amd64.zip",
+          "source_sha256": "d297e5ff019966817ad8502465176139f2d3d840fa4ed84b13bed399a6ab1f15",
+          "lock": "scripts/codelens-runtime/requirements-win-py314.lock"
+        },
+        "node": {
+          "entry": "rea-runtime/node.exe",
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-win-x64.zip",
+          "url": "https://nodejs.org/dist/v24.22.2/node-v24.22.2-win-x64.zip",
+          "source_sha256": "ca1bff5d8ead13c9f2ea404a176db46bd430704d5b5113734049fa365e7799e2"
+        },
+        "rea": {
+          "entry": "rea-runtime/node_modules/rea-agents/scripts/rea.mjs",
+          "source": "https://registry.npmjs.org/rea-agents",
+          "version": "6.8.0",
+          "lock": "scripts/rea-runtime/package-lock.json"
+        }
+      }
+    },
+    "linux-x64": {
+      "os": "linux",
+      "arch": "x64",
+      "rust_triple": "x86_64-unknown-linux-gnu",
+      "go_os": "linux",
+      "go_arch": "amd64",
+      "node_os": "linux",
+      "node_arch": "x64",
+      "runner": "ubuntu-22.04",
+      "minimum_os": "Ubuntu 22.04 LTS candidate; native desktop verification pending",
+      "abi": "glibc 2.35 build baseline; WebKitGTK 4.1; CGO disabled",
+      "packages": {
+        "appimage": "Noosphere-{version}-linux-x64.AppImage",
+        "deb": "Noosphere-{version}-linux-x64.deb"
+      },
+      "components": {
+        "go": {
+          "entry": "bin/noosphere-backend",
+          "source": "backend/cmd/server",
+          "version_file": "VERSION",
+          "lock": "backend/go.sum"
+        },
+        "codelens": {
+          "entry": "codelens-python/main.py",
+          "source": "backend/python/codelens",
+          "version_file": "VERSION"
+        },
+        "python": {
+          "entry": "codelens-runtime/bin/python3",
+          "version": "3.14.7",
+          "archive": "cpython-3.14.7+20260805-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260805/cpython-3.14.7%2B20260805-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+          "source_sha256": "a3a4e4b81b138960c7c546694df8a77578c0b6aa46d47e96f49b9e10e8f860c9",
+          "lock": "scripts/codelens-runtime/requirements-linux-x64-py314.lock"
+        },
+        "node": {
+          "entry": "rea-runtime/node",
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-linux-x64.tar.xz",
+          "url": "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-x64.tar.xz",
+          "source_sha256": "48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75"
+        },
+        "rea": {
+          "entry": "rea-runtime/node_modules/rea-agents/scripts/rea.mjs",
+          "source": "https://registry.npmjs.org/rea-agents",
+          "version": "6.8.0",
+          "lock": "scripts/rea-runtime/package-lock.json"
+        }
+      }
+    },
+    "macos-arm64": {
+      "os": "macos",
+      "arch": "arm64",
+      "rust_triple": "aarch64-apple-darwin",
+      "go_os": "darwin",
+      "go_arch": "arm64",
+      "node_os": "darwin",
+      "node_arch": "arm64",
+      "runner": "macos-15",
+      "minimum_os": "macOS 13.5 candidate; deployable bundle floor pending native verification",
+      "abi": "aarch64 Mach-O; CGO disabled",
+      "packages": {
+        "dmg": "Noosphere-{version}-macos-arm64.dmg",
+        "app": "Noosphere-{version}-macos-arm64.app.tar.gz"
+      },
+      "components": {
+        "go": {
+          "entry": "bin/noosphere-backend",
+          "source": "backend/cmd/server",
+          "version_file": "VERSION",
+          "lock": "backend/go.sum"
+        },
+        "codelens": {
+          "entry": "codelens-python/main.py",
+          "source": "backend/python/codelens",
+          "version_file": "VERSION"
+        },
+        "python": {
+          "entry": "codelens-runtime/bin/python3",
+          "version": "3.14.7",
+          "archive": "cpython-3.14.7+20260805-aarch64-apple-darwin-install_only_stripped.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260805/cpython-3.14.7%2B20260805-aarch64-apple-darwin-install_only_stripped.tar.gz",
+          "source_sha256": "abbf6e8530a283ed795fa91fd6bcf4501e2b1fa287b2cb1c15b70d3028f3a7c9",
+          "lock": "scripts/codelens-runtime/requirements-macos-arm64-py314.lock"
+        },
+        "node": {
+          "entry": "rea-runtime/node",
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-darwin-arm64.tar.xz",
+          "url": "https://nodejs.org/dist/v24.22.2/node-v24.22.2-darwin-arm64.tar.xz",
+          "source_sha256": "1f5ac075be50bed4780ea3be19a007fda95ea4d527d28d76d0b91de47d915115"
+        },
+        "rea": {
+          "entry": "rea-runtime/node_modules/rea-agents/scripts/rea.mjs",
+          "source": "https://registry.npmjs.org/rea-agents",
+          "version": "6.8.0",
+          "lock": "scripts/rea-runtime/package-lock.json"
+        }
+      },
+      "deployment_target": "13.5"
+    },
+    "macos-x64": {
+      "os": "macos",
+      "arch": "x64",
+      "rust_triple": "x86_64-apple-darwin",
+      "go_os": "darwin",
+      "go_arch": "amd64",
+      "node_os": "darwin",
+      "node_arch": "x64",
+      "runner": "macos-15-intel",
+      "minimum_os": "macOS 13.5 candidate; deployable bundle floor pending native verification",
+      "abi": "x86_64 Mach-O; CGO disabled",
+      "packages": {
+        "dmg": "Noosphere-{version}-macos-x64.dmg",
+        "app": "Noosphere-{version}-macos-x64.app.tar.gz"
+      },
+      "components": {
+        "go": {
+          "entry": "bin/noosphere-backend",
+          "source": "backend/cmd/server",
+          "version_file": "VERSION",
+          "lock": "backend/go.sum"
+        },
+        "codelens": {
+          "entry": "codelens-python/main.py",
+          "source": "backend/python/codelens",
+          "version_file": "VERSION"
+        },
+        "python": {
+          "entry": "codelens-runtime/bin/python3",
+          "version": "3.14.7",
+          "archive": "cpython-3.14.7+20260805-x86_64-apple-darwin-install_only_stripped.tar.gz",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260805/cpython-3.14.7%2B20260805-x86_64-apple-darwin-install_only_stripped.tar.gz",
+          "source_sha256": "e0e8e70dc98a7b9ddcc434ff6c46ff19d7386160e0308ba0e637d5f2f971380d",
+          "lock": "scripts/codelens-runtime/requirements-macos-x64-py314.lock"
+        },
+        "node": {
+          "entry": "rea-runtime/node",
+          "version": "24.22.2",
+          "archive": "node-v24.22.2-darwin-x64.tar.xz",
+          "url": "https://nodejs.org/dist/v24.22.2/node-v24.22.2-darwin-x64.tar.xz",
+          "source_sha256": "6965578fd823e72c1b5387f5ab84cb25368f886e02eb8779e6f0fce6b91c27b7"
+        },
+        "rea": {
+          "entry": "rea-runtime/node_modules/rea-agents/scripts/rea.mjs",
+          "source": "https://registry.npmjs.org/rea-agents",
+          "version": "6.8.0",
+          "lock": "scripts/rea-runtime/package-lock.json"
+        }
+      },
+      "deployment_target": "13.5"
+    }
+  }
+}

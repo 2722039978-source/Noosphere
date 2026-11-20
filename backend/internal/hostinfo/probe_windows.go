@@ -18,6 +18,8 @@ import (
 //go:embed inventory_windows.ps1
 var inventoryScript string
 
+func decodePlatformInventory(raw []byte) (Inventory, error) { return decodeInventory(raw) }
+
 type boundedOutput struct{ data []byte }
 
 func (b *boundedOutput) Write(p []byte) (int, error) {

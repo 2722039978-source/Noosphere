@@ -1,8 +1,7 @@
-//go:build !windows
+//go:build !windows && !linux && !darwin
 
 package attachmentfile
 
-import "os/exec"
+import "fmt"
 
-func hidePDFWindow(*exec.Cmd) {}
-func boundPDFProcess() error  { return nil }
+func boundPDFProcess() error { return fmt.Errorf("PDF worker limits are unavailable on this platform") }

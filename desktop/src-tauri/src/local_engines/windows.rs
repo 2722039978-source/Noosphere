@@ -1,7 +1,5 @@
-use serde::{Deserialize, Serialize};
 use std::mem::size_of;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
-use std::path::Path;
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::Foundation::{FILETIME, WAIT_ABANDONED, WAIT_OBJECT_0};
 use windows_sys::Win32::NetworkManagement::IpHelper::{
@@ -9,11 +7,11 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
 };
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows_sys::Win32::System::Threading::{
-    CreateMutexW, GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, ReleaseMutex,
+    CreateMutexW, GetProcessTimes, OpenProcess, ReleaseMutex,
     WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct ListenerOwner {
     pid: u32,
     creation: u64,
@@ -22,32 +20,6 @@ pub(super) struct ListenerOwner {
 impl ListenerOwner {
     pub(super) fn pid(self) -> u32 {
         self.pid
-    }
-
-    pub(super) fn is_lm_studio(self) -> bool {
-        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, self.pid) };
-        if process.is_null() {
-            return false;
-        }
-        let process = unsafe { OwnedHandle::from_raw_handle(process) };
-        let mut path = vec![0u16; 32768];
-        let mut length = path.len() as u32;
-        if unsafe {
-            QueryFullProcessImageNameW(process.as_raw_handle(), 0, path.as_mut_ptr(), &mut length)
-        } == 0
-        {
-            return false;
-        }
-        let path = String::from_utf16_lossy(&path[..length as usize]);
-        let name = Path::new(&path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        matches!(
-            name.as_str(),
-            "lm studio.exe" | "lmstudio.exe" | "llmster.exe" | "lms.exe"
-        )
     }
 
     pub(super) fn observe(port: u16) -> Option<Self> {

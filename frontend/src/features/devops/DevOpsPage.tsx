@@ -103,6 +103,16 @@ export function DevOpsPage() {
   };
 
   const displayTime = updatedAt && !Number.isNaN(Date.parse(updatedAt)) ? new Date(updatedAt).toLocaleTimeString([], { hour12: false }) : null;
+  const readSample = (name: string, legacy?: number) => {
+    const sample = metrics?.samples?.[name];
+    return sample ? sample.value ?? undefined : legacy;
+  };
+  const cpuUsage = readSample('cpu_percent', metrics?.cpu?.usage_percent);
+  const ramTotal = readSample('ram_total_bytes', isMetric(metrics?.memory?.total_gb) ? metrics.memory.total_gb * 2 ** 30 : undefined);
+  const ramUsed = readSample('ram_used_bytes', isMetric(metrics?.memory?.used_gb) ? metrics.memory.used_gb * 2 ** 30 : undefined);
+  const ramUsage = isMetric(ramTotal) && ramTotal > 0 && isMetric(ramUsed) ? ramUsed / ramTotal * 100 : undefined;
+  const diskUsage = readSample('disk_used_percent', metrics?.disk?.usage_percent);
+  const processCount = readSample('process_count', metrics?.process_count);
 
   return (
     <div className="ns-devops-scroll" data-workspace-page="devops">
@@ -126,29 +136,29 @@ export function DevOpsPage() {
           <MetricCard
             icon={<Cpu size={15} />}
             label="CPU"
-            value={percent(metrics?.cpu?.usage_percent)}
+            value={percent(cpuUsage)}
             sub={isMetric(metrics?.cpu?.cores) ? `${metrics.cpu.cores} 核` : '核心数未提供'}
-            pct={metrics?.cpu?.usage_percent}
+            pct={cpuUsage}
           />
           <MetricCard
             icon={<MemoryStick size={15} />}
             label="内存"
-            value={percent(metrics?.memory?.usage_percent)}
-            sub={isMetric(metrics?.memory?.used_gb) && isMetric(metrics?.memory?.total_gb) ? `${metrics.memory.used_gb.toFixed(1)} / ${metrics.memory.total_gb.toFixed(1)} GB` : '内存容量未提供'}
-            pct={metrics?.memory?.usage_percent}
+            value={percent(ramUsage)}
+            sub={isMetric(ramUsed) && isMetric(ramTotal) ? `${(ramUsed / 2 ** 30).toFixed(1)} / ${(ramTotal / 2 ** 30).toFixed(1)} GiB` : '内存容量未提供'}
+            pct={ramUsage}
           />
           <MetricCard
             icon={<HardDrive size={15} />}
             label="磁盘"
-            value={percent(metrics?.disk?.usage_percent)}
-            sub={isMetric(metrics?.disk?.free_gb) ? `剩余 ${Math.round(metrics.disk.free_gb)} GB` : '磁盘容量未提供'}
-            pct={metrics?.disk?.usage_percent}
+            value={percent(diskUsage)}
+            sub={isMetric(diskUsage) && isMetric(metrics?.disk?.free_gb) ? `剩余 ${Math.round(metrics.disk.free_gb)} GiB` : '磁盘容量未提供'}
+            pct={diskUsage}
           />
           <MetricCard
             icon={<Gauge size={15} />}
             label="进程数"
-            value={isMetric(metrics?.process_count) ? String(metrics.process_count) : "—"}
-            sub={isMetric(metrics?.process_count) ? '运行中' : '进程数未提供'}
+            value={isMetric(processCount) ? String(processCount) : "—"}
+            sub={isMetric(processCount) ? '运行中' : '进程数未提供'}
           />
         </div>
         </section>}

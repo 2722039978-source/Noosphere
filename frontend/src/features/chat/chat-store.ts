@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createIndexedChatStorage } from "./indexed-chat-storage";
-import { parseChatBackup, mergeChatBackup, validateChatSnapshot, sessionWorkspaceId, automaticSessionTitle } from "./chat-backup";
+import { parseChatBackup, mergeChatBackup, validateChatSnapshot, sessionWorkspaceId, automaticSessionTitle, chatBackupPlatform } from "./chat-backup";
 import { chooseWorkspaceSession } from './workspace-recency';
 import { useWorkspaceStore } from "@/stores/workspace-store";
 import { api, errMessage, type ChatAttachment, type ContextCitation } from "@/lib/api";
@@ -13,6 +13,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   sourceProjectPath?: string;
+  evidenceSnapshotOnly?: boolean;
   attachments?: ChatAttachment[];
   memoryCandidateDismissed?: boolean;
   /** 恢复时将未完成生成标记为 interrupted，不自动重新调用模型。 */
@@ -79,6 +80,7 @@ export const isChatPersistenceDirty = () => chatStorage.isDirty();
 export async function importChatBackup(raw: string) {
   if (!useChatPersistence.getState().ready) throw new Error('请等待会话加载完成。');
   const incoming = parseChatBackup(raw);
+  const needsRebinding = !incoming.sourcePlatform || incoming.sourcePlatform !== chatBackupPlatform();
   const existing = new Set(useChatStore.getState().sessions.map(session => session.id));
   const foreignIds = new Set(incoming.sessions.filter(session => !existing.has(session.id)).map(sessionWorkspaceId).filter(id => id !== 'local'));
   const restored = new Map<string, string>();
@@ -86,7 +88,7 @@ export async function importChatBackup(raw: string) {
     await useWorkspaceStore.getState().refresh();
     const known = new Set(useWorkspaceStore.getState().workspaces.map(workspace => workspace.id));
     for (const id of foreignIds) {
-      if (known.has(id)) continue;
+      if (!needsRebinding && known.has(id)) continue;
       // A different installation has no trustworthy project/model binding for
       // this ID. Restore an empty workspace rather than hiding or mixing chats.
       const workspace = await useWorkspaceStore.getState().save({ name: `导入工作区 ${id.slice(0, 12)}`, project_path: '', default_model_id: '' });
@@ -95,20 +97,25 @@ export async function importChatBackup(raw: string) {
   }
   const normalized = { ...incoming, sessions: incoming.sessions.map(session => ({
     ...session,
-    ...(restored.has(sessionWorkspaceId(session)) ? {workspaceId: restored.get(sessionWorkspaceId(session)), modelId: ''} : {}),
-    messages: session.messages.map(message => message.streaming ? {...message, streaming: false, status: 'interrupted' as const, error: '导入的未完成回复已中断'} : message),
+    ...(restored.has(sessionWorkspaceId(session)) ? { workspaceId: restored.get(sessionWorkspaceId(session)) } : {}),
+    ...(needsRebinding || restored.has(sessionWorkspaceId(session)) ? { modelId: '' } : {}),
+    messages: session.messages.map(message => ({
+      ...message,
+      ...(needsRebinding || restored.has(sessionWorkspaceId(session)) ? { sourceProjectPath: undefined, agentRunId: undefined, evidenceSnapshotOnly: true } : {}),
+      ...(message.streaming ? { streaming: false, status: 'interrupted' as const, error: '导入的未完成回复已中断' } : {}),
+    })),
   })) };
   // Read current state after the asynchronous recovery: navigating/receiving a
   // reply while importing must not be overwritten or marked interrupted.
   useChatStore.setState(mergeChatBackup(useChatStore.getState(), normalized));
   if (!await flushChatPersistence()) throw new Error('导入尚未保存，请重试保存。');
-  return { recoveredWorkspaces: restored.size };
+  return { recoveredWorkspaces: restored.size, needsRebinding };
 }
 
 export function exportChatBackup() {
   if (!useChatPersistence.getState().ready) throw new Error('请等待会话加载完成。');
   const { sessions, activeId } = useChatStore.getState();
-  return JSON.stringify({ format:'noosphere-chat-backup',version:1,state:{sessions,activeId} },null,2);
+  return JSON.stringify({ format:'noosphere-chat-backup',version:2,source_platform:chatBackupPlatform() ?? null,state:{sessions,activeId} },null,2);
 }
 
 export const useChatStore = create<ChatState>()(

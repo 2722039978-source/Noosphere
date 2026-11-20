@@ -124,10 +124,12 @@ func (a *Agent) aiDiagnose(issue string, snap *metrics.SystemSnapshot, toolResul
 	}
 	prompt := fmt.Sprintf(`You are a DevOps AI agent. Analyze this system issue:
 Issue: %s
-CPU: %.1f%% (%d cores) | Memory: %.1f%% (%.1f/%.1f GB) | Disk: %.1f%% | Processes: %d
+CPU: %s (%d cores) | Memory: %s / %s | Disk: %s | Processes: %s
 Past similar faults: %s
-Give a concise diagnosis (cause, impact, solution) in 2-3 sentences.`, issue, snap.CPU.UsagePercent, snap.CPU.Cores,
-		snap.Memory.UsagePercent, snap.Memory.UsedGB, snap.Memory.TotalGB, snap.Disk.UsagePercent, snap.Processes, pastFaults)
+Give a concise diagnosis (cause, impact, solution) in 2-3 sentences.`, issue,
+		snap.DisplaySample("cpu_percent", "%.1f%%"), snap.CPU.Cores,
+		snap.DisplaySample("ram_used_bytes", "%.0f bytes used"), snap.DisplaySample("ram_total_bytes", "%.0f bytes total"),
+		snap.DisplaySample("disk_used_percent", "%.1f%%"), snap.DisplaySample("process_count", "%.0f"), pastFaults)
 	msgs := []map[string]string{{"role": "user", "content": prompt}}
 	resp, err := a.chatFn(context.Background(), msgs)
 	if err != nil {
@@ -170,7 +172,7 @@ func (a *Agent) registerTools() {
 		keyword, _ := args["keyword"].(string)
 		return tools.ExecSearchLogContext(ctx, path, keyword)
 	})
-	a.register("service_list", "List Windows services", "service", func(ctx context.Context, args map[string]any) tools.ToolResult {
+	a.register("service_list", "List services visible to the OS service manager", "service", func(ctx context.Context, args map[string]any) tools.ToolResult {
 		return tools.ExecServiceListContext(ctx)
 	})
 	a.register("service_status", "Check service status", "service", func(ctx context.Context, args map[string]any) tools.ToolResult {

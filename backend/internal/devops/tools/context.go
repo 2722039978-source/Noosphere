@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -26,9 +27,15 @@ func (b *cappedOutput) Write(p []byte) (int, error) {
 }
 
 func commandResult(ctx context.Context, limit int, name string, args ...string) ToolResult {
+	path, actualArgs := diagnosticCommand(name, args)
+	if path == "" {
+		return ToolResult{Error: "diagnostic command unavailable on this platform: " + name}
+	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, path, actualArgs...)
+	cmd.Env = diagnosticEnvironment()
+	cmd.WaitDelay = time.Second
 	var out cappedOutput
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -43,19 +50,25 @@ func commandResult(ctx context.Context, limit int, name string, args ...string) 
 }
 
 func ExecSystemInfoContext(ctx context.Context) ToolResult {
-	return commandResult(ctx, 200, "systeminfo")
+	return commandResult(ctx, 200, "system_info")
 }
 func ExecTaskListContext(ctx context.Context) ToolResult {
-	return commandResult(ctx, 20, "tasklist", "/FO", "CSV", "/NH")
+	return commandResult(ctx, 20, "tasklist")
 }
 func ExecNetStatContext(ctx context.Context) ToolResult {
-	return commandResult(ctx, 30, "netstat", "-ano")
+	return commandResult(ctx, 30, "netstat")
 }
 func ExecServiceListContext(ctx context.Context) ToolResult {
-	return commandResult(ctx, 100, "sc", "query", "state=", "all")
+	return commandResult(ctx, 100, "service_list")
 }
+
+var serviceName = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.@\x2d]{0,127}$`)
+
 func ExecServiceStatusContext(ctx context.Context, name string) ToolResult {
-	return commandResult(ctx, 50, "sc", "query", name)
+	if !serviceName.MatchString(name) {
+		return ToolResult{Error: "invalid service identifier"}
+	}
+	return commandResult(ctx, 50, "service_status", name)
 }
 
 func readLog(ctx context.Context, path string, lines int, keyword string, search bool) ToolResult {

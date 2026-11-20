@@ -8,7 +8,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const REPOSITORY: &str = "2722039978-source/Noosphere";
-const MAX_EXE_BYTES: u64 = 1024 * 1024 * 1024;
+const MAX_PACKAGE_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_CHAT_BYTES: usize = 128 * 1024 * 1024;
 const ALLOWED_DOWNLOAD_HOSTS: &[&str] = &[
     "github.com",
@@ -36,6 +36,7 @@ pub(crate) struct UpdateInfo {
     available_version: Option<String>,
     installer_available: bool,
     downloaded_version: Option<String>,
+    package_type: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -43,6 +44,7 @@ pub(crate) struct DownloadedUpdate {
     version: String,
     installer: String,
     chat_backup: String,
+    package_type: &'static str,
 }
 
 fn release_version(tag: &str) -> Option<Version> {
@@ -61,13 +63,32 @@ fn release_version(tag: &str) -> Option<Version> {
     None
 }
 
-fn installer_name(version: &Version) -> String {
-    format!("Noosphere-{version}-windows-x64-setup.exe")
+fn package_type() -> Option<&'static str> {
+    if cfg!(windows) {
+        return Some("nsis");
+    }
+    if cfg!(target_os = "macos") {
+        return Some("dmg");
+    }
+    let executable = std::env::current_exe().ok()?;
+    if std::env::var_os("APPIMAGE").map(PathBuf::from).is_some_and(|path| path.is_absolute() && path.is_file())
+        && std::env::var_os("APPDIR").map(PathBuf::from)
+            .is_some_and(|root| root.is_absolute() && executable.starts_with(root))
+    {
+        return Some("appimage");
+    }
+    executable.starts_with("/usr/bin").then_some("deb")
+}
+
+fn package_name(version: &Version, kind: &str) -> Result<String, String> {
+    crate::platform::target()?.package_name(version, kind)
+        .ok_or_else(|| "本目标没有对应的更新包".into())
 }
 
 fn download_url(tag: &str, name: &str) -> Result<String, String> {
     let version = release_version(tag).ok_or("发布版本格式无效")?;
-    if name != "SHA256SUMS.txt" && name != installer_name(&version) {
+    if name != "SHA256SUMS.txt" && !crate::platform::target()?.packages.values()
+        .any(|pattern| pattern.replace("{version}", &version.to_string()) == name) {
         return Err("更新文件名无效".into());
     }
     Ok(format!("https://github.com/{REPOSITORY}/releases/download/{tag}/{name}"))
@@ -153,6 +174,12 @@ fn checksum(contents: &str, name: &str) -> Result<String, String> {
 }
 
 fn app_update_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os("NOOSPHERE_DATA_DIR").map(PathBuf::from) {
+        if !path.is_absolute() {
+            return Err("NOOSPHERE_DATA_DIR 必须是绝对路径".into());
+        }
+        return Ok(path.join("updates"));
+    }
     Ok(app.path().app_local_data_dir().map_err(|err| err.to_string())?.join("updates"))
 }
 
@@ -167,16 +194,25 @@ pub(crate) async fn update_check(app: AppHandle) -> Result<UpdateInfo, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let downloaded_version = fs::read_to_string(directory.join("last-download.txt")).ok();
         let (version, release) = latest_release()?;
+        let package_type = package_type();
+        let name = package_type.map(|kind| package_name(&version, kind)).transpose()?;
         let installer_available = version > current
-            && release.assets.iter().any(|entry| entry.name == installer_name(&version))
+            && name.as_ref().is_some_and(|name| release_asset(&release, name).is_some())
             && release.assets.iter().any(|entry| entry.name == "SHA256SUMS.txt");
         Ok(UpdateInfo {
             current_version: current.to_string(),
             available_version: (version > current).then(|| version.to_string()),
             installer_available,
             downloaded_version,
+            package_type,
         })
     }).await.map_err(|err| err.to_string())?
+}
+
+fn release_asset<'a>(release: &'a Release, name: &str) -> Option<&'a Asset> {
+    let mut matches = release.assets.iter().filter(|entry| entry.name == name);
+    let selected = matches.next()?;
+    (matches.next().is_none() && (1..=MAX_PACKAGE_BYTES).contains(&selected.size)).then_some(selected)
 }
 
 fn verify_and_copy(
@@ -216,10 +252,10 @@ pub(crate) async fn update_download(app: AppHandle, expected_version: String, ch
         if version <= current || version.to_string() != expected_version {
             return Err("官方发布版本已变化，请重新检查更新".into());
         }
-        let name = installer_name(&version);
-        let installer = release.assets.iter().find(|entry| entry.name == name)
-            .filter(|entry| (1..=MAX_EXE_BYTES).contains(&entry.size))
-            .ok_or("官方版本未发布支持的 Windows x64 安装包")?;
+        let package_type = package_type().ok_or("无法识别当前安装方式，请手动下载与系统和架构匹配的包")?;
+        let name = package_name(&version, package_type)?;
+        let installer = release_asset(&release, &name)
+            .ok_or("官方版本尚未提供与当前系统、架构及安装方式匹配的更新包")?;
         if !release.assets.iter().any(|entry| entry.name == "SHA256SUMS.txt") {
             return Err("官方版本未发布 SHA-256 清单".into());
         }
@@ -232,6 +268,12 @@ pub(crate) async fn update_download(app: AppHandle, expected_version: String, ch
         let mut random = [0; 8];
         getrandom::fill(&mut random).map_err(|err| err.to_string())?;
         let unique_path = directory.join(format!("{version}-{:016x}", u64::from_le_bytes(random)));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            fs::DirBuilder::new().mode(0o700).create(&unique_path).map_err(io_error)?;
+        }
+        #[cfg(windows)]
         fs::create_dir(&unique_path).map_err(io_error)?;
         let stage = unique_path.join("installer.partial");
         let final_path = unique_path.join(&name);
@@ -252,10 +294,11 @@ pub(crate) async fn update_download(app: AppHandle, expected_version: String, ch
                 version: version.to_string(),
                 installer: final_path.display().to_string(),
                 chat_backup: backup_path.display().to_string(),
+                package_type,
             })
         })();
         if result.is_err() {
-            let _ = fs::remove_file(stage);
+            let _ = fs::remove_dir_all(unique_path);
         }
         result
     }).await.map_err(|err| err.to_string())?
@@ -263,19 +306,7 @@ pub(crate) async fn update_download(app: AppHandle, expected_version: String, ch
 
 #[tauri::command]
 pub(crate) fn update_show_folder(app: AppHandle) -> Result<(), String> {
-    let directory = app_update_dir(&app)?;
-    #[cfg(windows)]
-    {
-        let explorer = std::env::var_os("SystemRoot").map(PathBuf::from)
-            .ok_or("无法找到 Windows 资源管理器")?.join("explorer.exe");
-        std::process::Command::new(explorer).arg(&directory).spawn().map_err(io_error)?;
-        Ok(())
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = directory;
-        Err("此平台不支持 Windows 安装包".into())
-    }
+    crate::platform::open_directory(&app_update_dir(&app)?)
 }
 
 #[cfg(test)]

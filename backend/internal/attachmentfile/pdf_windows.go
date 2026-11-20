@@ -1,16 +1,10 @@
 package attachmentfile
 
 import (
-	"os/exec"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
-
-func hidePDFWindow(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-}
 
 // The worker owns this job until it exits. Attach before examining any PDF bytes.
 func boundPDFProcess() error {

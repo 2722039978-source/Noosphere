@@ -1,0 +1,27 @@
+{
+  "app": {
+    "windows": [{
+      "title": "Noosphere",
+      "dragDropEnabled": false,
+      "decorations": true,
+      "width": 1280,
+      "height": 800,
+      "minWidth": 900,
+      "minHeight": 600,
+      "resizable": true,
+      "center": true
+    }]
+  },
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "resources": {
+      "bin/noosphere-backend": "bin/noosphere-backend",
+      "third-party/": "third-party/"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.5",
+      "hardenedRuntime": true
+    },
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.icns"]
+  }
+}

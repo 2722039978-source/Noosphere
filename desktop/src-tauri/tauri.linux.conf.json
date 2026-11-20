@@ -1,0 +1,14 @@
+{
+  "bundle": {
+    "targets": ["appimage", "deb"],
+    "resources": {
+      "bin/noosphere-backend": "bin/noosphere-backend",
+      "third-party/": "third-party/"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libgcc-s1", "libstdc++6"]
+      }
+    }
+  }
+}

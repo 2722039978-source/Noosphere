@@ -41,11 +41,25 @@ pub async fn pick_project_folder(window: tauri::WebviewWindow) -> Result<Option<
             .map_err(|error| ApiError::new(error.to_string()))?
             .map_err(|error| ApiError::new(format!("无法打开文件夹选择器：{error}")))
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        let _ = window;
-        Err(ApiError::new("此平台请通过项目设置输入目录"))
+        use tauri_plugin_dialog::DialogExt;
+        let (send, receive) = tokio::sync::oneshot::channel();
+        window.dialog().file().set_parent(&window).set_title("选择项目文件夹")
+            .pick_folder(move |folder| { let _ = send.send(folder); });
+        match receive.await.map_err(|_| ApiError::new("文件夹选择器未返回结果"))? {
+            Some(folder) => folder.into_path()
+                .map_err(|error| ApiError::new(error.to_string()))?
+                .into_os_string().into_string().map(Some)
+                .map_err(|_| ApiError::new("项目路径不是有效的 UTF-8")),
+            None => Ok(None),
+        }
     }
+}
+
+#[tauri::command]
+pub fn reveal_project_folder(path: String) -> Result<(), ApiError> {
+    crate::platform::open_directory(Path::new(&path)).map_err(ApiError::new)
 }
 
 #[cfg(windows)]

@@ -111,6 +111,21 @@ pub struct ModelConfig {
     pub api_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<ModelCapabilities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential: Option<CredentialStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supports_temperature: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_transport: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CredentialStatus {
+    pub provider: String,
+    pub status: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -274,6 +289,8 @@ pub struct DiskMetrics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemMetrics {
+    #[serde(default)]
+    pub samples: Option<std::collections::BTreeMap<String, MetricSample>>,
     pub cpu: CpuMetrics,
     pub memory: MemoryMetrics,
     pub disk: DiskMetrics,
@@ -281,4 +298,13 @@ pub struct SystemMetrics {
     #[serde(default)]
     pub goroutines: Option<u32>,
     pub timestamp: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricSample {
+    pub value: Option<f64>,
+    pub unit: String,
+    pub source: String,
+    pub quality: String,
+    pub missing_reason: Option<String>,
 }

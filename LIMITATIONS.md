@@ -2,7 +2,7 @@
 
 ## 平台与模型接入
 
-Noosphere 面向个人的 Windows 本地桌面使用，仍处于持续开发中的实验阶段。界面、接口与数据结构可能变化，升级前请备份重要配置、对话与实验数据。
+当前正式下载为 Windows x64。Linux x64 和 macOS arm64/x64 的源码、预览包和正式发行进度分别记录在 [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md)。Windows/Linux ARM64、macOS universal、RPM、Flatpak/Snap、商店版和 Lite 未纳入本轮交付。
 
 模型可以运行在本机服务中，也可以通过 API 接入。使用远程 Provider 时，对话、附件及提供给模型的项目上下文会发送到对应服务。源码和便携包均不附带模型权重。
 
@@ -16,7 +16,7 @@ Model Hub 分别显示对话、Agent 工具和原生测评的能力状态。`sup
 
 每条消息最多添加 3 个文件，每个文件不超过 200 MB（209,715,200 字节）。原件和索引合计每个会话最多 640 MiB，整个应用最多 2 GiB。文本和代码支持 UTF-8、带 BOM 的 UTF-16 和 GB18030。PDF 支持最多 100 页的文字层，每份最多提取 1 MB 文本。图片与扫描 PDF 可先在本机 OCR，再粘贴文字或添加为文本文件。
 
-附件只读取用户选择或拖入的文件。原件保存在应用数据目录，按工作区、项目目录和会话隔离。发送时，模型收到为当前问题选取的文字节选，引用保留文件名、SHA-256 和页码或行号。使用远程模型时，节选随对话请求发送。发送后可以按需引用上次附件。
+附件只读取用户选择或拖入的文件。原件保存在工作区数据库，按项目目录和会话隔离。发送时，模型收到为当前问题选取的文字节选，引用保留文件名、SHA-256 和页码或行号。使用远程模型时，节选随对话请求发送。发送后可以按需引用上次附件。
 
 移除或取消草稿会清理其数据。未使用草稿 24 小时后到期，在应用启动或下一次附件操作时清理。已发送的文件随会话保留，删除会话时清理对应附件。会话 JSON 备份保留文件引用与已用节选。备份原件时请使用应用数据备份，或退出应用后一起保留 `workspace.sqlite`、其对应 WAL 文件和 `chat-attachment-files` 目录。
 
@@ -62,13 +62,19 @@ Nebula 的记忆检索模式与质量取决于配置的嵌入服务和实际资�
 
 ## 构建、数据与自动检查
 
-便携程序与 `bin/`、`codelens-python/`、`codelens-runtime/`、`rea-runtime/` 等资源一起交付。CodeLens 使用包内 Python 和已校验的 Windows wheel。REA 使用包内 Node.js 24.22.2 与 REA 6.8.0。WebView2 Runtime 由系统或安装器提供。自定义动态 Go 测评、项目测试或 OpenVINO 仍有对应工具要求。源码构建与发布入口见 [README](README.md#开发和构建)。
+桌面程序与 `bin/`、`codelens-python/`、`codelens-runtime/`、`rea-runtime/` 等资源一起交付。CodeLens 使用按目标锁定的私有 CPython 与 wheel，REA 使用包内 Node.js 24.22.2 与 REA 6.8.0。Windows 使用 WebView2，Linux 使用 WebKitGTK，macOS 使用系统 WKWebView。开发态可使用配置的解释器，正式桌面在私有运行时缺失时提示修复安装。
 
-正式桌面默认使用 `%LOCALAPPDATA%\com.noosphere.desktop`，旧便携应用保留 EXE 旁的配置目录。设置页面显示实际目录，绝对路径环境变量 `NOOSPHERE_DATA_DIR` 可指定独立目录。构建记录保存在 `release/build-info.json` 及各版本发布资产中。升级前检查配置、服务数据和 WebView2 会话备份。恢复步骤见 [README](README.md#更新备份与恢复)。
+正式桌面写数据到 Tauri 解析的本机用户目录，设置页显示实际路径。Windows 旧便携应用继续使用 EXE 旁已有的配置目录，`NOOSPHERE_DATA_DIR` 可指定独立的绝对路径。Linux AppImage 和 macOS .app 的安装资源按只读使用。升级前保存配置、服务数据和会话。跨系统仅迁移会话等兼容记录，绝对路径、引擎运行目录、凭证、派生索引和审批授权需在新安装处理。 [备份说明](README.md#更新备份与恢复)
 
-模型配置与凭证通过界面管理。Windows 凭证保存使用加密存储与系统凭证管理能力。请勿将密钥、个人数据或私人代码写入公开示例、Issue 和日志。
+模型配置使用加密存储，主密钥交给 Windows Credential Manager、macOS Keychain 或 Linux Secret Service。凭证存储未运行、锁定、无权限或损坏时，云端持久化会报告失败。无凭证的本地模型仍可使用。曾保存但当前无法解密的记录会保留，重新授权时需要输入凭证。
 
-Windows CI 配置包含源码测试、产物生成、真实 WebView2 IPC 和安装器验收。模型连接在验收中使用本地模拟端点。真实模型、具体硬件及无开发工具的独立 Windows 镜像需要在对应环境中验证。README 截图使用独立示例数据。
+0.9.0 在 `encrypted_api_key` 保存密文，并兼容读取旧 `api_key`。降级到 0.8.x 需要恢复升级前的 `models.yaml` 及对应的系统凭证。旧程序会忽略新版字段。
+
+Windows 继续使用 WebView2 IPC 和独立账户安装器验收。各平台的模拟服务和原生运行记录分别列出。LM Studio 通过已运行的 HTTP 服务连接，服务启停由 LM Studio 管理。Ollama 的停止和重启仅针对本次应用持有的进程。现有便携 llama.cpp/SYCL 和 OpenVINO 安装配置限 Windows x64。
+
+Intel Mac 的本地引擎验收使用 Ollama CPU，要求 macOS 14 或更新。macOS 13.5 是桌面私有 Node 24 的候选版本门槛。LM Studio 的 macOS 版本要求 Apple Silicon。 [Ollama macOS 要求](https://docs.ollama.com/macos) · [LM Studio 系统要求](https://lmstudio.ai/docs/app/system-requirements)
+
+项目测试要求工作区信任、已批准的结构化操作及对应工具链。被批准的测试代码以当前用户权限运行，可能更改文件和外部服务。进程组用于回收正常子进程，无法约束主动脱离进程组的程序。受限 Go 编程测评需要独立的约束与验收，当前仅 Windows 启用。Linux/macOS 的系统诊断服务写操作和部分进程/GPU 指标暂不可用。Apple 统一内存依照实际观测记录。
 
 ## 设计来源与第三方资源
 

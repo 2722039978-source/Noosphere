@@ -38,6 +38,16 @@ func resolveCodeLensPython(configured string, scripts []string) [][]string {
 	return append(commands, []string{"python"}, []string{"python3"}, []string{"py", "-3"})
 }
 
+func resolveManagedCodeLensPython(bundled string) ([][]string, error) {
+	if !filepath.IsAbs(bundled) {
+		return nil, fmt.Errorf("bundled CodeLens runtime is missing; reinstall the complete application")
+	}
+	if info, err := os.Stat(bundled); err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("bundled CodeLens runtime is not a readable file: %s", bundled)
+	}
+	return [][]string{{filepath.Clean(bundled)}}, nil
+}
+
 func resolveCodeLensScripts(explicit, workingDir, executable string) ([]string, error) {
 	if explicit != "" {
 		if !filepath.IsAbs(explicit) {

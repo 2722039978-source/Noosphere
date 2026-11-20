@@ -30,38 +30,33 @@ type ModelMetadata struct {
 	Source        string `json:"source,omitempty" yaml:"source,omitempty"`
 }
 type ModelConfig struct {
-	ID            string         `json:"id" yaml:"id"`
-	Name          string         `json:"name" yaml:"name"`
-	Provider      string         `json:"provider" yaml:"type"`
-	BaseURL       string         `json:"base_url" yaml:"base_url"`
-	APIKey        string         `json:"-" yaml:"api_key"`
-	ModelName     string         `json:"model_name" yaml:"model"`
-	Vendor        string         `json:"vendor,omitempty" yaml:"vendor,omitempty"`
-	ModelFamily   string         `json:"model_family,omitempty" yaml:"model_family,omitempty"`
-	Deployment    string         `json:"deployment,omitempty" yaml:"deployment,omitempty"`
-	ContextLength int            `json:"context_length,omitempty" yaml:"context_length,omitempty"`
-	Metadata      *ModelMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	Enabled       bool           `json:"enabled" yaml:"enabled"`
-	IsDefault     bool           `json:"is_default" yaml:"is_default"`
-	Temperature   float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	MaxTokens     int            `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	// MaxTokensField overrides the output-budget key for endpoints that only
-	// accept max_completion_tokens. Empty keeps the provider default.
-	MaxTokensField string `json:"max_tokens_field,omitempty" yaml:"max_tokens_field,omitempty"`
-	// SupportsTemperature is nil when unknown; false means the model rejects
-	// any explicit temperature and the field is omitted entirely.
-	SupportsTemperature *bool `json:"supports_temperature,omitempty" yaml:"supports_temperature,omitempty"`
-	// ToolTransport selects how structured tool calls travel: "chat" (default,
-	// /chat/completions) or "responses" (/v1/responses).
-	ToolTransport string `json:"tool_transport,omitempty" yaml:"tool_transport,omitempty"`
+	ID                  string         `json:"id" yaml:"id"`
+	Name                string         `json:"name" yaml:"name"`
+	Provider            string         `json:"provider" yaml:"type"`
+	BaseURL             string         `json:"base_url" yaml:"base_url"`
+	APIKey              string         `json:"-" yaml:"-"`
+	ModelName           string         `json:"model_name" yaml:"model"`
+	Vendor              string         `json:"vendor,omitempty" yaml:"vendor,omitempty"`
+	ModelFamily         string         `json:"model_family,omitempty" yaml:"model_family,omitempty"`
+	Deployment          string         `json:"deployment,omitempty" yaml:"deployment,omitempty"`
+	ContextLength       int            `json:"context_length,omitempty" yaml:"context_length,omitempty"`
+	Metadata            *ModelMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Enabled             bool           `json:"enabled" yaml:"enabled"`
+	IsDefault           bool           `json:"is_default" yaml:"is_default"`
+	Temperature         float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	MaxTokens           int            `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	MaxTokensField      string         `json:"max_tokens_field,omitempty" yaml:"max_tokens_field,omitempty"`
+	SupportsTemperature *bool          `json:"supports_temperature,omitempty" yaml:"supports_temperature,omitempty"`
+	ToolTransport       string         `json:"tool_transport,omitempty" yaml:"tool_transport,omitempty"`
+
+	Credential       *CredentialStatus `json:"credential,omitempty" yaml:"-"`
+	storedCredential string
 }
 
-// TemperatureEnabled reports whether an explicit temperature may be sent.
 func (m ModelConfig) TemperatureEnabled() bool {
 	return m.SupportsTemperature == nil || *m.SupportsTemperature
 }
 
-// MaxTokensKey returns the configured output-budget field, trimmed.
 func (m ModelConfig) MaxTokensKey() string { return strings.TrimSpace(m.MaxTokensField) }
 
 type GatewayConfig struct {
@@ -93,6 +88,7 @@ type Gateway struct {
 	configPath       string
 	config           *GatewayConfig
 	encKey           []byte
+	secretStore      secure.SecretStore
 	logs             []CallLog
 	stats            map[string]*ModelStats
 	providers        map[string]providers.LLMProvider
@@ -104,17 +100,19 @@ type ModelStats struct {
 }
 
 func New(configPath string) *Gateway {
-	key, err := secure.GetOrCreateKey()
-	if err != nil {
-		log.Printf("[gateway] WARNING: encryption key unavailable: %v", err)
-	}
+	return NewWithSecretStore(configPath, secure.SystemStore())
+}
+
+// NewWithSecretStore binds the gateway to an explicit credential store.
+// Desktop and server entry points use New and the operating system store.
+func NewWithSecretStore(configPath string, store secure.SecretStore) *Gateway {
 	g := &Gateway{
-		configPath: configPath,
-		encKey:     key,
-		sem:        make(chan struct{}, 10),
-		providers:  make(map[string]providers.LLMProvider),
-		logs:       make([]CallLog, 0),
-		stats:      make(map[string]*ModelStats),
+		configPath:  configPath,
+		secretStore: store,
+		sem:         make(chan struct{}, 10),
+		providers:   make(map[string]providers.LLMProvider),
+		logs:        make([]CallLog, 0),
+		stats:       make(map[string]*ModelStats),
 	}
 	g.loadConfig()
 	return g
@@ -129,69 +127,57 @@ func (g *Gateway) loadConfig() {
 		g.config = &GatewayConfig{DefaultModel: "", Models: []ModelConfig{}}
 		return
 	}
-	var raw struct {
-		DefaultModel string `yaml:"default_model"`
-		Providers    []struct {
-			ID                  string         `yaml:"id"`
-			Name                string         `yaml:"name"`
-			Type                string         `yaml:"type"`
-			APIKey              string         `yaml:"api_key"`
-			BaseURL             string         `yaml:"base_url"`
-			Model               string         `yaml:"model"`
-			Vendor              string         `yaml:"vendor"`
-			ModelFamily         string         `yaml:"model_family"`
-			Deployment          string         `yaml:"deployment"`
-			ContextLength       int            `yaml:"context_length"`
-			Metadata            *ModelMetadata `yaml:"metadata"`
-			Enabled             bool           `yaml:"enabled"`
-			IsDefault           bool           `yaml:"is_default"`
-			Temperature         float64        `yaml:"temperature"`
-			MaxTokens           int            `yaml:"max_tokens"`
-			MaxTokensField      string         `yaml:"max_tokens_field"`
-			SupportsTemperature *bool          `yaml:"supports_temperature"`
-			ToolTransport       string         `yaml:"tool_transport"`
-		} `yaml:"providers"`
-	}
+	var raw persistedGatewayConfig
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		log.Printf("[gateway] config parse error: %v", err)
+		log.Printf("[gateway] model configuration could not be parsed")
 		g.config = &GatewayConfig{DefaultModel: "", Models: []ModelConfig{}}
 		return
 	}
-	g.config = &GatewayConfig{DefaultModel: raw.DefaultModel}
-	for _, p := range raw.Providers {
-		apiKey := p.APIKey
-		if apiKey != "" && g.encKey != nil {
-			if dec, err := secure.Decrypt(g.encKey, apiKey); err == nil {
-				apiKey = dec
-			}
-		}
-		g.config.Models = append(g.config.Models, ModelConfig{
-			ID: p.ID, Name: p.Name, Provider: p.Type,
-			BaseURL: p.BaseURL, APIKey: apiKey, ModelName: p.Model,
-			Vendor: p.Vendor, ModelFamily: p.ModelFamily, Deployment: p.Deployment,
-			ContextLength: p.ContextLength, Metadata: p.Metadata,
-			Enabled: p.Enabled, IsDefault: p.ID == raw.DefaultModel,
-			Temperature: p.Temperature, MaxTokens: p.MaxTokens,
-			MaxTokensField: p.MaxTokensField, SupportsTemperature: p.SupportsTemperature,
-			ToolTransport: p.ToolTransport,
-		})
+	var key []byte
+	var failure *secure.StoreError
+	provider := "unavailable"
+	if g.secretStore != nil {
+		provider = g.secretStore.Provider()
 	}
+	for _, model := range raw.Models {
+		if model.savedCredential() != "" {
+			key, failure = g.loadCredentialKey()
+			break
+		}
+	}
+	defer clear(key)
+	config := &GatewayConfig{DefaultModel: raw.DefaultModel, Models: make([]ModelConfig, len(raw.Models))}
+	for i, record := range raw.Models {
+		model := record.ModelConfig
+		model.IsDefault = model.ID == raw.DefaultModel
+		model.decodeCredential(record.savedCredential(), key, provider, failure)
+		config.Models[i] = model
+	}
+	g.config = config
 }
 
 func (g *Gateway) saveConfig() error {
-	// Create encrypted copy for persistence
-	encrypted := *g.config
-	encrypted.Models = make([]ModelConfig, len(g.config.Models))
+	encrypted := persistedGatewayConfig{
+		DefaultModel: g.config.DefaultModel,
+		Models:       make([]persistedModelConfig, len(g.config.Models)),
+	}
+	var key []byte
+	defer func() { clear(key) }()
 	for i, m := range g.config.Models {
-		encrypted.Models[i] = m
-		if m.APIKey != "" && g.encKey != nil {
-			if enc, err := secure.Encrypt(g.encKey, m.APIKey); err == nil {
-				encrypted.Models[i].APIKey = enc
-			} else {
+		encrypted.Models[i] = persistedModelConfig{ModelConfig: m, EncryptedAPIKey: m.storedCredential}
+		if m.APIKey != "" && m.storedCredential == "" {
+			if key == nil {
+				var err error
+				key, err = g.keyForNewCredential()
+				if err != nil {
+					return err
+				}
+			}
+			enc, err := secure.Encrypt(key, m.APIKey)
+			if err != nil {
 				return fmt.Errorf("encrypt model credential: %w", err)
 			}
-		} else if m.APIKey != "" {
-			return fmt.Errorf("credential encryption unavailable; configuration was not saved")
+			encrypted.Models[i].EncryptedAPIKey = credentialPrefix + enc
 		}
 	}
 	data, err := yaml.Marshal(&encrypted)
@@ -217,7 +203,13 @@ func (g *Gateway) saveConfig() error {
 	if err = file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, g.configPath)
+	if err := os.Rename(name, g.configPath); err != nil {
+		return err
+	}
+	for i, m := range encrypted.Models {
+		g.config.Models[i].storedCredential = m.EncryptedAPIKey
+	}
+	return nil
 }
 
 func maskModels(models []ModelConfig) []ModelConfig {
@@ -303,7 +295,7 @@ func (g *Gateway) HandleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := g.saveConfig(); err != nil {
 		g.config = previous
-		errors.WriteHTTP(w, r, errors.Wrap(err, errors.ErrInternal, errors.CatGateway, "failed to save model configuration"))
+		errors.WriteHTTP(w, r, modelSaveError(err))
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": modelID})
@@ -343,8 +335,13 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	found := false
 	for i, m := range g.config.Models {
 		if m.ID == body.ID {
-			if body.APIKey == "" && reuseModelCredential(&m, &ModelConfig{Provider: body.Provider, BaseURL: body.BaseURL}, !body.StrictCredentialOrigin) {
+			preserveCredential := body.APIKey == "" && reuseModelCredential(&m, &ModelConfig{Provider: body.Provider, BaseURL: body.BaseURL}, !body.StrictCredentialOrigin)
+			if preserveCredential {
 				body.APIKey = m.APIKey
+			} else if body.APIKey == "" && m.Credential != nil {
+				g.config = previous
+				errors.WriteHTTP(w, r, errors.New(errors.ErrConflict, errors.CatGateway, "保存的凭证无法读取。更改连接地址前，请重新输入此连接的凭证。"))
+				return
 			}
 			identityChanged := body.Provider != m.Provider || strings.TrimRight(body.BaseURL, "/") != strings.TrimRight(m.BaseURL, "/") || body.ModelName != m.ModelName
 			if identityChanged && (body.Metadata == nil || (m.Metadata != nil && *body.Metadata == *m.Metadata)) {
@@ -372,6 +369,10 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 				saved.SupportsTemperature = m.SupportsTemperature
 				saved.ToolTransport = m.ToolTransport
 			}
+			if preserveCredential {
+				saved.storedCredential = m.storedCredential
+				saved.Credential = m.Credential
+			}
 			g.config.Models[i] = saved
 			found = true
 			break
@@ -394,7 +395,7 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := g.saveConfig(); err != nil {
 		g.config = previous
-		errors.WriteHTTP(w, r, errors.Wrap(err, errors.ErrInternal, errors.CatGateway, "failed to save model configuration"))
+		errors.WriteHTTP(w, r, modelSaveError(err))
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -434,6 +435,9 @@ func (g *Gateway) callLLM(model *ModelConfig, messages []map[string]string, sysP
 }
 
 func (g *Gateway) callLLMContext(parent context.Context, model *ModelConfig, messages []map[string]string, sysPrompt string, temp float64, maxTokens int) (string, int, int, error) {
+	if err := model.credentialError(); err != nil {
+		return "", 0, 0, err
+	}
 	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
 	foregroundDone, err := g.beginInteractive(ctx)
@@ -562,6 +566,9 @@ func providerCacheKey(model *ModelConfig) string {
 }
 
 func (g *Gateway) getOrCreateProvider(model *ModelConfig) (providers.LLMProvider, error) {
+	if err := model.credentialError(); err != nil {
+		return nil, err
+	}
 	g.providerMu.Lock()
 	defer g.providerMu.Unlock()
 

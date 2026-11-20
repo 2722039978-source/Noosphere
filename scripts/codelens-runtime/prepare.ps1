@@ -2,15 +2,12 @@ function Initialize-NoosphereCodeLensRuntime {
   param([string]$ProjectRoot, [string]$PythonCommand)
 
   $Version = (Get-Content -LiteralPath (Join-Path $ProjectRoot '.python-version') -Raw).Trim()
-  $Archives = @{
-    '3.14.7' = 'D297E5FF019966817AD8502465176139F2D3D840FA4ED84B13BED399A6AB1F15'
-  }
-  if (-not $Archives.ContainsKey($Version)) { throw "No verified Windows x64 CPython archive is pinned for $Version." }
+  $PythonSpec = (Get-NoosphereWindowsTarget $ProjectRoot).components.python
+  if ($PythonSpec.version -ne $Version) { throw "No verified Windows x64 CPython archive is pinned for $Version." }
   $HostVersion = (Invoke-NoosphereCommand $PythonCommand @('-c', 'import platform; print(platform.python_version(), platform.machine())') $ProjectRoot | Out-String).Trim()
   if ($HostVersion -ne "$Version AMD64") { throw "CodeLens packaging needs Windows x64 Python $Version. Found $HostVersion." }
 
-  $Recipe = Join-Path $ProjectRoot 'scripts/codelens-runtime'
-  $Requirements = Join-Path $Recipe 'requirements-win-py314.lock'
+  $Requirements = Join-Path $ProjectRoot $PythonSpec.lock
   foreach ($Pin in Get-Content -LiteralPath (Join-Path $ProjectRoot 'backend/python/codelens/requirements.txt')) {
     $Pin = $Pin.Trim()
     if ($Pin -and -not $Pin.StartsWith('#') -and
@@ -20,7 +17,7 @@ function Initialize-NoosphereCodeLensRuntime {
   }
   $LockHash = (Get-FileHash -LiteralPath $Requirements -Algorithm SHA256).Hash
   $Cache = Join-Path $ProjectRoot 'test/cache/codelens-runtime'
-  $ArchiveName = "python-$Version-embed-amd64.zip"
+  $ArchiveName = $PythonSpec.archive
   $Zip = Join-Path $Cache $ArchiveName
   $Prepared = Join-Path $Cache "$Version-$LockHash"
   New-Item -ItemType Directory -Path $Cache -Force | Out-Null
@@ -29,13 +26,13 @@ function Initialize-NoosphereCodeLensRuntime {
     if (-not (Test-Path -LiteralPath (Join-Path $Prepared 'distribution.json') -PathType Leaf)) {
       if (-not (Test-Path -LiteralPath $Zip -PathType Leaf)) {
         $Download = $Zip + '.download'
-        Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$Version/$ArchiveName" -OutFile $Download
-        if ((Get-FileHash -LiteralPath $Download -Algorithm SHA256).Hash -ne $Archives[$Version]) {
+        Invoke-WebRequest -Uri $PythonSpec.url -OutFile $Download
+        if ((Get-FileHash -LiteralPath $Download -Algorithm SHA256).Hash -ne $PythonSpec.source_sha256) {
           throw 'CPython embedded archive SHA-256 did not match the pinned value.'
         }
         Move-Item -LiteralPath $Download -Destination $Zip
       }
-      if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne $Archives[$Version]) {
+      if ((Get-FileHash -LiteralPath $Zip -Algorithm SHA256).Hash -ne $PythonSpec.source_sha256) {
         throw "Invalid cached CPython archive $Zip. Remove the damaged archive and retry."
       }
       $Stage = Join-Path $Cache ("prepare-" + [guid]::NewGuid().ToString('N'))
@@ -47,7 +44,7 @@ function Initialize-NoosphereCodeLensRuntime {
       Write-NoosphereUtf8 (Join-Path $Stage 'python314._pth') "python314.zip`n.`nsite-packages`n../codelens-python`n"
       Write-NoosphereUtf8 (Join-Path $Stage 'distribution.json') (@{
         python = $Version
-        archive_sha256 = $Archives[$Version]
+        archive_sha256 = $PythonSpec.source_sha256
         lock_sha256 = $LockHash
       } | ConvertTo-Json -Compress)
       Move-Item -LiteralPath $Stage -Destination $Prepared

@@ -187,6 +187,9 @@ func (app *App) Close() error {
 		if app.startupCancel != nil {
 			app.startupCancel()
 		}
+		if app.Actions != nil {
+			app.Actions.Close()
+		}
 		if app.LiveCanary != nil {
 			app.closeErr = stderrors.Join(app.closeErr, app.LiveCanary.Close())
 		}
@@ -213,9 +216,6 @@ func (app *App) Close() error {
 		}
 		if app.ModelStore != nil {
 			app.closeErr = stderrors.Join(app.closeErr, app.ModelStore.Close())
-		}
-		if app.Actions != nil {
-			app.Actions.Close()
 		}
 		app.startupWG.Wait()
 		if app.Engine != nil {

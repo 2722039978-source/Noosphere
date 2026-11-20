@@ -71,15 +71,23 @@ function Write-NoosphereUtf8 {
   [IO.File]::WriteAllText($Path, $Content, [Text.UTF8Encoding]::new($false))
 }
 
+function Get-NoosphereWindowsTarget {
+  param([string]$ProjectRoot)
+  $Manifest = Get-Content -LiteralPath (Join-Path $ProjectRoot 'scripts/platform-targets.json') -Raw | ConvertFrom-Json
+  if ($Manifest.schema -ne 1 -or -not $Manifest.targets.'windows-x64') { throw 'Missing Windows x64 distribution target.' }
+  return $Manifest.targets.'windows-x64'
+}
+
 function Build-NoosphereBackend {
   param([string]$ProjectRoot, [string]$GoCommand, [string]$Version)
   $BackendBin = Join-Path $ProjectRoot 'desktop/src-tauri/bin'
   New-Item -ItemType Directory -Path $BackendBin -Force | Out-Null
-  $Artifact = Join-Path $BackendBin 'noosphere-backend.exe'
+  $Target = Get-NoosphereWindowsTarget $ProjectRoot
+  $Artifact = Join-Path $ProjectRoot ('desktop/src-tauri/' + $Target.components.go.entry)
   $Environment = @{ GOOS = $env:GOOS; GOARCH = $env:GOARCH; CGO_ENABLED = $env:CGO_ENABLED }
   try {
-    $env:GOOS = 'windows'
-    $env:GOARCH = 'amd64'
+    $env:GOOS = $Target.go_os
+    $env:GOARCH = $Target.go_arch
     $env:CGO_ENABLED = '0'
     Invoke-NoosphereCommand $GoCommand @('build', '-trimpath', '-ldflags', "-X main.Version=$Version -s -w", '-o', $Artifact, './cmd/server') (Join-Path $ProjectRoot 'backend') | Out-Host
   } finally {
@@ -111,20 +119,23 @@ function Initialize-NoosphereRea {
   $Recipe = Join-Path $ProjectRoot 'scripts/rea-runtime'
   $Cache = if ($env:NOOSPHERE_REA_BUILD_CACHE) { $env:NOOSPHERE_REA_BUILD_CACHE } else { Join-Path $ProjectRoot 'test/cache/rea-runtime' }
   if (([IO.Path]::GetPathRoot($Cache)).Length -lt 3) { throw 'REA 构建缓存必须使用绝对路径。' }
-  $NodeName = 'node-v24.22.2-win-x64'
-  $NodeZip = Join-Path $Cache "$NodeName.zip"
-  $NodeSHA = 'CA1BFF5D8EAD13C9F2EA404A176DB46BD430704D5B5113734049FA365E7799E2'
-  $LockFile = Join-Path $Recipe 'package-lock.json'
+  $Target = Get-NoosphereWindowsTarget $ProjectRoot
+  $NodeSpec = $Target.components.node
+  $ReaSpec = $Target.components.rea
+  $NodeName = [IO.Path]::GetFileNameWithoutExtension($NodeSpec.archive)
+  $NodeZip = Join-Path $Cache $NodeSpec.archive
+  $NodeSHA = $NodeSpec.source_sha256
+  $LockFile = Join-Path $ProjectRoot $ReaSpec.lock
   $LockHash = (Get-FileHash -LiteralPath $LockFile -Algorithm SHA256).Hash
   $Runtime = Join-Path $Cache $LockHash
   $NodeRoot = Join-Path $Cache $NodeName
-  $ReaScript = 'node_modules/rea-agents/scripts/rea.mjs'
+  $ReaScript = $ReaSpec.entry.Substring('rea-runtime/'.Length)
   New-Item -ItemType Directory -Path $Cache, $Runtime -Force | Out-Null
   $Lock = [IO.File]::Open((Join-Path $Cache 'prepare.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
   try {
     if (-not (Test-Path -LiteralPath $NodeZip -PathType Leaf)) {
       $Download = $NodeZip + '.download'
-      Invoke-WebRequest -UseBasicParsing -Uri "https://nodejs.org/dist/v24.22.2/$NodeName.zip" -OutFile $Download
+      Invoke-WebRequest -UseBasicParsing -Uri $NodeSpec.url -OutFile $Download
       if ((Get-FileHash -LiteralPath $Download -Algorithm SHA256).Hash -ne $NodeSHA) { throw 'Node.js 下载文件的 SHA-256 校验失败。' }
       Move-Item -LiteralPath $Download -Destination $NodeZip
     }
@@ -142,8 +153,8 @@ function Initialize-NoosphereRea {
     $BundledNode = Join-Path $Runtime 'node.exe'
     $ActualNode = (Invoke-NoosphereCommand $BundledNode @('--version') $Runtime | Out-String).Trim()
     $ActualRea = (Invoke-NoosphereCommand $BundledNode @((Join-Path $Runtime $ReaScript), '--version') $Runtime | Out-String).Trim()
-    if ($ActualNode -ne 'v24.22.2' -or $ActualRea -ne '6.8.0') { throw "REA 运行组件版本校验失败。Node.js $ActualNode，REA $ActualRea。" }
-    Write-NoosphereUtf8 $Stamp (@{ node = $ActualNode; rea = $ActualRea; lock_sha256 = $LockHash } | ConvertTo-Json -Compress)
+    if ($ActualNode -ne ('v' + $NodeSpec.version) -or $ActualRea -ne $ReaSpec.version) { throw "REA 运行组件版本校验失败。Node.js $ActualNode，REA $ActualRea。" }
+    Write-NoosphereUtf8 $Stamp (@{ node = $ActualNode; rea = $ActualRea; lock_sha256 = $LockHash; archive_sha256 = $NodeSHA } | ConvertTo-Json -Compress)
     return $Runtime
   } finally { $Lock.Dispose() }
 }
@@ -183,6 +194,11 @@ function Initialize-NoosphereResources {
   Copy-NoosphereCodeLens $ProjectRoot (Join-Path $TauriRoot 'codelens-python')
   if ($ReaRuntime) { Copy-NoosphereRea $ReaRuntime $TauriRoot }
   New-Item -ItemType Directory -Path (Join-Path $TauriRoot 'codelens-runtime'), (Join-Path $TauriRoot 'redist') -Force | Out-Null
+  if (Test-Path -LiteralPath (Join-Path $ProjectRoot 'LICENSE')) {
+    $LicenseRoot = Join-Path $TauriRoot 'third-party'
+    New-Item -ItemType Directory -Path $LicenseRoot -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSE') -Destination $LicenseRoot -Force
+  }
   if ($CodeLensRuntime) { Copy-NoosphereCodeLensRuntime $CodeLensRuntime $TauriRoot }
   if ($CrtRuntime) { Copy-NoosphereCrt $CrtRuntime (Join-Path $TauriRoot 'redist') }
   Copy-Item -LiteralPath (Join-Path $ProjectRoot 'setup.bat') -Destination (Join-Path $TauriRoot 'setup.bat') -Force
@@ -443,6 +459,9 @@ function Publish-NoosphereRelease {
   foreach ($Installer in $InstallerArtifacts) { Copy-Item -LiteralPath $Installer -Destination (Join-Path $ReleaseRoot (Split-Path -Leaf $Installer)) -Force }
   $BuildInfo = [ordered]@{
     version = Get-NoosphereVersion $ProjectRoot
+    target = 'windows-x64'
+    os = 'windows'
+    arch = 'x64'
     built_at_utc = [DateTime]::UtcNow.ToString('o')
     runtime_revision = $(if ($CodeLensRuntime) { 2 } else { 1 })
     source_revision = $Source.revision

@@ -14,10 +14,21 @@ export function activeWorkspaceSession(sessions: ChatSession[], activeId: string
   return scoped.find(session => session.id === activeId) ?? scoped[0] ?? null;
 }
 
-export function parseChatBackup(raw: string): ChatSnapshot {
+export function chatBackupPlatform(): string | undefined {
+  const host = typeof navigator === 'undefined' ? '' : navigator.platform;
+  if (/^Win/.test(host)) return 'windows';
+  if (/^Mac/.test(host)) return 'macos';
+  if (/^Linux/.test(host)) return 'linux';
+  return undefined;
+}
+
+export function parseChatBackup(raw: string): ChatSnapshot & { sourcePlatform?: string } {
   const envelope = JSON.parse(raw);
-  if (envelope.format && (envelope.format !== 'noosphere-chat-backup' || envelope.version !== 1)) throw new Error('不支持此备份版本。');
-  return validateChatSnapshot(envelope.state);
+  if (!envelope || (envelope.format && (envelope.format !== 'noosphere-chat-backup' || ![1, 2].includes(envelope.version)))) throw new Error('不支持此备份版本。');
+  if (envelope.version === 2 && ![null, 'windows', 'macos', 'linux'].includes(envelope.source_platform)) throw new Error('备份缺少有效的来源平台。');
+  const sourcePlatform = envelope.version === 2 ? envelope.source_platform as string | null : null;
+  const snapshot = validateChatSnapshot(envelope.state);
+  return sourcePlatform ? { ...snapshot, sourcePlatform } : snapshot;
 }
 
 // Validate structure without serializing or imposing a lifetime size cap;
@@ -34,6 +45,7 @@ export function validateChatSnapshot(value: unknown): ChatSnapshot {
     for (const message of session.messages) {
       if (!message || typeof message.id !== 'string' || !message.id || messages.has(message.id) || !['user','assistant'].includes(message.role) || typeof message.content !== 'string' || !Number.isFinite(message.createdAt)) throw new Error('消息数据无效。');
       if (message.sourceProjectPath !== undefined && (typeof message.sourceProjectPath !== 'string' || message.sourceProjectPath.length > 32767)) throw new Error('消息来源项目无效。');
+      if (message.evidenceSnapshotOnly !== undefined && typeof message.evidenceSnapshotOnly !== 'boolean') throw new Error('导入的证据状态无效。');
       if (message.attachments !== undefined && (!Array.isArray(message.attachments) || message.attachments.length > 3 || message.attachments.some(file =>
         !file || typeof file.id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(file.id) || typeof file.name !== 'string' || file.name.length > 1040 ||
         typeof file.source_hash !== 'string' || !/^[a-f0-9]{64}$/.test(file.source_hash) || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > attachmentMaxBytes))) throw new Error('附件引用格式无效。');

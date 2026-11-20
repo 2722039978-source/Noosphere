@@ -8,8 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/noosphere/backend/internal/workspaces"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,35 +16,39 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/noosphere/backend/internal/workspaces"
 )
 
 const maxActionJournalBytes = 512 * 1024
 
 type Action struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	RunID       string `json:"run_id"`
-	Root        string `json:"project_path"`
-	ProjectID   string `json:"project_id"`
-	Kind        string `json:"kind"`
-	Status      string `json:"status"`
-	Reason      string `json:"reason"`
-	Path        string `json:"path,omitempty"`
-	Before      string `json:"before,omitempty"`
-	After       string `json:"after,omitempty"`
-	Existed     bool   `json:"existed"`
-	BeforeHash  string `json:"before_hash,omitempty"`
-	AfterHash   string `json:"after_hash,omitempty"`
-	Mode        uint32 `json:"file_mode,omitempty"`
-	Runner      string `json:"runner,omitempty"`
-	Command     string `json:"command,omitempty"`
-	Service     string `json:"service,omitempty"`
-	Target      string `json:"target,omitempty"`
-	Previous    string `json:"previous,omitempty"`
-	Output      string `json:"output,omitempty"`
-	Error       string `json:"error,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID            string          `json:"id"`
+	WorkspaceID   string          `json:"workspace_id"`
+	RunID         string          `json:"run_id"`
+	Root          string          `json:"project_path"`
+	ProjectID     string          `json:"project_id"`
+	Kind          string          `json:"kind"`
+	Status        string          `json:"status"`
+	Reason        string          `json:"reason"`
+	Path          string          `json:"path,omitempty"`
+	Before        string          `json:"before,omitempty"`
+	After         string          `json:"after,omitempty"`
+	Existed       bool            `json:"existed"`
+	BeforeHash    string          `json:"before_hash,omitempty"`
+	AfterHash     string          `json:"after_hash,omitempty"`
+	FileDirectory string          `json:"file_directory_identity,omitempty"`
+	Mode          uint32          `json:"file_mode,omitempty"`
+	Runner        string          `json:"runner,omitempty"`
+	Command       string          `json:"command,omitempty"`
+	Test          *testInvocation `json:"test,omitempty"`
+	Service       string          `json:"service,omitempty"`
+	Target        string          `json:"target,omitempty"`
+	Previous      string          `json:"previous,omitempty"`
+	Output        string          `json:"output,omitempty"`
+	Error         string          `json:"error,omitempty"`
+	CreatedAt     string          `json:"created_at"`
+	UpdatedAt     string          `json:"updated_at"`
 }
 type ActionExecutor interface {
 	ServiceState(context.Context, string) (string, error)
@@ -184,67 +186,6 @@ func (s *Actions) binding(a Action) error {
 	return nil
 }
 
-// checkedTarget holds an OS root so atomic replacement cannot traverse outside it.
-func checkedTarget(rootPath, name string, allowMissing bool) (*os.Root, []byte, bool, os.FileMode, error) {
-	if !allowedPath(name) {
-		return nil, nil, false, 0, fmt.Errorf("不允许操作此项目路径")
-	}
-	root, err := os.OpenRoot(rootPath)
-	if err != nil {
-		return nil, nil, false, 0, fmt.Errorf("项目目录不可用")
-	}
-	fail := func(e error) (*os.Root, []byte, bool, os.FileMode, error) { root.Close(); return nil, nil, false, 0, e }
-	parts := strings.Split(name, "/")
-	for i := range parts {
-		info, e := root.Lstat(strings.Join(parts[:i+1], "/"))
-		if os.IsNotExist(e) && i == len(parts)-1 && allowMissing {
-			return root, nil, false, 0600, nil
-		}
-		if e != nil {
-			return fail(fmt.Errorf("文件或父目录不可用"))
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fail(fmt.Errorf("不允许链接路径"))
-		}
-		if i < len(parts)-1 && !info.IsDir() {
-			return fail(fmt.Errorf("父路径不是目录"))
-		}
-	}
-	f, err := root.Open(name)
-	if err != nil {
-		return fail(err)
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 64*1024 {
-		return fail(fmt.Errorf("仅支持不超过 64 KiB 的普通文本文件"))
-	}
-	data, err := io.ReadAll(io.LimitReader(f, 64*1024+1))
-	if err != nil || len(data) > 64*1024 || !utf8.Valid(data) || strings.ContainsRune(string(data), 0) {
-		return fail(fmt.Errorf("文件不是支持的 UTF-8 文本"))
-	}
-	return root, data, true, info.Mode().Perm(), nil
-}
-func replaceFile(root *os.Root, name, content string, mode os.FileMode) error {
-	temp := path.Join(path.Dir(name), ".noosphere-"+actionID()+".tmp")
-	f, err := root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
-	if err != nil {
-		return err
-	}
-	defer root.Remove(temp)
-	_, err = io.WriteString(f, content)
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	return root.Rename(temp, name)
-}
 func (s *Actions) Propose(ctx context.Context, ws workspaces.Workspace, runID, name string, input json.RawMessage) (Action, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -282,14 +223,14 @@ func (s *Actions) Propose(ctx context.Context, ws workspaces.Workspace, runID, n
 		if p.New == nil {
 			return Action{}, fmt.Errorf("必须明确提供 new_text 字符串")
 		}
-		root, raw, exists, mode, err := checkedTarget(ws.ProjectPath, p.Path, true)
+		target, err := inspectFile(ws.ProjectPath, p.Path)
 		if err != nil {
 			return Action{}, err
 		}
-		root.Close()
-		before := string(raw)
+		target.parent.Close()
+		before := target.text
 		after := *p.New
-		if exists {
+		if target.exists {
 			if p.Old == "" || strings.Count(before, p.Old) != 1 {
 				return Action{}, fmt.Errorf("待替换文本必须在当前文件中唯一匹配，请先读取源码")
 			}
@@ -307,10 +248,11 @@ func (s *Actions) Propose(ctx context.Context, ws workspaces.Workspace, runID, n
 		a.Path = p.Path
 		a.Before = before
 		a.After = after
-		a.Existed = exists
-		a.Mode = uint32(mode)
+		a.Existed = target.exists
+		a.Mode = uint32(target.mode)
 		a.BeforeHash = hashText(before)
 		a.AfterHash = hashText(after)
+		a.FileDirectory = target.directoryID
 		a.Reason = clip(redact(p.Reason), 500)
 	case "propose_test":
 		var p struct {
@@ -324,17 +266,15 @@ func (s *Actions) Propose(ctx context.Context, ws workspaces.Workspace, runID, n
 		if p.Directory == "" {
 			p.Directory = "."
 		}
-		command, ok := testCommands[p.Runner]
-		if !ok || s.executor == nil {
+		if s.executor == nil {
 			return Action{}, fmt.Errorf("测试运行器不可用")
-		}
-		if _, err := testDirectory(ws.ProjectPath, p.Directory); err != nil {
-			return Action{}, err
 		}
 		a.Kind = "test"
 		a.Runner = p.Runner
 		a.Path = p.Directory
-		a.Command = command
+		if err := planTest(&a); err != nil {
+			return Action{}, err
+		}
 		a.Reason = clip(redact(p.Reason), 500)
 	case "propose_service_change":
 		var p struct {
@@ -415,8 +355,16 @@ func (s *Actions) Decide(id, workspaceID, decision string) (Action, error) {
 		return a, fmt.Errorf("另一个测试或服务操作正在执行，请等待完成")
 	}
 	if a.Kind == "test" {
-		if _, err := testDirectory(a.Root, a.Path); err != nil {
+		if a.Test == nil {
+			return a, fmt.Errorf("测试预览缺少已核实的工具链，请重新提出测试")
+		}
+		dir, rootID, dirID, err := testDirectory(a)
+		if err != nil {
 			return a, err
+		}
+		dir.Close()
+		if rootID != a.Test.RootID || dirID != a.Test.DirectoryID {
+			return a, fmt.Errorf("测试目录已替换，请重新提出测试")
 		}
 	}
 	if a.Kind == "service" {
@@ -451,24 +399,30 @@ func (s *Actions) Decide(id, workspaceID, decision string) (Action, error) {
 	return a, nil
 }
 func (s *Actions) changeFile(a Action, rollback bool) (Action, error) {
-	root, raw, exists, _, err := checkedTarget(a.Root, a.Path, true)
+	if !rollback && a.FileDirectory == "" {
+		return a, fmt.Errorf("文件预览缺少目录身份，请重新生成操作预览")
+	}
+	target, err := inspectFile(a.Root, a.Path)
 	if err != nil {
 		return a, err
 	}
-	defer root.Close()
+	defer target.parent.Close()
+	if a.FileDirectory != "" && target.directoryID != a.FileDirectory {
+		return a, fmt.Errorf("文件所在目录已替换，请重新生成操作预览")
+	}
 	expected, expectedExists, content := a.BeforeHash, a.Existed, a.After
 	if rollback {
 		expected = a.AfterHash
 		expectedExists = true
 		content = a.Before
 		// A crash before writing or after rollback is already safely at the original state.
-		if a.Status == "interrupted" && exists == a.Existed && hashText(string(raw)) == a.BeforeHash {
+		if a.Status == "interrupted" && target.exists == a.Existed && hashText(target.text) == a.BeforeHash {
 			a.Status = "rolled_back"
 			a.Error = ""
 			return a, s.save(a)
 		}
 	}
-	if exists != expectedExists || hashText(string(raw)) != expected {
+	if target.exists != expectedExists || hashText(target.text) != expected {
 		return a, fmt.Errorf("文件已被外部修改，未覆盖；请重新生成预览")
 	}
 	a.Status = "applying"
@@ -479,10 +433,27 @@ func (s *Actions) changeFile(a Action, rollback bool) (Action, error) {
 	if err = s.save(a); err != nil {
 		return a, err
 	}
+	recheck := func() error {
+		if err := s.binding(a); err != nil {
+			return err
+		}
+		live, err := inspectFile(a.Root, a.Path)
+		if err != nil {
+			return err
+		}
+		defer live.parent.Close()
+		if live.directoryID != target.directoryID || live.exists != expectedExists || hashText(live.text) != expected {
+			return fmt.Errorf("目录或文件已被外部修改，未覆盖")
+		}
+		return nil
+	}
+	name := path.Base(a.Path)
 	if rollback && !a.Existed {
-		err = root.Remove(a.Path)
+		if err = recheck(); err == nil {
+			err = target.parent.Remove(name)
+		}
 	} else {
-		err = replaceFile(root, a.Path, content, os.FileMode(a.Mode))
+		err = replaceFile(target.parent, name, content, os.FileMode(a.Mode), !expectedExists, recheck)
 	}
 	if err != nil {
 		a.Status = "interrupted"
@@ -506,7 +477,14 @@ func (s *Actions) execute(ctx context.Context, cancel context.CancelFunc, a Acti
 	if rollback {
 		command.Target = a.Previous
 	}
-	output, err := s.executor.Execute(ctx, command)
+	var output string
+	err := ctx.Err()
+	if err == nil {
+		err = s.binding(a)
+	}
+	if err == nil {
+		output, err = s.executor.Execute(ctx, command)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.cancel, a.ID)

@@ -93,11 +93,12 @@ type EvaluationResponse struct {
 // Dedicated usage excludes shared GPU memory. A missing sample stays unknown.
 type ProcessUsage struct {
 	Source                string `json:"source"`
+	MissingReason         string `json:"missing_reason,omitempty"`
 	IntervalMS            int    `json:"interval_ms"`
 	WorkingSetSamples     int    `json:"working_set_samples"`
 	DedicatedGPUSamples   int    `json:"dedicated_gpu_samples"`
-	PeakWorkingSetBytes   uint64 `json:"peak_working_set_bytes"`
-	PeakDedicatedGPUBytes uint64 `json:"peak_dedicated_gpu_bytes"`
+	PeakWorkingSetBytes   uint64 `json:"peak_working_set_bytes,omitempty"`
+	PeakDedicatedGPUBytes uint64 `json:"peak_dedicated_gpu_bytes,omitempty"`
 }
 
 // EvaluationProvider is optional; existing chat providers need no fake methods.

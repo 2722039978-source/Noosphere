@@ -50,6 +50,11 @@ func configuredCapability(cap Capability, model ModelConfig) Capability {
 		cap.Reason = "此连接已禁用，启用后才能使用。"
 		return cap
 	}
+	if model.Credential != nil {
+		cap.Code = string(credentialCode(model.Credential.Status))
+		cap.Reason = model.Credential.Reason
+		return cap
+	}
 	u, err := url.Parse(model.BaseURL)
 	// Claude/Gemini constructors already resolve an empty URL to their official
 	// endpoint, including their registered aliases. Preserve those valid configs.

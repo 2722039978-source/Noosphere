@@ -54,6 +54,10 @@ type App struct {
 
 // bootstrap initializes all modules and wires routes onto the mux.
 func bootstrap(cfg *config.AppConfig) *App {
+	return bootstrapWithParent(cfg, context.Background())
+}
+
+func bootstrapWithParent(cfg *config.AppConfig, parent context.Context) *App {
 	lc := core.New()
 	mux := http.NewServeMux()
 
@@ -80,7 +84,7 @@ func bootstrap(cfg *config.AppConfig) *App {
 		Engine:    eng,
 		Mux:       mux,
 	}
-	app.startupCtx, app.startupCancel = context.WithCancel(context.Background())
+	app.startupCtx, app.startupCancel = context.WithCancel(parent)
 	dataDir := cfg.App.DataDir
 	if dataDir == "" {
 		dataDir = filepath.Dir(cfg.Modules.Nebula.DataDir)
@@ -116,7 +120,7 @@ func bootstrap(cfg *config.AppConfig) *App {
 		knowledgeService.RegisterRoutes(mux)
 		app.registerCodeLensSources()
 		codelens.NewArtifactAnalyzer(manager, dataDir, os.Getenv("NOOSPHERE_REA_RUNTIME")).RegisterRoutes(mux)
-		actions, actionErr := agent.OpenActions(filepath.Join(dataDir, "agent-actions"), manager, agent.NewNativeExecutor(cfg.Modules.CodeLens.PythonPath, cfg.Modules.DevOps.Enabled))
+		actions, actionErr := agent.OpenActions(filepath.Join(dataDir, "agent-actions"), manager, agent.NewNativeExecutor(cfg.Modules.DevOps.Enabled))
 		if actionErr != nil {
 			lc.SetError("agent_actions", actionErr)
 		} else {
@@ -271,15 +275,20 @@ func initCodeLens(cfg *config.AppConfig, lc *core.Lifecycle, mux *http.ServeMux,
 		close(startupDone)
 		return
 	}
-	pythonCmds := resolveCodeLensPython(cfg.Modules.CodeLens.PythonPath, scriptCandidates)
-	port := cfg.Modules.CodeLens.Port
-	if managed {
-		port = 0
-		if os.Getenv("NOOSPHERE_DESKTOP_DEVELOPMENT") != "1" && cfg.Modules.CodeLens.PythonPath == "python" && os.Getenv("NOOSPHERE_CODELENS_PYTHON") == "" {
-			lc.SetError("codelens", fmt.Errorf("bundled CodeLens runtime is missing; reinstall the complete application"))
+	var pythonCmds [][]string
+	if managed && os.Getenv("NOOSPHERE_DESKTOP_DEVELOPMENT") != "1" {
+		pythonCmds, err = resolveManagedCodeLensPython(os.Getenv("NOOSPHERE_CODELENS_PYTHON"))
+		if err != nil {
+			lc.SetError("codelens", err)
 			close(startupDone)
 			return
 		}
+	} else {
+		pythonCmds = resolveCodeLensPython(cfg.Modules.CodeLens.PythonPath, scriptCandidates)
+	}
+	port := cfg.Modules.CodeLens.Port
+	if managed {
+		port = 0
 	}
 	traceDir, err := filepath.Abs(filepath.Join(dataDir, "codelens-source", "trace-v1"))
 	if err != nil {
