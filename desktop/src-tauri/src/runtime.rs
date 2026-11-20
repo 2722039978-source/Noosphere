@@ -273,6 +273,9 @@ impl<P: ManagedProcess> Lifecycle<P> {
     }
 
     fn fail(&mut self, error: String, now: Instant) {
+        if std::env::var_os("NOOSPHERE_RUNTIME_DIAGNOSTICS").is_some() {
+            eprintln!("Noosphere backend supervision: {error}");
+        }
         self.ready = false;
         self.error = Some(error);
         self.process.take();
@@ -372,6 +375,9 @@ impl BackendService {
         match paths {
             Ok(paths) => state.paths = Some(paths),
             Err(error) => {
+                if std::env::var_os("NOOSPHERE_RUNTIME_DIAGNOSTICS").is_some() {
+                    eprintln!("Noosphere backend resources: {error}");
+                }
                 state.error = Some(error);
                 return;
             }

@@ -44,7 +44,11 @@ async function smoke(label, executable, cwd, state, overrides = {}) {
   const data = join(state, 'user data');
   await mkdir(data);
   await chown(data, uid, gid);
-  const env = { ...runtimeEnv(), ...overrides, NOOSPHERE_DATA_DIR: data, TMPDIR: state };
+  const log = join(data, 'desktop-services.log');
+  const env = {
+    ...runtimeEnv(), ...overrides, NOOSPHERE_DATA_DIR: data, TMPDIR: state,
+    NOOSPHERE_RUNTIME_DIAGNOSTICS: '1',
+  };
   if (offline && process.env.SUDO_USER) {
     const home = run('getent', ['passwd', process.env.SUDO_USER], { capture: true }).split(':')[5];
     if (!home) throw new Error('Could not identify desktop account home');
@@ -59,7 +63,6 @@ async function smoke(label, executable, cwd, state, overrides = {}) {
   });
   let owned = [];
   try {
-    const log = join(data, 'desktop-services.log');
     const deadline = Date.now() + 120_000;
     while (true) {
       const earlyExit = await Promise.race([exited, delay(300, false)]);
@@ -76,6 +79,18 @@ async function smoke(label, executable, cwd, state, overrides = {}) {
       || !owned.some(entry => /^python3(?:\.\d+)?$/.test(basename(entry.executable)))) {
       throw new Error(label + ' did not start the expected private backend and CodeLens process tree');
     }
+  } catch (error) {
+    const logText = await readFile(log, 'utf8').catch(problem => `<unavailable: ${problem.code ?? problem.message}>`);
+    console.error(label + ' desktop-services.log:\n' + logText.slice(-16000));
+    if (child.pid) {
+      try {
+        owned = descendants(child.pid, processSnapshot());
+        console.error(label + ' owned processes:', owned);
+      } catch (snapshotError) {
+        console.error(label + ' process snapshot failed:', snapshotError.message);
+      }
+    }
+    throw error;
   } finally {
     if (child.pid && child.exitCode === null && child.signalCode === null) {
       const imageDesktop = owned.find(entry => processNamed(entry, 'noosphere-desktop'));
