@@ -6,10 +6,10 @@
 
 | 目标 | 构建环境与最低系统 | 计划分发 | 源码与构建 | 原生运行与正式发行 |
 | --- | --- | --- | --- | --- |
-| Windows x64 | `windows-2025` x64/MSVC；现有兼容下限为带 WebView2 的 Windows 10 x64 | NSIS、完整便携 ZIP | 已完成 Windows 11 Pro 26300 x64 的源码测试、构建、打包与最终校验 | 本地 0.8.0 便携候选通过 WebView2 和真实 Bonsai SYCL 推理验收。安装、卸载和重装须在隔离账号复验，当前本机有既有 Noosphere 数据 |
-| Linux x64 | `ubuntu-22.04` x64，glibc 2.35 构建基线，WebKitGTK 4.1。发布前需要确认实际原生支持的发行版和桌面会话 | AppImage、deb | 已完成 `CGO_ENABLED=0` Go 交叉构建，Tauri 打包入口已实现 | 阻塞于缺少原生 Linux 桌面宿主。AppImage 搬迁、deb 安装/升级、X11 和 Wayland 待验证 |
-| macOS arm64 | `macos-15` Apple Silicon，原生 arm64；候选最低 macOS 13.5 | .app 归档、DMG | 已完成 `CGO_ENABLED=0` Go 交叉构建，Tauri 打包入口已实现 | 原生包待验证，正式发行阻塞于 Developer ID Application 和公证权限 |
-| macOS x64 | `macos-15-intel` Intel，原生 x86_64；桌面运行包候选最低 macOS 13.5，Ollama CPU 本地模型验收最低 macOS 14 | .app 归档、DMG | 已完成 `CGO_ENABLED=0` Go 交叉构建，Tauri 打包入口已实现 | 原生包待验证，正式发行阻塞于 Developer ID Application 和公证权限 |
+| Windows x64 | `windows-2025` x64/MSVC；现有兼容下限为带 WebView2 的 Windows 10 x64 | NSIS、完整便携 ZIP | 已完成 0.9.0 源码测试、构建、打包和哈希复核 | 本地 0.9.0 便携包通过 WebView2 和真实 Bonsai SYCL 推理验收。隔离安装、卸载与重装按 CI 记录判定 |
+| Linux x64 | `ubuntu-22.04` x64，glibc 2.35 构建基线，WebKitGTK 4.1 | AppImage、deb | 原生源码测试和 deb 构建通过，AppImage 在 linuxdeploy 解析私有 CPython 的 Tcl 依赖时失败 | 已将私有库路径限于打包进程，待复验 AppImage、deb/升级、离线 X11、Wayland 和真实模型 |
+| macOS arm64 | `macos-15` Apple Silicon，原生 arm64；候选最低 macOS 13.5 | .app 归档、DMG | 原生源码测试、预览包生成和搬迁后的私有组件解析通过 | 搬迁启动时 Tauri 资源定位失败。已让测试从规范路径启动，待复验。正式发行阻塞于 Developer ID Application 和公证权限 |
+| macOS x64 | `macos-15-intel` Intel，原生 x86_64；桌面运行包候选最低 macOS 13.5，Ollama CPU 本地模型验收最低 macOS 14 | .app 归档、DMG | 原生源码测试通过 | 原生包、真实 Ollama CPU 和最低系统待验证。正式发行阻塞于 Developer ID Application 和公证权限 |
 
 目标契约记录在 [platform-targets.json](scripts/platform-targets.json)。macOS 13.5 受锁定 Node 24 的官方预构建要求约束。最终下限还取 Tauri、Go、CPython、所有 wheel、Node 和 REA 中的最高要求。构建检查 Mach-O 部署版本，仍需分别在候选最低版本启动最终包。macOS 15 CI 只能证明对应 runner 的结果。 [Node 24.22.2 构建要求](https://github.com/nodejs/node/blob/v24.22.2/BUILDING.md) · [GitHub 托管 runner 规格](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 
@@ -55,6 +55,10 @@ Unix 包输出到 `artifacts/<版本>/<目标>/`。用 `node scripts/desktop.mjs
 跨平台首轮是在 `255e1af95c18ae84d212e831942a33440a43ec38` 的开发工作区验证的。本轮 `0.9.0` 候选基于 `main / v0.8.1 / 057ab0e100a581b59d99861403738f9520447182` 整合。下方 `0.8.0` 产物仅记录首轮证据。
 
 0.9.0 候选复核修正了凭证降级兼容。新版密文使用独立 YAML 字段，旧客户端不会将其读作 API Key。发布 GitHub 正式版需要先取得原生验收结果，并在受保护的环境中配置 macOS Developer ID、公证和 stapling。
+
+- **已完成**。Windows `a520bac8df26163309cd61791c730da9d33a177f` 的干净 0.9.0 便携包通过七组 WebView2 原生检查和真实 Bonsai SYCL 闭环。该包和配套 NSIS 的哈希及命令保存在本地 `.local/release-0.9.0-evidence/RETEST.md`。修复 CI 固定端口读取后，便携包通过端口策略复测。隔离安装结果以 [候选 CI](https://github.com/2722039978-source/Noosphere/pull/6/checks) 为准。
+- **待验证**。Linux 的打包日志确认 `_tkinter` 依赖 `libtcl9.0.so`，两者都在私有 CPython 中。打包限定库搜索路径后，需从两个最终包分别复跑私有解析和离线启动。**待核实**。AppImage 构建日志报告部分 Ubuntu 系统库的版权文件没有自动找到，须对最终包实际分发的库核对其版权与许可文件。
+- **待验证**。Apple Silicon 的 `.app` 与 DMG 通过私有运行时搬迁和挂载解析，桌面启动需要继续复验。测试将临时目录解析为规范路径，保留 Tauri 对符号链接启动路径的安全检查。最低系统、Dock/Cmd+Q、Keychain 和真实模型需分别取得两种架构的原生证据。
 
 - **已完成**。对照 `main` 核对 tracked 与 untracked 路径。至少 142 个未跟踪文件与 `main` 内容一致。T11/T12、Model Lab、连接向导和 Windows 发布文件中的大量项目因此是已有成果。将来合入以 `main` 已有版本为基础，逐文件审阅本轮真正新增的代码，保留后续分支对 Provider 的兼容修复。
 - **已完成**。合入 `main` 中缺失的 OpenAI 采样参数处理和 Responses 工具回退。Windows `go test ./internal/gateway/providers` 通过，测试包含实际回环请求与字段断言。

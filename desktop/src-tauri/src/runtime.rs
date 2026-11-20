@@ -60,13 +60,23 @@ impl RuntimePaths {
         }
         let override_dir = std::env::var_os("NOOSPHERE_DATA_DIR").map(PathBuf::from);
         let dev_dir = cfg!(debug_assertions).then(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        let resource_dir = app.path().resource_dir();
         Self::resolve(
             exe_dir,
-            app.path().resource_dir().ok().as_deref(),
+            resource_dir.as_deref().ok(),
             &app_data,
             override_dir.as_deref(),
             dev_dir.as_deref(),
         )
+        .map_err(|error| match resource_dir {
+            Ok(_) => error,
+            Err(resource_error) => {
+                let reason = tauri::utils::platform::current_exe()
+                    .err()
+                    .map_or_else(|| resource_error.to_string(), |error| error.to_string());
+                format!("{error}（应用资源目录不可用: {reason}）")
+            }
+        })
     }
 
     fn resolve(

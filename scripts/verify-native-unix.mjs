@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chown, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink } from 'node:fs/promises';
+import { chown, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -136,7 +136,8 @@ async function stateDir(root, name) {
   return dir;
 }
 
-const scratch = await mkdtemp(join(tmpdir(), 'noosphere-native-'));
+// Tauri rejects executable paths with symlinked ancestors on macOS, including /var.
+const scratch = await mkdtemp(join(await realpath(tmpdir()), 'noosphere-native-'));
 try {
   await chown(scratch, uid, gid);
   const packages = resolve(directory);
