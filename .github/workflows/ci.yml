@@ -70,10 +70,6 @@ jobs:
           if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Stable release requires a numeric release version.' }
       - name: Initialize and verify the developer environment
         run: ./scripts/setup.ps1 -InstallBrowser
-      - name: Build and package Windows x64
-        run: |
-          if ($env:RUNNER_ARCH -ne 'X64') { throw 'Windows packaging requires native x64.' }
-          ./scripts/package.ps1
       - name: Prepare a standard-integrity Windows test launcher
         run: |
           # WebView2 150+ drops environment overrides from elevated hosts. Test with the
@@ -92,6 +88,10 @@ jobs:
             throw 'Could not launch a process at Medium integrity.'
           }
           Add-Content -LiteralPath $env:GITHUB_ENV -Value "NOOSPHERE_CI_GSUDO=$Launcher"
+      - name: Build and package Windows x64
+        run: |
+          if ($env:RUNNER_ARCH -ne 'X64') { throw 'Windows packaging requires native x64.' }
+          ./scripts/package.ps1
       - name: Verify installed app, uninstall, and reinstall
         run: |
           $Version = (Get-Content VERSION -Raw).Trim()
