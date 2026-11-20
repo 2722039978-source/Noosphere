@@ -3,6 +3,7 @@ mod runtime;
 mod local_auth;
 mod local_engines;
 mod updates;
+mod platform;
 use commands::services::ServiceState;
 use tauri::Manager;
 
@@ -12,12 +13,12 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            show_main_window(app);
         }));
+    }
+    #[cfg(unix)]
+    {
+        builder = builder.plugin(tauri_plugin_dialog::init());
     }
     let app = builder
         .manage(ServiceState::default())
@@ -69,6 +70,8 @@ pub fn run() {
             commands::projects::project_launch_candidate,
             commands::projects::pick_project_folder,
             commands::projects::open_project_workspace,
+            commands::projects::reveal_project_folder,
+            platform::desktop_platform,
             commands::workspaces::list_knowledge,
             commands::workspaces::save_knowledge,
             commands::workspaces::suggest_knowledge_revision,
@@ -93,27 +96,36 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                if let Some(streams) = window
-                    .app_handle()
-                    .try_state::<commands::stream::StreamTasks>()
-                {
-                    streams.cancel_all();
+            #[cfg(target_os = "macos")]
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
                 }
-                if let Some(state) = window.app_handle().try_state::<ServiceState>() {
-                    state.shutdown();
-                }
-                window.app_handle().state::<local_engines::LocalEngines>().shutdown();
             }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (window, event);
         })
         .build(tauri::generate_context!())
         .expect("error while building Noosphere Desktop");
 
-    app.run(|app, event| {
-        if let tauri::RunEvent::Exit = event {
+    app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => show_main_window(app),
+        tauri::RunEvent::Exit => {
             app.state::<commands::stream::StreamTasks>().cancel_all();
             app.state::<ServiceState>().shutdown();
             app.state::<local_engines::LocalEngines>().shutdown();
         }
+        _ => {}
     });
+}
+
+#[cfg(desktop)]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
 }

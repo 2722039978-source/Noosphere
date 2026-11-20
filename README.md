@@ -2,11 +2,11 @@
 
 # Noosphere
 
-Noosphere 是面向 Windows 的 AI 项目工作台。打开一个本地目录，就能在同一工作区里用模型读代码、查资料、推进任务。重新打开项目，可以沿着原来的会话、任务记录和项目记忆继续做。
+Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工作区里用模型读代码、查资料、推进任务。重新打开项目，可以沿着原来的会话、任务记录和项目记忆继续做。
 
 本地模型和云端 API 共用对话右下角的模型菜单。已经安装的本地引擎可以在应用里发现、启动和验证。配置好云端 API 后，也可以在当前会话中切过去。
 
-[下载最新版](https://github.com/2722039978-source/Noosphere/releases/latest) · [更新记录](CHANGELOG.md) · [使用说明](LIMITATIONS.md) · [反馈问题](https://github.com/2722039978-source/Noosphere/issues)
+[下载最新版](https://github.com/2722039978-source/Noosphere/releases/latest) · [更新记录](CHANGELOG.md) · [使用说明](LIMITATIONS.md) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md) · [反馈问题](https://github.com/2722039978-source/Noosphere/issues)
 
 ## 用 Noosphere 做什么
 
@@ -33,6 +33,8 @@ Noosphere 是面向 Windows 的 AI 项目工作台。打开一个本地目录，
 3. 从对话右下角选择模型。选中还没启动的本地模型时，可在弹窗中启动并验证。接入云端服务时，在「模型 → 高级管理 → 手动配置」填写连接信息，配置完成后从同一个模型菜单选择带「API」标识的模型。
 4. 直接提问，或点击回形针添加附件。先从「这个项目的入口在哪里」或「总结这份文档的要求」开始。
 
+现有正式下载为 Windows x64。Linux x64 和 macOS arm64/x64 的构建与验收状态见 [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md)。macOS 用 ⌘O 打开项目、⌘Q 退出。关闭主窗口会隐藏工作台，点击 Dock 图标可恢复窗口。
+
 ## 更多工具
 
 | 入口 | 用途 |
@@ -50,13 +52,13 @@ Noosphere 是面向 Windows 的 AI 项目工作台。打开一个本地目录，
 
 ## 更新备份与恢复
 
-「设置 → 应用信息」显示当前应用数据目录。「设置 → 会话备份」可导出和导入会话。更新或迁移时也可备份应用数据目录，以便保留配置和附件原件。
+「设置 → 应用信息」显示当前应用数据目录。「设置 → 会话备份」可导出和导入会话。同一安装的升级可额外备份应用数据目录。跨系统搬迁时，导入会话后重新绑定项目和模型，重新配置系统凭证并重建索引。原件需另行备份。已有任务中的待执行授权留在原安装。
 
-「设置 → 软件更新」可下载并校验新版安装包。下载完成后，根据提示退出 Noosphere 并运行安装器。
+「设置 → 软件更新」会选择与当前安装方式、系统及架构匹配的包，校验大小和 SHA-256，保存会话备份。退出应用后，按安装提示用 NSIS、系统软件包管理器或 Finder 完成更新，或在自己的目录换用新 AppImage。
 
 ## 开发和构建
 
-源码构建使用 Windows x64、PowerShell 7、Git 和 Visual Studio 的「使用 C++ 的桌面开发」工作负载。Node.js、CPython、Rust 和 Go 的版本记录在项目的工具链配置里。 [Node.js](.node-version) · [CPython](.python-version) · [Rust](rust-toolchain.toml) · [Go](backend/go.mod)
+各目标使用对应架构的宿主、Git、锁定的 Node.js、Rust 和 Go 工具链，以及系统 WebView 构建依赖。Windows 入口使用 PowerShell 7 和 Visual Studio「使用 C++ 的桌面开发」工作负载。 [Node.js](.node-version) · [CPython](.python-version) · [Rust](rust-toolchain.toml) · [Go](backend/go.mod) · [目标清单](scripts/platform-targets.json)
 
 ```powershell
 pwsh -NoProfile -File scripts/setup.ps1 -InstallBrowser
@@ -70,6 +72,18 @@ pwsh -NoProfile -File scripts/package.ps1
 
 `build.ps1` 将桌面程序构建到 `release/`。`package.ps1` 将 NSIS 安装器、便携 ZIP、构建信息和 SHA-256 校验文件生成到 `artifacts/<版本>/`。
 
+Linux 使用原生 Ubuntu 22.04 x64 构建环境，安装 GTK 3、WebKitGTK 4.1 开发包和系统打包工具。macOS 使用对应 CPU 架构的 Xcode Command Line Tools。下面的命令以 Linux 为例，macOS 将目标参数改为 `macos-arm64` 或 `macos-x64`。各命令和具体依赖见 [验收记录](CROSS_PLATFORM_ACCEPTANCE.md)。
+
+```sh
+node scripts/desktop.mjs setup linux-x64
+node scripts/desktop.mjs doctor linux-x64
+node scripts/desktop.mjs dev linux-x64
+node scripts/desktop.mjs test linux-x64
+node scripts/desktop.mjs package linux-x64
+```
+
+完整桌面包包含解析和产物分析所用的私有 Python、Node 及依赖。项目测试使用用户确认的项目工具链。本地推理仍需安装对应引擎和模型权重。
+
 | 目录 | 职责 |
 | --- | --- |
 | [frontend/src](frontend/src) | React / TypeScript 工作台界面，包含对话、任务、模型和项目页面。 |
@@ -77,4 +91,4 @@ pwsh -NoProfile -File scripts/package.ps1
 | [backend](backend) | Go 后端，负责模型调用、工作区、附件、任务和测评。 |
 | [backend/python/codelens](backend/python/codelens) | Python CodeLens 源码解析和索引。 |
 
-[Windows CI](https://github.com/2722039978-source/Noosphere/actions) · [MIT License](LICENSE) · [第三方资源](LIMITATIONS.md#设计来源与第三方资源)
+[桌面 CI](https://github.com/2722039978-source/Noosphere/actions) · [MIT License](LICENSE) · [第三方资源](LIMITATIONS.md#设计来源与第三方资源)

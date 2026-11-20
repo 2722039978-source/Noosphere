@@ -10,12 +10,21 @@ interface UpdateInfo {
   available_version: string | null;
   installer_available: boolean;
   downloaded_version: string | null;
+  package_type?: string | null;
 }
 
 interface DownloadedUpdate {
   version: string;
   installer: string;
+  package_type?: string;
 }
+
+const installInstructions: Record<string, string> = {
+  nsis: '请打开下载目录，退出 Noosphere，再运行安装器。',
+  dmg: '请用 ⌘Q 退出 Noosphere，再打开 DMG，并按系统提示替换应用。',
+  deb: '请退出 Noosphere，再用系统软件安装器或软件包管理器安装下载的 deb。',
+  appimage: '请退出 Noosphere，将新 AppImage 放在自己可写的目录，设置可执行权限后再启动。',
+};
 
 export function UpdatePanel() {
   const [info, setInfo] = useState<UpdateInfo>();
@@ -36,7 +45,7 @@ export function UpdatePanel() {
       setMessage(next.available_version
         ? next.installer_available
           ? `可以更新到 ${next.available_version}。`
-          : `${next.available_version} 尚未提供可校验的 Windows 安装包。`
+          : `${next.available_version} 没有匹配当前系统、架构及安装方式的可校验更新包。`
         : next.current_version === next.downloaded_version
           ? `当前运行的是已下载的 ${next.current_version} 版。`
           : "当前已是最新正式版。");
@@ -58,7 +67,7 @@ export function UpdatePanel() {
         chatBackup: exportChatBackup(),
       });
       setPrepared(update);
-      setMessage(`${update.version} 安装包已通过 SHA-256 校验，会话备份已保存。请打开下载目录，退出 Noosphere，再运行安装包。`);
+      setMessage(`${update.version} 更新包已通过 SHA-256 校验，会话备份已保存。${installInstructions[update.package_type ?? 'nsis'] ?? '请退出 Noosphere 后手动更新。'}`);
     } catch (error) {
       setMessage(String(error));
     } finally {

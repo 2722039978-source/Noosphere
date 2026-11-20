@@ -16,7 +16,8 @@ $TauriRoot = Join-Path $ProjectRoot 'desktop/src-tauri'
 $FrontendRoot = Join-Path $ProjectRoot 'frontend'
 $Version = Get-NoosphereVersion $ProjectRoot
 Assert-NoosphereVersionFiles $ProjectRoot $Version
-$Target = 'x86_64-pc-windows-msvc'
+$Target = (Get-NoosphereWindowsTarget $ProjectRoot).rust_triple
+$PackageSource = if ($PackageStage) { Get-NoosphereSourceIdentity $ProjectRoot }
 
 if ($SkipTauri -and $BundleNsis) { throw '-SkipTauri and -BundleNsis cannot be combined.' }
 if ($SkipTauri -and $DesktopShortcut) { throw '-DesktopShortcut requires a complete desktop build; remove -SkipTauri.' }
@@ -52,6 +53,12 @@ if ($SkipTauri) {
 }
 
 # Cargo resolves CARGO_TARGET_DIR and .cargo/config.toml target settings itself.
+if ($PackageStage) {
+  Invoke-NoosphereCommand (Resolve-NoosphereCommand 'node') @(
+    (Join-Path $PSScriptRoot 'desktop-licenses.mjs'), (Join-Path $TauriRoot 'third-party'),
+    (Join-Path $TauriRoot 'rea-runtime'), $GoCommand, $CargoCommand
+  ) $ProjectRoot
+}
 $CargoOutput = @(Invoke-NoosphereCommand $CargoCommand @('build', '--release', '--locked', '--target', $Target, '--bin', 'noosphere-desktop', '--message-format=json-render-diagnostics') $TauriRoot)
 $DesktopArtifact = Get-NoosphereDesktopArtifact $CargoOutput
 $InstallerArtifacts = @()
@@ -65,6 +72,12 @@ if ($BundleNsis) {
   if ($InstallerArtifacts.Count -ne 1) {
     throw 'Tauri must produce exactly one fresh NSIS installer. Existing installers will not be presented as a new build.'
   }
+}
+
+if ($PackageStage) {
+  $PackageAfter = Get-NoosphereSourceIdentity $ProjectRoot
+  if ($PackageAfter.revision -ne $PackageSource.revision -or $PackageAfter.fingerprint -ne $PackageSource.fingerprint -or
+      $PackageAfter.dirty -ne $PackageSource.dirty) { throw 'Source identity changed during the Windows package build.' }
 }
 
 $Toolchains = @{

@@ -13,6 +13,7 @@ import (
 	"github.com/noosphere/backend/internal/workspaces"
 	"io"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -50,7 +51,7 @@ type Registry struct {
 }
 
 func (r *Registry) WithActions(actions *Actions, runID string) { r.actions = actions; r.runID = runID }
-func (r *Registry) WithTrace(lookup TraceLookup) { r.trace = lookup }
+func (r *Registry) WithTrace(lookup TraceLookup)               { r.trace = lookup }
 
 func NewRegistry(ws workspaces.Workspace, lookup ContextLookup, system SystemLookup) *Registry {
 	return &Registry{workspace: ws, lookup: lookup, system: system}
@@ -100,14 +101,14 @@ func (r *Registry) Definitions() []providers.ToolDefinition {
 		defs = append(defs, definition("project_trace", "Trace indexed definitions and static source relations by exact symbol or file path. Candidate calls are unverified. Cite returned source evidence.", `{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}`))
 	}
 	if r.system != nil {
-		for _, tool := range []struct{ name, desc string }{{"system_processes", "Read current Windows processes (top 20)."}, {"system_connections", "Read current Windows connections (bounded snapshot)."}, {"system_services", "Read current Windows service states (bounded snapshot)."}} {
+		for _, tool := range []struct{ name, desc string }{{"system_processes", "Read current host processes (top 20)."}, {"system_connections", "Read current host connections (bounded snapshot)."}, {"system_services", "Read current host service states (bounded snapshot)."}} {
 			defs = append(defs, definition(tool.name, tool.desc, `{"type":"object","properties":{},"additionalProperties":false}`))
 		}
-		defs = append(defs, definition("service_status", "Read one Windows service state by service name.", `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}`))
+		defs = append(defs, definition("service_status", "Read one host service state by service name.", `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}`))
 	}
 	if r.actions != nil {
 		defs = append(defs, definition("propose_file_change", "Propose a single exact-text replacement (old_text must match once) or create a new file (omit old_text). This only saves a preview. A human must approve in the app; never claim it is applied.", `{"type":"object","properties":{"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"reason":{"type":"string"}},"required":["path","new_text","reason"],"additionalProperties":false}`), definition("propose_test", "Propose running a fixed project test command. Human approval required, no execution now.", `{"type":"object","properties":{"runner":{"type":"string","enum":["go","python","node"]},"directory":{"type":"string"},"reason":{"type":"string"}},"required":["runner","reason"],"additionalProperties":false}`))
-		if r.system != nil {
+		if r.system != nil && runtime.GOOS == "windows" {
 			defs = append(defs, definition("propose_service_change", "Propose starting or stopping one Windows service. Human approval required; stores previous stable state for restoration.", `{"type":"object","properties":{"name":{"type":"string"},"target":{"type":"string","enum":["running","stopped"]},"reason":{"type":"string"}},"required":["name","target","reason"],"additionalProperties":false}`))
 		}
 	}

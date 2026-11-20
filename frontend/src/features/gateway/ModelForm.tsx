@@ -33,7 +33,7 @@ export function ModelForm({ onSaved, onCancel, initial }: {
   const inFlight = useRef(false);
   const update = (patch: Partial<ModelConfig>) => { setForm(previous => ({ ...previous, ...patch })); setError(''); };
   const choice = providers.find(provider => provider.id === form.provider);
-  const draft = (): ModelConfig => ({ ...form, capabilities: undefined, is_default: Boolean(initial?.is_default), id: form.id.trim(), name: form.name.trim() || form.model_name.trim(), base_url: form.base_url.trim(), model_name: form.model_name.trim() });
+  const draft = (): ModelConfig => ({ ...form, capabilities: undefined, credential: undefined, is_default: Boolean(initial?.is_default), id: form.id.trim(), name: form.name.trim() || form.model_name.trim(), base_url: form.base_url.trim(), model_name: form.model_name.trim() });
 
   async function run(infer: boolean) {
     if (inFlight.current) return;
@@ -62,6 +62,7 @@ export function ModelForm({ onSaved, onCancel, initial }: {
         if (provider) { setResult(undefined); update({ provider: provider.id, base_url: provider.url, model_name: '', api_key: '' }); }
       }}>{!choice && <option value={form.provider}>{form.provider}</option>}{providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></label>
       {!['ollama', 'openvino'].includes(form.provider) && <label className="ns-model-field">API 密钥<Input type="password" autoComplete="off" value={form.api_key ?? ''} placeholder={initial ? '留空保留已保存的密钥' : '按需填写'} onChange={event => update({ api_key: event.target.value })} /></label>}
+      {initial?.credential && !form.api_key && <p role="status" className="text-xs text-text-2">{initial.credential.reason}</p>}
       <div className="flex flex-wrap items-end gap-2">
         <label className="ns-model-field min-w-0 flex-1">模型 ID<Input required value={form.model_name} placeholder="输入 ID，或扫描后选择" list="ns-provider-models" onChange={event => update({ model_name: event.target.value })} /><datalist id="ns-provider-models">{result?.models?.map(model => <option key={model.id} value={model.id}>{model.name}</option>)}</datalist></label>
         <Button type="button" variant="outline" disabled={!form.base_url.trim()} onClick={() => void run(false)}>扫描模型</Button>

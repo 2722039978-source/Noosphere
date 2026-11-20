@@ -58,7 +58,7 @@ func (c *Collector) Collect(ctx context.Context) (Inventory, error) {
 	}
 	var inventory Inventory
 	if err == nil {
-		inventory, err = decodeInventory(raw)
+		inventory, err = decodePlatformInventory(raw)
 	}
 	if err != nil {
 		inventory = unavailable("unavailable", "QUERY_UNAVAILABLE")
@@ -298,15 +298,12 @@ func issueMessage(code string) string {
 	}
 }
 func unavailable(status, code string) Inventory {
-	v, _ := decodeInventory([]byte(`{}`))
-	v.Status = status
-	v.Issues = []Issue{{Component: "hardware", Code: code, Message: issueMessage(code)}}
-	if status == "unsupported" {
-		v.CollectorVersion = "hostinfo-portable-v1"
-		v.System.Source = "unavailable"
-		v.Motherboard.Source = "unavailable"
-		v.Memory.Source = "unavailable"
-		v.OS = OS{Name: runtime.GOOS, Architecture: runtime.GOARCH, Source: "go_runtime", MissingReason: "detailed platform inventory unsupported"}
+	return Inventory{
+		SchemaVersion: 1, CollectorVersion: "hostinfo-portable-v1", Platform: runtime.GOOS, Status: status,
+		System: Device{Source: "unavailable"}, Motherboard: Device{Source: "unavailable"},
+		Memory: Memory{Source: "unavailable", Modules: []MemoryModule{}},
+		OS:     OS{Name: runtime.GOOS, Architecture: runtime.GOARCH, Source: "go_runtime", MissingReason: issueMessage(code)},
+		CPUs:   []CPU{}, GPUs: []GPU{}, SystemDisks: []Disk{},
+		Issues: []Issue{{Component: "hardware", Code: code, Message: issueMessage(code)}},
 	}
-	return v
 }

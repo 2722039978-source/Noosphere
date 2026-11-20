@@ -4,76 +4,22 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strings"
+	"runtime"
 	"time"
+
+	"github.com/noosphere/backend/internal/ownedprocess"
 )
 
-var testCommands = map[string]string{"go": "go test -timeout 60s ./...", "python": "python -m unittest discover -v", "node": "node --test"}
-
-func testDirectory(root, name string) (string, error) {
-	if root == "" || !fs.ValidPath(name) || strings.ContainsAny(name, "\\:") {
-		return "", fmt.Errorf("无效测试目录")
-	}
-	handle, err := os.OpenRoot(root)
-	if err != nil {
-		return "", fmt.Errorf("项目目录不可用")
-	}
-	defer handle.Close()
-	if name != "." {
-		parts := strings.Split(name, "/")
-		for i, part := range parts {
-			if strings.HasPrefix(part, ".") || excluded[strings.ToLower(part)] {
-				return "", fmt.Errorf("不允许此测试目录")
-			}
-			info, e := handle.Lstat(strings.Join(parts[:i+1], "/"))
-			if e != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-				return "", fmt.Errorf("测试目录不可用或为链接")
-			}
-		}
-	}
-	return filepath.Join(root, filepath.FromSlash(name)), nil
-}
-
 type NativeExecutor struct {
-	Runtimes map[string]string
 	Services bool
 }
 
-func NewNativeExecutor(pythonPath string, services bool) *NativeExecutor {
-	e := &NativeExecutor{Runtimes: map[string]string{}, Services: services}
-	for _, name := range []string{"go", "python", "node"} {
-		if p, err := exec.LookPath(name); err == nil && filepath.IsAbs(p) {
-			e.Runtimes[name] = p
-		}
-	}
-	if filepath.IsAbs(pythonPath) {
-		if info, err := os.Stat(pythonPath); err == nil && !info.IsDir() {
-			e.Runtimes["python"] = pythonPath
-		}
-	}
-	executable, _ := os.Executable()
-	dir := filepath.Dir(executable)
-	for i := 0; i < 5; i++ {
-		for name, relative := range map[string]string{"go": ".local/tools/go/bin/go.exe", "python": ".local/venv/Scripts/python.exe"} {
-			if e.Runtimes[name] == "" {
-				p := filepath.Join(dir, relative)
-				if info, err := os.Stat(p); err == nil && !info.IsDir() {
-					e.Runtimes[name] = p
-				}
-			}
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return e
+func NewNativeExecutor(services bool) *NativeExecutor {
+	return &NativeExecutor{Services: services && runtime.GOOS == "windows"}
 }
 
 type boundedOutput struct{ buffer bytes.Buffer }
@@ -88,48 +34,36 @@ func (b *boundedOutput) Write(p []byte) (int, error) {
 	}
 	return n, nil
 }
-func executeCommand(ctx context.Context, dir, exe string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, exe, args...)
-	cmd.Dir = dir
-	cmd.WaitDelay = 2 * time.Second
-	// Project test code is executable; do not inherit the desktop's local API credential.
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
-		upper := strings.ToUpper(key)
-		if strings.Contains(upper, "TOKEN") || strings.Contains(upper, "API_KEY") || strings.Contains(upper, "PASSWORD") || strings.Contains(upper, "SECRET") {
-			continue
-		}
-		cmd.Env = append(cmd.Env, entry)
-	}
+func executeCommand(ctx context.Context, cmd *exec.Cmd, directory *os.File) (string, error) {
 	var output boundedOutput
 	cmd.Stdout = &output
 	cmd.Stderr = &output
-	cleanup, err := prepareActionProcess(cmd)
-	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-	if err = cmd.Start(); err != nil {
-		return "", err
-	}
-	if err = containActionProcess(cmd); err != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
-		return "", err
-	}
-	err = cmd.Wait()
+	err := ownedprocess.Run(ctx, cmd, directory)
 	text := output.String()
 	if output.Len() >= 32*1024 {
 		text += "\n[output truncated at 32 KiB]"
 	}
 	return text, err
 }
-func (e *NativeExecutor) ServiceState(ctx context.Context, name string) (string, error) {
-	if !e.Services || !serviceName.MatchString(name) {
-		return "", fmt.Errorf("服务操作不可用")
+
+func serviceCommand(ctx context.Context, verb, name string) (string, error) {
+	systemRoot := os.Getenv("SystemRoot")
+	if !filepath.IsAbs(systemRoot) {
+		return "", fmt.Errorf("Windows 系统目录不可用")
 	}
-	sc := filepath.Join(os.Getenv("SystemRoot"), "System32", "sc.exe")
-	output, err := executeCommand(ctx, "", sc, "query", name)
+	cmd := exec.Command(filepath.Join(systemRoot, "System32", "sc.exe"), verb, name)
+	cmd.Env = ownedprocess.BaseEnv()
+	return executeCommand(ctx, cmd, nil)
+}
+
+func (e *NativeExecutor) ServiceState(ctx context.Context, name string) (string, error) {
+	if !e.Services {
+		return "", fmt.Errorf("此平台或配置未启用系统服务写操作")
+	}
+	if !serviceName.MatchString(name) {
+		return "", fmt.Errorf("无效服务名")
+	}
+	output, err := serviceCommand(ctx, "query", name)
 	if err != nil {
 		return "", fmt.Errorf("无法查询服务状态：%w", err)
 	}
@@ -150,19 +84,7 @@ func (e *NativeExecutor) ServiceState(ctx context.Context, name string) (string,
 }
 func (e *NativeExecutor) Execute(ctx context.Context, a Action) (string, error) {
 	if a.Kind == "test" {
-		dir, err := testDirectory(a.Root, a.Path)
-		if err != nil {
-			return "", err
-		}
-		exe := e.Runtimes[a.Runner]
-		if exe == "" {
-			return "", fmt.Errorf("未找到 %s 运行环境，请安装或配置后重新提出测试", a.Runner)
-		}
-		args := map[string][]string{"go": {"test", "-timeout", "60s", "./..."}, "python": {"-m", "unittest", "discover", "-v"}, "node": {"--test"}}[a.Runner]
-		if len(args) == 0 {
-			return "", fmt.Errorf("未知测试运行器")
-		}
-		return executeCommand(ctx, dir, exe, args...)
+		return executeTest(ctx, a)
 	}
 	if a.Kind != "service" || !e.Services || !serviceName.MatchString(a.Service) {
 		return "", fmt.Errorf("操作不可用")
@@ -171,7 +93,7 @@ func (e *NativeExecutor) Execute(ctx context.Context, a Action) (string, error) 
 	if verb == "" {
 		return "", fmt.Errorf("无效服务目标")
 	}
-	output, err := executeCommand(ctx, "", filepath.Join(os.Getenv("SystemRoot"), "System32", "sc.exe"), verb, a.Service)
+	output, err := serviceCommand(ctx, verb, a.Service)
 	if err != nil {
 		return output, fmt.Errorf("服务操作失败（可能需要权限），不会自动提权：%w", err)
 	}

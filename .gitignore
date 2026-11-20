@@ -20,9 +20,6 @@ desktop/src-tauri/target/
 release/
 /artifacts/
 .local/
-/.codex/
-.cache/
-chat-attachment-files/
 *.log
 models.yaml
 !backend/models.yaml.example
@@ -51,8 +48,10 @@ qa-output/
 desktop/src-tauri/bin/
 desktop/src-tauri/codelens-python/
 desktop/src-tauri/codelens-runtime/
+desktop/src-tauri/.codelens-stage-*/
 desktop/src-tauri/redist/
 desktop/src-tauri/rea-runtime/
+desktop/src-tauri/third-party/
 desktop/src-tauri/config.yaml
 desktop/src-tauri/config.defaults.yaml
 desktop/src-tauri/setup.bat
@@ -66,10 +65,15 @@ desktop/src-tauri/logs/
 !/README.md
 !/LIMITATIONS.md
 !/CHANGELOG.md
+!/CROSS_PLATFORM_ACCEPTANCE.md
 
 # Local reference checkout and personal planning exports
 /RhineLabUI/
-/docs/
+/docs/*
+!/docs/screenshots/
+/docs/screenshots/*
+!/docs/screenshots/model-hub.png
+!/docs/screenshots/model-lab.png
 
 # Local model weights, databases, credentials and verification output
 /model/
@@ -95,22 +99,11 @@ coverage/
 
 # 开发测试保留在本地，公开四个核心测试文件
 **/tests/
-!/frontend/tests/
-/frontend/tests/*
-!/frontend/tests/model-selection-ui.cjs
-!/frontend/tests/local-model-switch-ui.cjs
-!/frontend/tests/model-check-ui.cjs
-!/frontend/tests/project-knowledge.cjs
-!/frontend/tests/ui-regression.cjs
-!/frontend/tests/load-source.mjs
 **/testdata/
 **/fixtures/
 *_test.go
 test_*.py
 *.test.*
-!/frontend/tests/indexed-chat-storage.test.mjs
-!/frontend/tests/stream-runner.test.mjs
-!/frontend/tests/chat-workspace-runtime.test.mjs
 *.spec.*
 /scripts/test-*
 /scripts/verify-t11-t12.cjs
@@ -122,6 +115,8 @@ backend/python/codelens/requirements-dev.txt
 !/backend/internal/config/upgrade_test.go
 !/backend/cmd/server/server_test.go
 !/backend/internal/gateway/providers/params_test.go
+!/backend/internal/ownedprocess/process_test.go
+!/backend/internal/attachmentfile/extract_test.go
 
 # 本地视频和设计过程记录
 /video/
@@ -135,3 +130,4 @@ backend/python/codelens/requirements-dev.txt
 !/desktop/src-tauri/icons/32x32.png
 !/desktop/src-tauri/icons/128x128.png
 !/desktop/src-tauri/icons/icon.ico
+!/desktop/src-tauri/icons/icon.icns

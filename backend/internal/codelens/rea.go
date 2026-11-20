@@ -14,10 +14,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
 	appErrors "github.com/noosphere/backend/internal/errors"
+	"github.com/noosphere/backend/internal/ownedprocess"
 	"github.com/noosphere/backend/internal/workspaces"
 )
 
@@ -235,7 +237,7 @@ func copyArtifact(ctx context.Context, projectPath, name, destination string) (s
 }
 
 func (a *ArtifactAnalyzer) ready() bool {
-	if !filepath.IsAbs(a.runtimeRoot) {
+	if _, _, err := a.runtimeEntries(); err != nil {
 		return false
 	}
 	manifestPath := filepath.Join(a.runtimeRoot, "node_modules", "rea-agents", "package.json")
@@ -246,22 +248,55 @@ func (a *ArtifactAnalyzer) ready() bool {
 	return err == nil && json.Unmarshal(manifest, &version) == nil && version.Version == reaVersion
 }
 
-func (a *ArtifactAnalyzer) run(ctx context.Context, tool, snapshot, digest string) (json.RawMessage, error) {
-	node := filepath.Join(a.runtimeRoot, "node.exe")
-	script := filepath.Join(a.runtimeRoot, "node_modules", "rea-agents", "scripts", "rea.mjs")
-	command := exec.CommandContext(ctx, node, script, tool, snapshot, "--json")
-	configureWorker(command)
-	command.Dir = a.runtimeRoot
-	command.WaitDelay = 2 * time.Second
-	command.Env = []string{"TEMP=" + filepath.Dir(snapshot), "TMP=" + filepath.Dir(snapshot)}
-	for _, key := range []string{"SystemRoot", "WINDIR", "USERPROFILE", "LOCALAPPDATA", "APPDATA"} {
-		if value, ok := os.LookupEnv(key); ok {
-			command.Env = append(command.Env, key+"="+value)
+func (a *ArtifactAnalyzer) runtimeEntries() (string, string, error) {
+	if !filepath.IsAbs(a.runtimeRoot) {
+		return "", "", fmt.Errorf("REA runtime directory must be absolute")
+	}
+	root := filepath.Clean(a.runtimeRoot)
+	node := os.Getenv("NOOSPHERE_REA_NODE")
+	if node == "" {
+		binary := "node"
+		if runtime.GOOS == "windows" {
+			binary += ".exe"
+		}
+		node = filepath.Join(root, binary)
+	}
+	script := os.Getenv("NOOSPHERE_REA_SCRIPT")
+	if script == "" {
+		script = filepath.Join(root, "node_modules", "rea-agents", "scripts", "rea.mjs")
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", "", err
+	}
+	for _, entry := range []string{node, script} {
+		realEntry, err := filepath.EvalSymlinks(entry)
+		if err != nil || !filepath.IsAbs(realEntry) {
+			return "", "", fmt.Errorf("REA private runtime entry is missing")
+		}
+		relative, err := filepath.Rel(realRoot, realEntry)
+		if err != nil || !filepath.IsLocal(relative) {
+			return "", "", fmt.Errorf("REA runtime entry leaves its resource directory")
+		}
+		if info, err := os.Stat(realEntry); err != nil || !info.Mode().IsRegular() {
+			return "", "", fmt.Errorf("REA private runtime entry is not a regular file")
 		}
 	}
+	return node, script, nil
+}
+
+func (a *ArtifactAnalyzer) run(ctx context.Context, tool, snapshot, digest string) (json.RawMessage, error) {
+	node, script, err := a.runtimeEntries()
+	if err != nil {
+		return nil, err
+	}
+	command := exec.Command(node, script, tool, snapshot, "--json")
+	command.Dir = a.runtimeRoot
+	temp := filepath.Dir(snapshot)
+	command.Env = append(ownedprocess.BaseEnv(), "TEMP="+temp, "TMP="+temp, "TMPDIR="+temp)
 	var output evidenceBuffer
 	command.Stdout = &output
-	if err := command.Run(); err != nil {
+	if err := ownedprocess.Run(ctx, command, nil); err != nil {
 		return nil, err
 	}
 	var result struct {

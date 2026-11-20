@@ -80,6 +80,10 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 		errors.WriteHTTP(w, r, errors.New(errors.ErrInvalidInput, errors.CatGateway, "model not found or disabled"))
 		return
 	}
+	if err := model.credentialError(); err != nil {
+		errors.WriteHTTP(w, r, err)
+		return
+	}
 	ctx := r.Context()
 	messages, attachments, attachmentErr := g.resolveChatAttachments(ctx, body.WorkspaceID, body.SessionID, body.AttachmentTurn, body.Messages)
 	if attachmentErr != nil {

@@ -162,11 +162,9 @@ async function main() {
     server.once('error', reject);
     server.listen([8080, 18765][i], '127.0.0.1', resolve);
   })));
-  const configuredPort = process.env.NOOSPHERE_TEST_WEBVIEW_PORT;
   const probe = createServer();
-  const cdpPort = configuredPort ? Number(configuredPort) : await listen(probe);
-  if (configuredPort) assert.ok(Number.isInteger(cdpPort) && cdpPort >= 1024 && cdpPort <= 65535);
-  else await new Promise(resolve => probe.close(resolve));
+  const cdpPort = await listen(probe);
+  await new Promise(resolve => probe.close(resolve));
   const child = spawn(exe, [], {
     cwd: path.dirname(exe), windowsHide: true, stdio: 'ignore',
     env: { ...process.env,

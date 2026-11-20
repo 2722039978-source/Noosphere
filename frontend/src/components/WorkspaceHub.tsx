@@ -37,6 +37,7 @@ function ProjectPanel({ onOpen }: { onOpen: (id: string) => void }) {
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const activeId = useWorkspaceStore(state => state.activeId);
   const [candidate, setCandidate] = useState('');
+  const projectPath = workspaces.find(workspace => workspace.id === activeId)?.project_path;
   const [draft, setDraft] = useState<WorkspaceInput>(workspaces.find(workspace => workspace.id === activeId) ?? EMPTY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -86,6 +87,7 @@ function ProjectPanel({ onOpen }: { onOpen: (id: string) => void }) {
 
   return <div className="space-y-3">
     <Button className="w-full justify-start" disabled={busy} onClick={() => openFolder()}><FolderOpen aria-hidden="true" />选择文件夹…</Button>
+    {projectPath && <Button variant="outline" disabled={busy} onClick={() => void perform(() => api.revealProjectFolder(projectPath))}>在文件管理器中显示项目</Button>}
     {candidate && <button type="button" disabled={busy} className="ns-project-candidate" onClick={() => openFolder(candidate)}><Folder size={16} aria-hidden="true" /><span><strong>打开检测到的项目</strong><small title={candidate}>{candidate}</small></span></button>}
     {busy && <p role="status" className="text-xs text-text-2">正在打开项目…</p>}
     {error && <p role="alert" className="ns-form-error">{error}</p>}

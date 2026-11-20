@@ -20,7 +20,27 @@ import (
 const managedReadyPrefix = "NOOSPHERE_READY "
 
 func serve(app *App, managed bool, input io.Reader, output io.Writer) (err error) {
+	parent := context.Background()
+	if managed {
+		parent = watchDesktopParent(input)
+	}
+	return serveWithParent(app, managed, parent, output)
+}
+
+func watchDesktopParent(input io.Reader) context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		defer cancel()
+		_, _ = io.Copy(io.Discard, input)
+	}()
+	return ctx
+}
+
+func serveWithParent(app *App, managed bool, parent context.Context, output io.Writer) (err error) {
 	defer func() { err = errors.Join(err, app.Close()) }()
+	if parent.Err() != nil {
+		return nil
+	}
 	addr := net.JoinHostPort(app.Config.Server.Host, strconv.Itoa(app.Config.Server.Port))
 	if managed {
 		addr = "127.0.0.1:0"
@@ -56,13 +76,6 @@ func serve(app *App, managed bool, input io.Reader, output io.Writer) (err error
 
 	signals, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stopSignals()
-	parentDone := make(chan struct{})
-	if managed {
-		go func() {
-			_, _ = io.Copy(io.Discard, input)
-			close(parentDone)
-		}()
-	}
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(listener) }()
 	select {
@@ -72,7 +85,7 @@ func serve(app *App, managed bool, input io.Reader, output io.Writer) (err error
 		}
 		return err
 	case <-signals.Done():
-	case <-parentDone:
+	case <-parent.Done():
 	}
 
 	if app.ModelLab != nil {

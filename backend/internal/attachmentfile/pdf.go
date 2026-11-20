@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ledongthuc/pdf"
+	"github.com/noosphere/backend/internal/ownedprocess"
 )
 
 const PDFWorkerFlag = "--attachment-pdf"
@@ -41,14 +42,12 @@ func runPDFWorker(parent context.Context, timeout time.Duration, input io.Reader
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, exe, append([]string{PDFWorkerFlag}, args...)...)
-	hidePDFWindow(cmd)
+	cmd := exec.Command(exe, append([]string{PDFWorkerFlag}, args...)...)
 	cmd.Env = []string{"GOMEMLIMIT=96MiB", "GOMAXPROCS=2", "SystemRoot=" + os.Getenv("SystemRoot")}
 	cmd.Stdin = input
 	var output limitedWriter
 	cmd.Stdout = &output
-	cmd.WaitDelay = time.Second
-	if err := cmd.Run(); err != nil {
+	if err := ownedprocess.Run(ctx, cmd, nil); err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("PDF 提取已取消或超时，试试拆分 PDF 或导出为文本")
 		}

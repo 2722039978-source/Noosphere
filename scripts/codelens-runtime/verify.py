@@ -1,7 +1,13 @@
 """Verify the native modules in the shipped CodeLens interpreter."""
 
+from pathlib import Path
+import platform
 import struct
 import sys
+
+if len(sys.argv) == 3:
+    # -I ignores the caller's environment and script directory.
+    sys.path.insert(0, str(Path(sys.argv[1]).resolve(strict=True)))
 
 import main
 import pydantic_core
@@ -20,8 +26,11 @@ SNIPPETS = {
 
 
 def verify():
-    if not (sys.platform == "win32" and sys.version_info[:2] == (3, 14) and struct.calcsize("P") == 8):
-        raise RuntimeError("CodeLens runtime must be Windows x64 CPython 3.14")
+    os_name = {"win32": "windows", "linux": "linux", "darwin": "macos"}.get(sys.platform)
+    arch = {"amd64": "x64", "x86_64": "x64", "arm64": "arm64"}.get(platform.machine().lower())
+    target = sys.argv[2] if len(sys.argv) == 3 else "windows-x64"
+    if not (f"{os_name}-{arch}" == target and sys.version_info[:2] == (3, 14) and struct.calcsize("P") == 8):
+        raise RuntimeError(f"CodeLens runtime must be {target} CPython 3.14")
     if main.app is None or not pydantic_core.__version__:
         raise RuntimeError("FastAPI or Pydantic Core could not be loaded")
     analyzer = get_analyzer()

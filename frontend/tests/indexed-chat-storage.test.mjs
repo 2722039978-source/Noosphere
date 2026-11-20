@@ -34,6 +34,9 @@ test('backup validation rejects malformed sessions before mutation',()=>{
  const imported=parseChatBackup(JSON.stringify({format:'noosphere-chat-backup',version:1,state:sample}));
  assert.deepEqual(imported,sample);
  assert.throws(()=>parseChatBackup(JSON.stringify({format:'noosphere-chat-backup',version:2,state:sample})));
+ const current = { format: 'noosphere-chat-backup', version: 2, source_platform: 'macos', state: sample };
+ assert.deepEqual(parseChatBackup(JSON.stringify(current)), { ...sample, sourcePlatform: 'macos' });
+ assert.throws(() => parseChatBackup(JSON.stringify({ ...current, source_platform: 'unknown' })));
 });
 
 test('backup accepts a 200 MiB attachment reference and rejects larger sizes', () => {

@@ -59,6 +59,10 @@ export interface ModelConfig {
   is_default?: boolean | null;
   api_key?: string | null;
   capabilities?: ModelCapabilities | null;
+  credential?: { provider: string; status: string; reason: string } | null;
+  max_tokens_field?: string;
+  supports_temperature?: boolean;
+  tool_transport?: string;
 }
 
 export interface Capability {
@@ -103,6 +107,13 @@ export interface LocalEngine {
   id: LocalEngineId; name: string; provider: string; base_url: string;
   installed: boolean; can_start?: boolean; managed: boolean; state: 'missing' | 'stopped' | 'starting' | 'online' | 'unavailable';
   models: DiscoveredModel[]; version?: string; code?: string; error?: string; log_path?: string; directory?: string;
+  supported?: boolean; available?: boolean; verification?: 'service_identity' | 'not_checked';
+}
+
+export interface DesktopPlatform {
+  os: string; arch: string; native_titlebar: boolean;
+  supported: boolean; available: boolean; verification: 'target_manifest';
+  minimum_os?: string | null; abi?: string | null; reason?: string | null;
 }
 
 export interface ChatMessageParam {
@@ -172,6 +183,13 @@ export interface SearchResponse {
 }
 
 export interface SystemMetrics {
+  samples?: Record<string, {
+    value: number | null;
+    unit: string;
+    source: string;
+    quality: string;
+    missing_reason?: string | null;
+  }> | null;
   cpu: { usage_percent: number; cores: number };
   memory: { total_gb: number; used_gb: number; usage_percent: number };
   disk: { total_gb: number; free_gb: number; usage_percent: number };
@@ -310,6 +328,8 @@ export const api = {
   listWorkspaces: () => invoke<{ workspaces: Workspace[] }>('list_workspaces'),
   projectLaunchCandidate: () => invoke<string | null>('project_launch_candidate'),
   pickProjectFolder: () => invoke<string | null>('pick_project_folder'),
+  desktopPlatform: () => invoke<DesktopPlatform>('desktop_platform'),
+  revealProjectFolder: (path: string) => invoke<void>('reveal_project_folder', { path }),
   openProjectWorkspace: (path: string) => invoke<Workspace>('open_project_workspace', { path }),
   saveWorkspace: (workspace: Partial<Workspace> & Pick<Workspace, 'name' | 'project_path' | 'default_model_id'>) => invoke<Workspace>('save_workspace', { workspace }),
   listWorkspaceRuns: (workspaceId: string, tasksOnly = false) => invoke<{ runs: WorkspaceRun[] }>('list_workspace_runs', { workspaceId, tasksOnly }),

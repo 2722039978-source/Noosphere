@@ -11,17 +11,19 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/noosphere/backend/internal/ownedprocess"
 )
 
 type Adapter struct {
 	cmdArgs        []string
 	port           int
-	cmd            *exec.Cmd
+	process        *ownedprocess.Process
 	proxy          *httputil.ReverseProxy
 	done           chan struct{}
 	waitErr        error // written before done closes
@@ -30,8 +32,8 @@ type Adapter struct {
 	token          string
 }
 
-// NewAdapter creates a CodeLens adapter. cmdArgs should be the Python
-// executable and arguments, e.g. ["python"] or ["py", "-3"].
+// NewAdapter creates a CodeLens adapter with a resolved Python executable and
+// optional interpreter arguments.
 func NewAdapter(cmdArgs []string, scriptPath string, port int) *Adapter {
 	return &Adapter{
 		cmdArgs: append(cmdArgs, scriptPath),
@@ -57,41 +59,42 @@ func (a *Adapter) StartContext(parent context.Context) (err error) {
 	}
 	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
-	a.cmd = exec.Command(a.cmdArgs[0], a.cmdArgs[1:]...)
-	a.cmd.WaitDelay = 2 * time.Second
-	a.cmd.Env = append(os.Environ(), fmt.Sprintf("NOOSPHERE_CODELENS_PORT=%d", a.port), "NOOSPHERE_CODELENS_TOKEN="+a.token)
-	// The Python service needs only its own transport credential.
-	a.cmd.Env = removeEnv(a.cmd.Env, "NOOSPHERE_BACKEND_TOKEN")
-	a.cmd.Env = append(a.cmd.Env, "NOOSPHERE_CODELENS_TRACE_DIR="+a.TraceDirectory)
-	a.cmd.Stderr = log.Writer()
-	var stdout io.ReadCloser
-	if a.port == 0 {
-		stdout, err = a.cmd.StdoutPipe()
-		if err != nil {
-			return err
-		}
-	} else {
-		a.cmd.Stdout = log.Writer()
+	cmd := exec.Command(a.cmdArgs[0], a.cmdArgs[1:]...)
+	if script := a.cmdArgs[len(a.cmdArgs)-1]; filepath.IsAbs(script) {
+		cmd.Dir = filepath.Dir(script)
 	}
-	configureWorker(a.cmd)
+	cmd.Env = append(ownedprocess.BaseEnv(),
+		fmt.Sprintf("NOOSPHERE_CODELENS_PORT=%d", a.port),
+		"NOOSPHERE_CODELENS_TOKEN="+a.token, "NOOSPHERE_CODELENS_TRACE_DIR="+a.TraceDirectory,
+		"PYTHONDONTWRITEBYTECODE=1", "PYTHONNOUSERSITE=1", "PYTHONUTF8=1", "PYTHONUNBUFFERED=1")
+	cmd.Stderr = log.Writer()
+	cmd.Stdout = log.Writer()
+	reported := make(chan int, 1)
+	drained := make(chan struct{})
+	var writer *io.PipeWriter
+	if a.port == 0 {
+		stdout, pipe := io.Pipe()
+		writer = pipe
+		cmd.Stdout = writer
+		go readWorkerOutput(stdout, reported, drained)
+	} else {
+		close(drained)
+	}
 	log.Printf("[codelens] starting Python worker: %v", a.cmdArgs)
-	if err := a.cmd.Start(); err != nil {
-		if stdout != nil {
-			_ = stdout.Close()
+	a.process, err = ownedprocess.Start(parent, cmd, nil)
+	if err != nil {
+		if writer != nil {
+			_ = writer.Close()
 		}
 		return fmt.Errorf("start codelens: %w", err)
 	}
 	a.done = make(chan struct{})
-	reported := make(chan int, 1)
-	drained := make(chan struct{})
-	if stdout == nil {
-		close(drained)
-	} else {
-		go readWorkerOutput(stdout, reported, drained)
-	}
 	go func() {
+		a.waitErr = a.process.Wait()
+		if writer != nil {
+			_ = writer.Close()
+		}
 		<-drained
-		a.waitErr = a.cmd.Wait()
 		close(a.done)
 	}()
 	defer func() {
@@ -148,17 +151,6 @@ func (a *Adapter) StartContext(parent context.Context) (err error) {
 	return fmt.Errorf("codelens worker not ready: %w", ctx.Err())
 }
 
-func removeEnv(entries []string, name string) []string {
-	result := entries[:0]
-	for _, entry := range entries {
-		key, _, _ := strings.Cut(entry, "=")
-		if !strings.EqualFold(key, name) {
-			result = append(result, entry)
-		}
-	}
-	return result
-}
-
 func readWorkerOutput(stdout io.ReadCloser, reported chan<- int, drained chan<- struct{}) {
 	defer close(drained)
 	defer stdout.Close()
@@ -190,8 +182,8 @@ func newHealthClient() *http.Client {
 }
 
 func (a *Adapter) Stop() {
-	if a.cmd != nil && a.cmd.Process != nil && a.done != nil {
-		a.cmd.Process.Kill()
+	if a.process != nil && a.done != nil {
+		a.process.Stop()
 		<-a.done
 		log.Println("[codelens] worker stopped")
 	}

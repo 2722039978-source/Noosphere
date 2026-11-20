@@ -92,6 +92,10 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, modelErr.Error()))
 		return
 	}
+	if err := model.credentialError(); err != nil {
+		errors.WriteHTTP(w, r, err)
+		return
+	}
 	if body.Preview {
 		endpoints, problem := connectionEndpoints(model)
 		if problem != "" || !endpoints.local {

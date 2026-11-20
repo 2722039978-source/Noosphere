@@ -14,7 +14,9 @@ if (Test-Path -LiteralPath $Destination) {
 
 $Workspace = Join-Path $ProjectRoot ('test/package-' + [guid]::NewGuid().ToString('N'))
 $Portable = Join-Path $Workspace 'Noosphere'
-$Name = "Noosphere-$Version-windows-x64"
+$Target = Get-NoosphereWindowsTarget $ProjectRoot
+$InstallerName = $Target.packages.nsis.Replace('{version}', $Version)
+$ZipName = $Target.packages.zip.Replace('{version}', $Version)
 New-Item -ItemType Directory -Path $Workspace, $OutputRoot -Force | Out-Null
 # Keep final publication on one volume; a failed build never appears at the versioned output.
 $Stage = Join-Path $OutputRoot ('.stage-' + [guid]::NewGuid().ToString('N'))
@@ -31,6 +33,7 @@ foreach ($Forbidden in @('config.yaml', 'models.yaml', 'data', 'logs', 'legacy',
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSE') -Destination $Portable
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'frontend/public/assets/RhineLabUI-LICENSE.txt') -Destination $Portable
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'frontend/public/assets/Attachment-Dependencies-LICENSE.txt') -Destination $Portable
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'desktop/src-tauri/third-party') -Destination $Portable -Recurse
 New-Item -ItemType Directory -Path (Join-Path $Portable 'scripts') | Out-Null
 $OpenVino = Join-Path $Portable 'scripts/openvino'
 New-Item -ItemType Directory -Path $OpenVino | Out-Null
@@ -50,12 +53,20 @@ unless an existing portable configuration or a custom data root selects it.
 See the project README for model providers, user data and optional OpenVINO.
 "@
 
-$Installer = Join-Path $Stage "$Name-setup.exe"
+$Installer = Join-Path $Stage $InstallerName
 Move-Item -LiteralPath (Join-Path $Portable $Info.installers[0]) -Destination $Installer
-$Info.installers = @("$Name-setup.exe")
+$Info.installers = @($InstallerName)
+$Info | Add-Member -NotePropertyMembers @{
+  minimum_os = $Target.minimum_os
+  abi = $Target.abi
+  runtime_sources = $Target.components
+  component_hashes_before_signing = @{ desktop = $Info.desktop_sha256; backend = $Info.backend_sha256 }
+  signing = @{ state = 'existing-windows-installer-policy' }
+  artifacts = @{ nsis = $InstallerName; zip = $ZipName }
+}
 Write-NoosphereUtf8 (Join-Path $Portable 'build-info.json') ($Info | ConvertTo-Json -Depth 6)
 Copy-Item -LiteralPath (Join-Path $Portable 'build-info.json') -Destination $Stage
-$Zip = Join-Path $Stage "$Name.zip"
+$Zip = Join-Path $Stage $ZipName
 [IO.Compression.ZipFile]::CreateFromDirectory($Portable, $Zip, 'Optimal', $true)
 
 $Archive = [IO.Compression.ZipFile]::OpenRead($Zip)
@@ -74,7 +85,9 @@ $Extracted = Join-Path $Workspace 'verify'
 [IO.Compression.ZipFile]::ExtractToDirectory($Zip, $Extracted)
 $ExtractedPortable = Join-Path $Extracted 'Noosphere'
 $null = Get-NoosphereReleaseInfo $ExtractedPortable $Info.source_revision $Info.source_fingerprint
-Invoke-NoosphereCommand (Join-Path $ExtractedPortable 'codelens-runtime/python.exe') @('-B', (Join-Path $PSScriptRoot 'codelens-runtime/verify.py')) $ExtractedPortable
+Invoke-NoosphereCommand (Resolve-NoosphereCommand 'node') @(
+  (Join-Path $PSScriptRoot 'verify-private-runtimes.mjs'), 'windows-x64', $ExtractedPortable
+) $Workspace
 
 $Hashes = foreach ($Path in @($Installer, $Zip, (Join-Path $Stage 'build-info.json'))) {
   $Hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()

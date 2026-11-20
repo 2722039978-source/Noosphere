@@ -1,5 +1,6 @@
 //! Discovery and ownership for external local model runtimes.
 mod portable;
+mod discovery;
 #[cfg(windows)]
 mod windows;
 
@@ -9,8 +10,8 @@ use portable::{canonical_local, PortableInstall, PortableProfile, BONSAI, DEEPSE
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::fs::{self, File};
+use std::io::{Read, Seek, SeekFrom};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -57,11 +58,18 @@ impl EngineId {
     }
 
     fn portable(self) -> Option<PortableProfile> {
+        if !cfg!(all(windows, target_arch = "x86_64")) {
+            return None;
+        }
         match self {
             Self::Bonsai => Some(BONSAI),
             Self::DeepseekLocal => Some(DEEPSEEK),
             _ => None,
         }
+    }
+
+    fn supported(self) -> bool {
+        matches!(self, Self::Ollama | Self::LmStudio) || self.portable().is_some()
     }
 
     fn other_portable(self) -> Option<Self> {
@@ -145,6 +153,9 @@ pub struct LocalEngine {
     can_start: bool,
     managed: bool,
     state: &'static str,
+    supported: bool,
+    available: bool,
+    verification: &'static str,
     models: Vec<LocalModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
@@ -170,22 +181,10 @@ fn file_at(path: PathBuf) -> Option<PathBuf> {
 }
 
 fn home_path(relative: &str) -> Option<PathBuf> {
-    std::env::var_os("USERPROFILE")
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(PathBuf::from)
+        .filter(|home| home.is_absolute())
         .map(|home| home.join(relative))
-}
-
-fn local_app_path(relative: &str) -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .map(|home| home.join(relative))
-}
-
-fn program_on_path(executable: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .take(256)
-        .find_map(|dir| file_at(dir.join(executable)))
 }
 
 fn installation(
@@ -202,24 +201,9 @@ fn installation(
             launcher: None,
         };
     }
-    let launcher = match id {
-        EngineId::Ollama => local_app_path("Programs/Ollama/ollama.exe")
-            .and_then(file_at)
-            .or_else(|| program_on_path("ollama.exe")),
-        EngineId::LmStudio => home_path(".lmstudio/bin/lms.exe")
-            .and_then(file_at)
-            .or_else(|| program_on_path("lms.exe")),
-        _ => None,
-    };
-    let desktop_installed = id == EngineId::LmStudio
-        && [
-            "Programs/LM Studio/LM Studio.exe",
-            "LM Studio/LM Studio.exe",
-        ]
-        .into_iter()
-        .any(|entry| local_app_path(entry).and_then(file_at).is_some());
+    let (launcher, detected) = discovery::installed(id);
     Installation {
-        detected: launcher.is_some() || desktop_installed,
+        detected,
         launcher,
         portable: None,
     }
@@ -495,6 +479,8 @@ impl Drop for OwnedEngineProcess {
     fn drop(&mut self) {
         #[cfg(windows)]
         self.job.take();
+        #[cfg(unix)]
+        crate::platform::terminate_process_group(&self.child);
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -559,7 +545,7 @@ impl LocalEngines {
         let mut state = self.state();
         let slot = state.slots.entry(id).or_default();
         if let Some(process) = &mut slot.process {
-            match process.child.try_wait() {
+            match crate::platform::poll_owned_child(&mut process.child) {
                 Ok(None) => {}
                 result => {
                     slot.process.take();
@@ -577,14 +563,16 @@ impl LocalEngines {
         slot.error.clone()
     }
 
-    fn owns(&self, id: EngineId, data: &Path) -> bool {
-        if id == EngineId::LmStudio {
-            return owns_lm_studio(data);
-        }
+    fn process_id(&self, id: EngineId) -> Option<u32> {
         self.state()
             .slots
             .get(&id)
-            .is_some_and(|slot| slot.process.is_some())
+            .and_then(|slot| slot.process.as_ref())
+            .map(|process| process.child.id())
+    }
+
+    fn owns_listener(&self, id: EngineId) -> bool {
+        self.process_id(id).is_some_and(|pid| discovery::listener_matches(id.port(), pid))
     }
 
     fn snapshot(
@@ -611,9 +599,12 @@ impl LocalEngines {
                 format!("{}/v1", id.origin())
             },
             installed: installed_or_online(&install, &observed),
-            can_start: install.launcher.is_some() || install.portable.is_some(),
-            managed: self.owns(id, data),
+            can_start: (id == EngineId::Ollama && install.launcher.is_some()) || install.portable.is_some(),
+            managed: self.owns_listener(id),
             state: observed.state,
+            supported: id.supported(),
+            available: observed.state == "online",
+            verification: if observed.state == "online" { "service_identity" } else { "not_checked" },
             models: observed.models,
             version: observed.version,
             code: observed.code,
@@ -624,6 +615,12 @@ impl LocalEngines {
                 .as_ref()
                 .map(|portable| portable.directory.clone()),
         };
+        if !engine.supported {
+            engine.state = "unavailable";
+            engine.code = Some("PLATFORM_UNSUPPORTED");
+            engine.error = Some("此便携模型使用 Windows x64 SYCL 配置。".into());
+            return engine;
+        }
         if engine.state != "online" {
             if let Some(profile) = id.portable().filter(|_| install.portable.is_some()) {
                 engine.models.extend(LocalModel::new(
@@ -652,10 +649,10 @@ impl LocalEngines {
                 engine.error = Some(error);
             } else if !engine.installed {
                 engine.state = "missing";
-            } else if !engine.can_start {
-                engine.code = Some("CLI_MISSING");
+            } else if id == EngineId::LmStudio {
+                engine.code = Some("EXTERNAL_SERVICE");
                 engine.error =
-                    Some("请先打开一次 LM Studio 完成初始化，再在 Noosphere 中刷新。".into());
+                    Some("请在 LM Studio 中管理服务，再回到 Noosphere 连接。".into());
             }
         }
         engine
@@ -668,6 +665,12 @@ impl LocalEngines {
         data: &Path,
         directory: Option<&Path>,
     ) -> Result<LocalEngine, ApiError> {
+        if !id.supported() {
+            return Err(ApiError::new("此便携模型配置仅适用于 Windows x64。"));
+        }
+        if id == EngineId::LmStudio {
+            return Err(ApiError::new("请在 LM Studio 中管理它的服务。"));
+        }
         let Some(operation) = self.begin(id, action)? else {
             return Ok(self.snapshot(id, data, None, directory));
         };
@@ -708,7 +711,7 @@ impl LocalEngines {
             return self.start(id, data, directory);
         }
         self.recent_exit(other);
-        if !self.owns(other, data) {
+        if !self.owns_listener(other) {
             return Err(format!("请先在原应用中停止 {}，再切换模型。", other.name()));
         }
         if installation(id, data, directory, None).portable.is_none() {
@@ -751,25 +754,6 @@ impl LocalEngines {
         if let Some(slot) = self.state().slots.get_mut(&id) {
             slot.error = None;
         }
-        if id == EngineId::LmStudio {
-            let cli = install.launcher.ok_or_else(|| {
-                if install.detected {
-                    "请打开一次 LM Studio 完成初始化，然后重试。"
-                } else {
-                    "未发现 LM Studio。请安装并完成首次运行。"
-                }
-            })?;
-            run_lm_command(
-                data,
-                &cli,
-                &["server", "start", "--bind", "127.0.0.1", "--port", "1234"],
-            )?;
-            let ready = self.wait_ready(id);
-            if ready.is_ok() || inspect(id).code == Some("AUTH_REQUIRED") {
-                remember_lm_owner(data);
-            }
-            return ready;
-        }
         let command = if let Some(profile) = id.portable() {
             if let Some(other) = id.other_portable().filter(|other| socket_online(other.address())) {
                 return Err(format!(
@@ -793,6 +777,7 @@ impl LocalEngines {
             let mut command = Command::new(exe);
             command
                 .arg("serve")
+                .current_dir(data)
                 .env("OLLAMA_HOST", "127.0.0.1:11434")
                 .env("OLLAMA_NO_CLOUD", "1")
                 .env_remove("OLLAMA_DEBUG")
@@ -851,17 +836,8 @@ impl LocalEngines {
             }
             let observed = inspect(id);
             if observed.state == "online" {
-                #[cfg(windows)]
-                if let Some(pid) = self
-                    .state()
-                    .slots
-                    .get(&id)
-                    .and_then(|slot| slot.process.as_ref())
-                    .map(|process| process.child.id())
-                {
-                    if windows::ListenerOwner::observe(id.port())
-                        .is_none_or(|owner| owner.pid() != pid)
-                    {
+                if let Some(pid) = self.process_id(id) {
+                    if !discovery::listener_matches(id.port(), pid) {
                         return Err("此端口的就绪响应来自其他进程，启动已中止。".into());
                     }
                 }
@@ -878,21 +854,12 @@ impl LocalEngines {
         ))
     }
 
-    fn stop(&self, id: EngineId, data: &Path) -> Result<(), String> {
-        if id == EngineId::LmStudio && self.owns(id, data) {
-            let cli = installation(id, data, None, None)
-                .launcher
-                .ok_or("找不到 LM Studio 命令行组件。")?;
-            run_lm_command(data, &cli, &["server", "stop"])?;
-            #[cfg(windows)]
-            let _ = fs::remove_file(lm_owner_path(data));
-        } else {
-            let process = self.state().slots.entry(id).or_default().process.take();
-            if process.is_none() && socket_online(id.address()) {
-                return Err("此服务由其他应用启动，请从原入口停止它。".into());
-            }
-            drop(process);
+    fn stop(&self, id: EngineId, _data: &Path) -> Result<(), String> {
+        let process = self.state().slots.entry(id).or_default().process.take();
+        if process.is_none() && socket_online(id.address()) {
+            return Err("此服务由其他应用启动，请从原入口停止它。".into());
         }
+        drop(process);
         let deadline = Instant::now() + Duration::from_secs(5);
         while socket_online(id.address()) {
             if Instant::now() >= deadline {
@@ -935,91 +902,27 @@ fn configure_process(command: &mut Command, file: File) -> std::io::Result<()> {
 fn spawn_owned(mut command: Command, path: &Path) -> Result<OwnedEngineProcess, String> {
     let file = File::create(path).map_err(|_| "无法打开本地引擎启动日志。")?;
     configure_process(&mut command, file).map_err(|_| "无法配置本地引擎日志。")?;
+    #[cfg(unix)]
+    crate::platform::own_process_group(&mut command);
     let child = command
         .spawn()
         .map_err(|error| format!("启动本地引擎失败：{error}"))?;
-    let mut process = OwnedEngineProcess {
+    let process = OwnedEngineProcess {
         child,
         #[cfg(windows)]
         job: None,
     };
     #[cfg(windows)]
     {
+        let mut process = process;
         process.job = Some(
             crate::runtime::ProcessJob::attach(&process.child)
                 .map_err(|error| format!("无法保护本地引擎进程：{error}"))?,
         );
+        return Ok(process);
     }
+    #[cfg(unix)]
     Ok(process)
-}
-
-fn run_lm_command(data: &Path, exe: &Path, args: &[&str]) -> Result<(), String> {
-    let mut output = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(EngineId::LmStudio.log(data))
-        .map_err(|_| "无法打开 LM Studio 的启动日志。")?;
-    let _ = writeln!(output, "LM Studio: {}", args.join(" "));
-    let mut command = Command::new(exe);
-    configure_process(command.args(args), output).map_err(|_| "无法配置 LM Studio 的启动日志。")?;
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("无法运行 LM Studio 的控制程序：{error}"))?;
-    let deadline = Instant::now() + Duration::from_secs(45);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(status)) => {
-                return Err(format!(
-                    "LM Studio 启动或停止失败（{status}），请查看日志。"
-                ))
-            }
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(POLL),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("LM Studio 控制程序未在限时内响应，请检查应用窗口和日志。".into());
-            }
-        }
-    }
-}
-
-#[cfg(windows)]
-fn lm_owner_path(data: &Path) -> PathBuf {
-    data.join("local-engines/lm-studio-listener.json")
-}
-
-#[cfg(windows)]
-fn remember_lm_owner(data: &Path) {
-    if let Some(owner) = windows::ListenerOwner::observe(EngineId::LmStudio.port())
-        .filter(|owner| owner.is_lm_studio())
-    {
-        if let Ok(record) = serde_json::to_vec(&owner) {
-            let _ = fs::write(lm_owner_path(data), record);
-        }
-    }
-}
-
-#[cfg(not(windows))]
-fn remember_lm_owner(_: &Path) {}
-
-#[cfg(windows)]
-fn owns_lm_studio(data: &Path) -> bool {
-    let Ok(file) = File::open(lm_owner_path(data)) else {
-        return false;
-    };
-    let Some(value) = read_json(file) else {
-        return false;
-    };
-    let Ok(expected) = serde_json::from_value::<windows::ListenerOwner>(value) else {
-        return false;
-    };
-    windows::ListenerOwner::observe(EngineId::LmStudio.port()) == Some(expected)
-}
-
-#[cfg(not(windows))]
-fn owns_lm_studio(_: &Path) -> bool {
-    false
 }
 
 fn ollama_disk_models() -> Vec<LocalModel> {

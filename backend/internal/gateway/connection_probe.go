@@ -519,6 +519,10 @@ func (g *Gateway) probeModel(parent context.Context, model *ModelConfig, infer, 
 			log.Printf("[gateway] connection probe provider=%q model=%q endpoint=%q stage=%q code=%q status=%d duration_ms=%.0f", result.Provider, result.Model, result.Endpoint, result.Stage, result.Code, result.HTTPStatus, result.LatencyMS)
 		}
 	}()
+	if model.Credential != nil {
+		result.fail(problem("authentication", string(credentialCode(model.Credential.Status)), model.Credential.Reason))
+		return
+	}
 	endpoints, code := connectionEndpoints(model)
 	result.Endpoint = sanitizeProbeField(endpoints.inference, model.APIKey)
 	if code != "" {
@@ -674,8 +678,7 @@ func (g *Gateway) probeInference(ctx context.Context, model *ModelConfig, local,
 		maxTokens = max(32, model.ContextLength/2)
 	}
 	opts := providers.ChatOptions{
-		MaxTokens:       maxTokens,
-		MaxTokensField:  model.MaxTokensKey(),
+		MaxTokens: maxTokens, MaxTokensField: model.MaxTokensKey(),
 		OmitTemperature: !model.TemperatureEnabled(),
 	}
 	messages := []providers.Message{{Role: "user", Content: "What is 2 + 2? Please answer briefly."}}
@@ -766,6 +769,7 @@ func (g *Gateway) HandleProbeModel(w http.ResponseWriter, r *http.Request) {
 		saved := g.findModelByID(model.ID)
 		if reuseModelCredential(saved, &model, false) {
 			model.APIKey = saved.APIKey
+			model.Credential = saved.Credential
 		}
 	}
 	selectionReply(w, http.StatusOK, g.probeModel(r.Context(), &model, body.Infer == nil || *body.Infer, true))

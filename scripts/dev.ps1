@@ -32,7 +32,11 @@ $DevLogs = Join-Path $ProjectRoot 'test/runtime/dev-logs'
 New-Item -ItemType Directory -Path $DevLogs -Force | Out-Null
 $RunName = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
 $ViteProcess = $null
+$PreviousTestGo = $env:NOOSPHERE_TEST_GO
+$PreviousTestPython = $env:NOOSPHERE_TEST_PYTHON
 try {
+  if (-not $env:NOOSPHERE_TEST_GO) { $env:NOOSPHERE_TEST_GO = Resolve-NoosphereCommand 'go' }
+  if (-not $env:NOOSPHERE_TEST_PYTHON) { $env:NOOSPHERE_TEST_PYTHON = Resolve-NoosphereCommand 'python' }
   $ViteProcess = Start-Process -FilePath $NodeCommand -ArgumentList @(('"' + $ViteScript + '"'), '--host', '127.0.0.1', '--port', '1420', '--strictPort') -WorkingDirectory $FrontendRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $DevLogs "$RunName-vite.stdout.log") -RedirectStandardError (Join-Path $DevLogs "$RunName-vite.stderr.log")
   $Ready = $false
   $Deadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -47,6 +51,8 @@ try {
   Write-Host 'Frontend ready. Starting desktop dev mode (close its window to stop).' -ForegroundColor Cyan
   Invoke-NoosphereCommand $CargoCommand @('run', '--locked', '--no-default-features', '--bin', 'noosphere-desktop') $TauriRoot
 } finally {
+  $env:NOOSPHERE_TEST_GO = $PreviousTestGo
+  $env:NOOSPHERE_TEST_PYTHON = $PreviousTestPython
   if ($null -ne $ViteProcess -and -not $ViteProcess.HasExited) {
     # Terminate only this newly created process tree, including Vite's esbuild child.
     & taskkill.exe /PID $ViteProcess.Id /T /F 2>$null | Out-Null
