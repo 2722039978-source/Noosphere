@@ -18,6 +18,18 @@
 
 按模型与数据边界、审批与项目流程、源码回归、候选打包、最终包原生验收推进。签名后的实际文件参与最终验收及哈希记录。历史检查见下文。
 
+### 已公开的 1.0.0-rc.2
+
+四目标 CI 构建提交为 `a5dbe10c65ea8ba989cc265b5dcb697800f04b2e`。发行标签指向 `54729ea4bc1be4e0eb8c90b03f8b888dcf98bce7`，两者的源码树相同。公开的八个包连同清单和构建信息共 15 项，已核对大小、SHA-256 和匿名下载。 [候选发行](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0-rc.2) · [四目标 CI](https://github.com/2722039978-source/Noosphere/actions/runs/45213950945)
+
+| 目标 | 候选包已经取得的证据 |
+| --- | --- |
+| Windows x64 | NSIS 实际安装、v0.9.0 升级、卸载重装及原生验证通过。发布 ZIP 另在 WebView2 中从 Unicode 测试目录启动，接入现有 OpenVINO CPU 模型获得真实中文问题的回答，核对工作区和会话绑定。 |
+| Linux x64 | Ubuntu 22.04 X11 完成公开 v0.9.0 deb 原位升级，旧工作区保留。deb 和以 extract-and-run 启动的 AppImage 通过搬迁离线启动。已安装后端使用独立 GNOME Keyring 保存合成凭证并在重启后读回。 |
+| macOS arm64、x64 | 两种架构的 ad-hoc `.app` 归档和 DMG 完成原生启动及受管进程回收。Dock 恢复修复通过模拟 IPC 回归，签名成品窗口交互仍待原生桌面检查。 |
+
+公开 rc.2 的两种 Mac 归档在原生 runner 上用独立 Keychain 创建并重启读回合成凭证。Keychain 锁定后，后端报告锁定并保留原密文。Ubuntu 的 rc.2 deb 在纯 Wayland 会话创建窗口并提交缓冲区，rc.2 AppImage 因锁定 Tauri 的 GTK 启动钩子强制 X11 而退出。正式源码在启动 GTK 前处理纯 Wayland 会话，后续从重新打包的 deb 和 AppImage 验证实际窗口。 [rc.2 原生补充验证](https://github.com/2722039978-source/Noosphere/actions/runs/45231206194) · [固定 Tauri 钩子](https://raw.githubusercontent.com/tauri-apps/tauri/tauri-cli-v2.11.4/crates/tauri-bundler/src/bundle/linux/appimage/linuxdeploy-plugin-gtk.sh)
+
 ### 已公开的 1.0.0-rc.1
 
 候选发行包含四个目标的八个分发文件。发布资产来自 PR CI 检出提交 `01f2519ac5ba1b047377b9330d512a4a032279fb`，标签指向合并提交 `69ecdc5273f955f2d6826717bf0ecfa091bef2df`。两者 Git 树相同。GitHub 返回的 15 个资产大小和 SHA-256 均与验收件一致。标签和主干 CI 也已通过。 [候选下载](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0-rc.1) · [产物构建 CI](https://github.com/2722039978-source/Noosphere/actions/runs/45178383595) · [主干 CI](https://github.com/2722039978-source/Noosphere/actions/runs/45186612945) · [标签 CI](https://github.com/2722039978-source/Noosphere/actions/runs/45188818439)

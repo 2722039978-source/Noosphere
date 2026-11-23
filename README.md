@@ -33,7 +33,7 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 3. 从对话右下角选择模型。选中还没启动的本地模型时，可在弹窗中启动并验证。接入云端服务时，在「模型 → 高级管理 → 手动配置」填写连接信息，配置完成后从同一个模型菜单选择带「API」标识的模型。
 4. 直接提问，或点击回形针添加附件。先从「这个项目的入口在哪里」或「总结这份文档的要求」开始。
 
-Windows x64 可以下载稳定版 v0.9.0 的安装器和便携 ZIP。1.0 候选发行页提供 Windows x64、Linux x64、macOS arm64 和 macOS x64 的预览包。两种 Mac 架构的候选包采用 ad-hoc 签名。macOS 用 ⌘O 打开项目、⌘Q 退出。关闭主窗口会隐藏工作台，点击 Dock 图标可恢复窗口。 [稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [1.0 候选版](https://github.com/2722039978-source/Noosphere/releases) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md)
+稳定版发行页列出当前可下载的软件包和支持范围。1.0 候选发行页提供 Windows x64、Linux x64、macOS arm64 和 macOS x64 的预览包。两种 Mac 架构的候选包采用 ad-hoc 签名。macOS 用 ⌘O 打开项目、⌘Q 退出。关闭主窗口会隐藏工作台，点击 Dock 图标可恢复窗口。 [稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [1.0 候选版](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0-rc.2) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md)
 
 ## 更多工具
 
