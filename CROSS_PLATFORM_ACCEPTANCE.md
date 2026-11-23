@@ -30,6 +30,8 @@
 
 Windows x64 的同一候选 ZIP 内后端（SHA-256 `540e79abfa34cafa3d48b2b129a89d86728366f62f8ffa090753ffba6b17ff45`）另通过真实本地只读 Agent。Windows 11 `10.0.26300`、Intel Arc A580、PrismML llama.cpp SYCL `b10787-73bfe6cc4` 和 Bonsai 2 27B `PTQ1_0` 使用 OpenAI 兼容工具协议。模型发出 `project_read_file`，读取中文路径下的临时 Git 项目，收到工具结果后在第二次响应中核对出文件原值，带行号和正文哈希的证据随任务保存。这项验收在后端执行，桌面审批与写入仍按独立记录验收。记录在 `.local/model-canary/windows-bonsai-agent-45178383595/`。
 
+同一后端和模型在隔离 Git 项目另通过修改及验证。Bonsai 读取 `label.js` 并提出文件改动与 Node 测试。验收核对前后哈希和 NTFS 文件身份，确认未批准时文件未变。同任务测试提前批准与重复批准均返回 HTTP 409。批准后读取到实际修改，随后独立批准 `node --test`，运行退出码 `0` 且断言通过。首次使用 `.cjs` 作为读取目标时超出本次 Agent 支持的源文件范围，未执行操作。两次证据分别在 `.local/model-canary/windows-bonsai-reviewed-actions-45178383595-attempt2/` 和 `.local/model-canary/windows-bonsai-reviewed-actions-45178383595/`。
+
 ### 正式签名输入
 
 GitHub Actions 的 `desktop-release-signing` 环境允许从正式目标标签 `v1.0.0` 执行签名作业。发布负责人在该环境的 Secrets 中配置 `APPLE_CERTIFICATE`（以 Base64 编码的 Developer ID Application `.p12`）、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_ID`、`APPLE_PASSWORD`（公证用的 app 专用密码）和 `APPLE_TEAM_ID`。签名脚本在临时 Keychain 使用这些值，作业结束后清理。 [签名环境设置](https://github.com/2722039978-source/Noosphere/settings/environments/28270863494/edit)
