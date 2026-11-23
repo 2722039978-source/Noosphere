@@ -1,19 +1,24 @@
 import { spawn } from 'node:child_process';
-import { chown, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink } from 'node:fs/promises';
+import { chown, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { exists, json, nativeTarget, packageNames, run, runtimeEnv, sha256, version } from './desktop-platform.mjs';
 import { verifyMacBundleVersions } from './desktop-macos.mjs';
 
-const [directory, mode, uidText, gidText] = process.argv.slice(2);
+const [directory, mode, firstOption, secondOption] = process.argv.slice(2);
 if (!directory) throw new Error('Expected a versioned native package directory');
 const target = nativeTarget();
 if (target.os === 'windows') throw new Error('Use scripts/verify-desktop.cjs on Windows');
 const names = packageNames(target);
 const offline = mode === '--linux-netns';
-const uid = offline ? Number(uidText) : process.getuid();
-const gid = offline ? Number(gidText) : process.getgid();
+const installed = mode === '--linux-installed';
+const uid = offline ? Number(firstOption) : process.getuid();
+const gid = offline ? Number(secondOption) : process.getgid();
+if (mode && !offline && !installed) throw new Error('Unknown native verification mode');
+if (installed && (target.os !== 'linux' || !firstOption || !isAbsolute(firstOption) || !secondOption)) {
+  throw new Error('Installed Debian smoke requires a Linux host, an absolute fixture data path and the expected app version');
+}
 if (offline) {
   if (target.os !== 'linux' || process.getuid() !== 0 || !uid || !gid) {
     throw new Error('Offline smoke requires a new Linux network namespace and an unprivileged desktop UID and GID');
@@ -41,11 +46,16 @@ function processNamed(entry, name) {
   return actual === name || (target.os === 'linux' && actual === name.slice(0, 15));
 }
 
-async function smoke(label, executable, cwd, state, overrides = {}, hardExit = false) {
-  const data = join(state, 'user data');
-  await mkdir(data);
+async function smoke(label, executable, cwd, state, {
+  overrides = {}, hardExit = false, data = join(state, 'user data'), backendVersion,
+} = {}) {
+  await mkdir(data, { recursive: true });
   await chown(data, uid, gid);
   const log = join(data, 'desktop-services.log');
+  const logStart = await stat(log).then(info => info.size, error => {
+    if (error.code === 'ENOENT') return 0;
+    throw error;
+  });
   const env = {
     ...runtimeEnv(), ...overrides, NOOSPHERE_DATA_DIR: data, TMPDIR: state,
     NOOSPHERE_RUNTIME_DIAGNOSTICS: '1',
@@ -68,11 +78,16 @@ async function smoke(label, executable, cwd, state, overrides = {}, hardExit = f
     while (true) {
       const earlyExit = await Promise.race([exited, delay(300, false)]);
       if (earlyExit !== false) throw new Error(label + ' exited early: ' + earlyExit);
-      const logText = await readFile(log, 'utf8').catch(error => {
+      const logText = await readFile(log).then(bytes => bytes.subarray(logStart).toString('utf8')).catch(error => {
         if (error.code === 'ENOENT') return '';
         throw error;
       });
-      if (logText.includes('Noosphere Backend ready') && logText.includes('[codelens] worker ready')) break;
+      if (logText.includes('Noosphere Backend ready') && logText.includes('[codelens] worker ready')) {
+        if (backendVersion && !logText.includes(`=== Noosphere Backend v${backendVersion} ===`)) {
+          throw new Error(label + ' started a backend with a different version');
+        }
+        break;
+      }
       if (Date.now() >= deadline) throw new Error(label + ' backend and private CodeLens worker did not become healthy');
     }
     owned = descendants(child.pid, processSnapshot());
@@ -153,14 +168,19 @@ try {
     throw new Error('Package metadata does not match the native verification target and VERSION');
   }
   console.log('Native host:', run('uname', ['-srvm'], { capture: true }));
-  console.log('Build:', build.version, build.source_revision, 'source_dirty=' + build.source_dirty);
-  for (const name of Object.values(names)) console.log('SHA-256', await sha256(join(packages, name)), name);
-  if (target.os === 'linux') {
+  if (!installed) {
+    console.log('Build:', build.version, build.source_revision, 'source_dirty=' + build.source_dirty);
+    for (const name of Object.values(names)) console.log('SHA-256', await sha256(join(packages, name)), name);
+  }
+  if (installed) {
+    await smoke('Installed deb ' + secondOption, '/usr/bin/noosphere-desktop', scratch,
+      await stateDir(scratch, 'installed state'), { data: firstOption, backendVersion: secondOption });
+  } else if (target.os === 'linux') {
     const deb = await stateDir(scratch, 'relocated deb 搬迁');
     run('dpkg-deb', ['--extract', join(packages, names.deb), deb]);
     await smoke('Relocated deb', join(deb, 'usr/bin/noosphere-desktop'), deb, await stateDir(scratch, 'deb state'));
     await smoke('Relocated deb hard exit', join(deb, 'usr/bin/noosphere-desktop'), deb,
-      await stateDir(scratch, 'deb crash state'), {}, true);
+      await stateDir(scratch, 'deb crash state'), { hardExit: true });
     // AppImage bootstrap may use filesystem helpers. Its PATH contains neither a host Node nor a host Python.
     const utilityPath = await stateDir(scratch, 'appimage utilities');
     for (const command of ['awk', 'basename', 'bash', 'cat', 'cut', 'dirname', 'env', 'find', 'grep', 'head', 'ln', 'locale',
@@ -172,7 +192,7 @@ try {
     const imageFile = join(image, names.appimage);
     run('cp', ['-p', join(packages, names.appimage), imageFile]);
     await smoke('Final AppImage (extract-and-run)', imageFile, image, await stateDir(scratch, 'image state'), {
-      APPIMAGE_EXTRACT_AND_RUN: '1', PATH: utilityPath,
+      overrides: { APPIMAGE_EXTRACT_AND_RUN: '1', PATH: utilityPath },
     });
   } else {
     const archive = await stateDir(scratch, 'archive extraction');
@@ -181,7 +201,7 @@ try {
     await rename(await onlyApp(archive), moved);
     verifyMacBundleVersions(moved, version);
     await smoke('Relocated app archive', await appExecutable(moved), scratch, await stateDir(scratch, 'archive state'));
-    await smoke('Relocated app hard exit', await appExecutable(moved), scratch, await stateDir(scratch, 'archive crash state'), {}, true);
+    await smoke('Relocated app hard exit', await appExecutable(moved), scratch, await stateDir(scratch, 'archive crash state'), { hardExit: true });
     const mount = await stateDir(scratch, 'read-only DMG');
     run('hdiutil', ['attach', '-nobrowse', '-readonly', '-mountpoint', mount, join(packages, names.dmg)]);
     try {

@@ -220,6 +220,9 @@ jobs:
           xvfb-run -a dbus-run-session -- sudo --preserve-env=DISPLAY,XAUTHORITY,DBUS_SESSION_BUS_ADDRESS \
             unshare --net -- "$node_path" scripts/verify-native-unix.mjs "artifacts/$version/$NOOSPHERE_BUILD_TARGET" \
             --linux-netns "$(id -u)" "$(id -g)"
+      - name: Install Debian packages and verify v0.9.0 upgrade under X11
+        if: runner.os == 'Linux'
+        run: bash scripts/verify-debian-upgrade.sh "artifacts/$(cat VERSION)/$NOOSPHERE_BUILD_TARGET"
       - name: Boot relocated native macOS app
         if: runner.os == 'macOS'
         run: |

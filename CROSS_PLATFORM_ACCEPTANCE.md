@@ -4,21 +4,39 @@
 
 ## 1.0 实施与验收
 
-2026-11-23（America/Los_Angeles）核对后，从 `0f6cdef68f6296aeebf1eee6e120db07dfacef57` 建立 `develop/noosphere-1.0`。远端 `main` 和 `v0.9.0` 都在该提交。起点的跟踪文件无修改，工作树原有的 `.codex/environments/environment.toml` 属于本地配置。
+2026-11-23（America/Los_Angeles）从当时的 `main` 与 `v0.9.0` 提交 `0f6cdef68f6296aeebf1eee6e120db07dfacef57` 建立 `develop/noosphere-1.0`。工作树原有的 `.codex/environments/environment.toml` 属于本地配置。
 
 | 状态 | 工作与涉及模块 | 当前证据、依赖及验收条件 |
 | --- | --- | --- |
 | 已完成 | 0.9.0 基线、目标与历史资产核对 | [主干 CI](https://github.com/2722039978-source/Noosphere/actions/runs/44781864724) 和 [标签 CI](https://github.com/2722039978-source/Noosphere/actions/runs/44788436392) 成功。标签 CI 四目标及汇总通过。公开资产包含 Windows x64、Linux x64、macOS arm64，Intel x64 没有公开资产。Linux、Apple Silicon 是预览。 [0.9.0 发行记录](https://github.com/2722039978-source/Noosphere/releases/tag/v0.9.0) |
 | 已完成 | 模型连接、绑定和配置冻结的源码整改与自动回归。Gateway、Providers、Workspaces | 模拟 IPC、Provider HTTP 和 Go 测试覆盖 A→B→A、会话及工作区默认、显式停用、入队后编辑连接、协议参数与凭证错误。Windows 的现有本地 OpenVINO 可真实生成。每目标的真实云与真实模型工具见下方矩阵。 |
 | 已完成 | 文本附件版本核对、索引与来源提示。Attachment、Workspaces、CodeLens、对话界面 | 用等长正文替换回归核对原件 SHA-256。模拟 IPC 覆盖项目及记忆来源。Linux 和 macOS 的拖放、输入、原生目录选择仍待目标机。 |
-| 已完成 | 项目任务、审批、测试与恢复的源码整改及 Windows 后端集成。Agent、Workspaces、任务界面 | 10/10 通过，真实 Python 项目测试和文件恢复使用模拟 Provider 的结构化工具请求。覆盖取消、重启、会话与项目绑定失效、冲突以及单次审批。真实模型的工具往返待验证。 |
+| 已完成 | 项目任务、审批、测试与恢复的源码整改及 Windows 后端集成。Agent、Workspaces、任务界面 | 10/10 通过，真实 Python 项目测试和文件恢复使用模拟 Provider 的结构化工具请求。覆盖取消、重启、会话与项目绑定失效、冲突以及单次审批。另有 1.0 候选后端与真实本地模型的只读工具往返证据。 |
 | 已完成 | 后端数据升级、离线备份和隔离恢复。SQLite、附件文件、备份入口 | 公开 v0.9.0 后端写入真实 SQLite/WAL 与附件，RC 读取并生成快照。阻挡 SQLite 写入时，升级拒绝就绪，保留旧版本与原快照。解除锁后复用快照重试成功，v0.9.0 可读取恢复目录。证据在 `test/release-1.0/data-upgrade-final-backend.log` 和 `data-upgrade-retry.log`。 |
 | 待验证 | 私有运行时、窗口交互和生命周期。桌面 Rust、Go 后端、Python/Node、桌面验证脚本 | 四目标验证搬迁、离线启动、解析、服务异常与进程归属。目标包验证目录选择、输入法、键盘、拖放、剪贴板及显示设置。 |
 | 阻塞 | 1.0 原生签名与部分业务复验。四目标包、CI、签名环境 | 当前宿主为 Windows x64。Linux、两种 Mac 架构仍需原生桌面与目标版本；Mac 正式分发需要获授权的 Developer ID 及公证。候选的源码、包哈希和测试证据需独立生成。 |
 
 按模型与数据边界、审批与项目流程、源码回归、候选打包、最终包原生验收推进。签名后的实际文件参与最终验收及哈希记录。历史检查见下文。
 
-### 1.0.0-rc.1 的当前证据
+### 已公开的 1.0.0-rc.1
+
+候选发行包含四个目标的八个分发文件。发布资产来自 PR CI 检出提交 `01f2519ac5ba1b047377b9330d512a4a032279fb`，标签指向合并提交 `69ecdc5273f955f2d6826717bf0ecfa091bef2df`。两者 Git 树相同。GitHub 返回的 15 个资产大小和 SHA-256 均与验收件一致。标签和主干 CI 也已通过。 [候选下载](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0-rc.1) · [产物构建 CI](https://github.com/2722039978-source/Noosphere/actions/runs/45178383595) · [主干 CI](https://github.com/2722039978-source/Noosphere/actions/runs/45186612945) · [标签 CI](https://github.com/2722039978-source/Noosphere/actions/runs/45188818439)
+
+| 目标 | 已公开包的原生证据 |
+| --- | --- |
+| Windows x64 | NSIS 通过公开 v0.9.0 原位升级、卸载重装和用户目录标记保留。发布 ZIP 在 WebView2 中通过现有 OpenVINO CPU 模型的实际对话，以及 v0.9.0 会话、附件和项目数据升级与隔离恢复。 |
+| Linux x64 | AppImage 和 deb 通过私有运行时、搬迁后 X11 离线启动和进程回收。 |
+| macOS arm64、x64 | 两种架构的 ad-hoc 归档及 DMG 均通过搬迁后启动和受管进程回收。 |
+
+Windows x64 的同一候选 ZIP 内后端（SHA-256 `540e79abfa34cafa3d48b2b129a89d86728366f62f8ffa090753ffba6b17ff45`）另通过真实本地只读 Agent。Windows 11 `10.0.26300`、Intel Arc A580、PrismML llama.cpp SYCL `b10787-73bfe6cc4` 和 Bonsai 2 27B `PTQ1_0` 使用 OpenAI 兼容工具协议。模型发出 `project_read_file`，读取中文路径下的临时 Git 项目，收到工具结果后在第二次响应中核对出文件原值，带行号和正文哈希的证据随任务保存。这项验收在后端执行，桌面审批与写入仍按独立记录验收。记录在 `.local/model-canary/windows-bonsai-agent-45178383595/`。
+
+### 正式签名输入
+
+GitHub Actions 的 `desktop-release-signing` 环境允许从正式目标标签 `v1.0.0` 执行签名作业。发布负责人在该环境的 Secrets 中配置 `APPLE_CERTIFICATE`（以 Base64 编码的 Developer ID Application `.p12`）、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_ID`、`APPLE_PASSWORD`（公证用的 app 专用密码）和 `APPLE_TEAM_ID`。签名脚本在临时 Keychain 使用这些值，作业结束后清理。 [签名环境设置](https://github.com/2722039978-source/Noosphere/settings/environments/28270863494/edit)
+
+数值版 `VERSION` 与 `v1.0.0` 标签一致时，从该标签运行 Desktop delivery，启用 `formal`。正式四目标汇总要求两种 Mac 的 Developer ID 签名、公证和 stapling 证据。原生业务复验使用汇总中的实际包和 SHA-256。 [GitHub Actions](https://github.com/2722039978-source/Noosphere/actions/workflows/ci.yml)
+
+### 本地 Windows 候选历史证据
 
 Windows 候选包从干净检出 `1e11ff985ad5443b8e77946894afda87d9c240a3` 构建。后续提交增加 macOS 版本字段和 Linux 许可正文处理。四目标的下一次汇总需要从同一份源码构建四个目标。保留本次 Windows 包的原始提交、哈希及验收记录。
 

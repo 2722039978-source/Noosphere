@@ -1,9 +1,31 @@
-import { lstat, mkdir, open, symlink } from 'node:fs/promises';
+import { lstat, mkdir, open, rm, symlink } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
-import { files, run, sha256, verifyRuntimes, version } from './desktop-platform.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { exists, files, run, sha256, verifyRuntimes, version } from './desktop-platform.mjs';
 
 const MACH_O = new Set(['feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca']);
 const NODE_ENTITLEMENTS = new URL('macos-node.entitlements.plist', import.meta.url);
+
+export async function createMacDiskImage(dmgTree, stage, name, { execute = run, wait = delay } = {}) {
+  if (name !== basename(name) || !name.endsWith('.dmg')) throw new Error('Invalid staged DMG filename');
+  const dmg = join(stage, name);
+  if (await exists(dmg)) throw new Error('Staged DMG already exists: ' + name);
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const output = execute('hdiutil', ['create', '-volname', 'Noosphere', '-srcfolder', dmgTree, '-format', 'UDZO', dmg], { capture: true });
+      if (output) console.log(output);
+      return dmg;
+    } catch (error) {
+      if (attempt === maxAttempts || !/^hdiutil: create failed - Resource busy\s*$/m.test(error?.message)) throw error;
+      // The fresh staging path was absent before the first invocation.
+      // Remove only a partial image from this build before retrying.
+      await rm(dmg, { force: true });
+      console.warn(`hdiutil create reported Resource busy. Retrying ${name} (${attempt + 1}/${maxAttempts}).`);
+      await wait(attempt * 1000);
+    }
+  }
+}
 
 export function macBundleVersions(buildVersion) {
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$/.exec(buildVersion);
@@ -136,8 +158,7 @@ export async function buildMacArtifacts(target, app, stage, names, scratch, sign
   await mkdir(dmgTree);
   run('ditto', [app, join(dmgTree, basename(app))]);
   await symlink('/Applications', join(dmgTree, 'Applications'));
-  const dmg = join(stage, names.dmg);
-  run('hdiutil', ['create', '-volname', 'Noosphere', '-srcfolder', dmgTree, '-format', 'UDZO', dmg]);
+  const dmg = await createMacDiskImage(dmgTree, stage, names.dmg);
   if (signed) {
     run('codesign', [...options.filter(arg => arg !== '--options' && arg !== 'runtime'), dmg]);
     signing.dmg_submission_id = await submit(dmg);
