@@ -34,7 +34,9 @@ Windows x64 的同一候选 ZIP 内后端（SHA-256 `540e79abfa34cafa3d48b2b129a
 
 GitHub Actions 的 `desktop-release-signing` 环境允许从正式目标标签 `v1.0.0` 执行签名作业。发布负责人在该环境的 Secrets 中配置 `APPLE_CERTIFICATE`（以 Base64 编码的 Developer ID Application `.p12`）、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_ID`、`APPLE_PASSWORD`（公证用的 app 专用密码）和 `APPLE_TEAM_ID`。签名脚本在临时 Keychain 使用这些值，作业结束后清理。 [签名环境设置](https://github.com/2722039978-source/Noosphere/settings/environments/28270863494/edit)
 
-数值版 `VERSION` 与 `v1.0.0` 标签一致时，从该标签运行 Desktop delivery，启用 `formal`。正式四目标汇总要求两种 Mac 的 Developer ID 签名、公证和 stapling 证据。原生业务复验使用汇总中的实际包和 SHA-256。 [GitHub Actions](https://github.com/2722039978-source/Noosphere/actions/workflows/ci.yml)
+数值版 `VERSION` 与 `v1.0.0` 标签一致时，从该标签运行 Desktop delivery，启用 `formal`，也可运行 `gh workflow run ci.yml --ref v1.0.0 -f formal=true`。正式四目标汇总要求两种 Mac 的 Developer ID 签名、公证和 stapling 证据。下载工作流的 `noosphere-four-target-candidate` 产物，原生业务复验使用其中的实际包和 `SHA256SUMS.txt`。 [GitHub Actions](https://github.com/2722039978-source/Noosphere/actions/workflows/ci.yml)
+
+公证上传后查看 CI 日志中的提交 ID。等待超时或收到拒绝时，发布负责人可通过已授权的 `notarytool` 配置用 `xcrun notarytool info <提交ID> --keychain-profile <配置名>` 核对状态，必要时以 `xcrun notarytool log <提交ID> --keychain-profile <配置名>` 查看拒绝原因。应用和 DMG 都要获得 `Accepted` 并通过 stapling 校验。
 
 ### 本地 Windows 候选历史证据
 
@@ -79,6 +81,8 @@ Windows 最终候选文件在 `artifacts/1.0.0-rc.1/`。构建指纹为 `7222706
 | macOS x64，Intel 原生桌面、Keychain、已授权签名环境 | 使用 `macos-x64` 重做以上过程。最低桌面候选测试 13.5，实际 Ollama CPU 选用引擎支持的系统及现有模型权重。 | 独立 Intel 哈希、签名和系统记录。分开记录桌面下限和模型引擎下限。 |
 
 每个目标在包含空格及 Unicode 的路径复跑，并记录系统版本、架构、窗口系统及 WebView、应用与引擎版本、模型 ID、API 协议、工具调用状态、源码提交、产物哈希与失败原因。将可公开的证据保存到对应 CI 日志及工作区 `test/release-1.0/<目标>/`，截图和日志仅保留测试数据。聚合命令校验来源与实际分发文件，并生成 `delivery-info.json`，记录各包真实构建提交与汇总所用源码树。签名构建与本表业务验收均通过后，再按仓库授权发正式版。
+
+macOS 凭证升级用获授权的成品复验。先在旧 ad-hoc 包中保存测试凭证，退出后安装 Developer ID 签名成品，核对原凭证读回或可诊断的 Keychain 拒绝。拒绝时核对原密文和旧数据仍在，再按界面提示重新授权连接。 [Apple 代码签名要求](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements/) · [Apple Keychain 与签名要求](https://developer.apple.com/library/archive/technotes/tn2206/)
 
 ## 0.9.0 发布后的状态
 

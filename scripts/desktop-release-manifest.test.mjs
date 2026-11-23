@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { debianPackageVersion, verifyReleaseRef } from './desktop-release-manifest.mjs';
-import { createMacDiskImage, macBundleVersions } from './desktop-macos.mjs';
+import { createMacDiskImage, macBundleVersions, notarizeMacArtifact } from './desktop-macos.mjs';
 
 test('a matching RC tag can build preview packages only', () => {
   assert.doesNotThrow(() => verifyReleaseRef('1.0.0-rc.1', 'v1.0.0-rc.1', false));
@@ -94,4 +94,47 @@ test('disk image creation preserves existing staged output and rejects escaped n
   await assert.rejects(createMacDiskImage('contents', stage, name, options), /already exists/);
   await assert.rejects(createMacDiskImage('contents', stage, '../outside.dmg', options), /Invalid staged DMG filename/);
   assert.equal(readFileSync(image, 'utf8'), 'previous output');
+});
+
+const submissionID = '2efe2717-52ef-43a5-96dc-0797e4ca1041';
+
+test('mac notarization records its submission before waiting and accepts only the corresponding status', () => {
+  const calls = [];
+  const report = message => calls.push(message);
+  const execute = (command, args, options) => {
+    assert.equal(command, 'xcrun');
+    assert.equal(options.capture, true);
+    calls.push(args.slice(1, 3));
+    assert.deepEqual(args.slice(3, 7), ['--keychain-profile', 'fixture', '--keychain', 'fixture-keychain']);
+    if (args[1] === 'submit') {
+      assert.ok(!args.includes('--wait'));
+      assert.equal(options.timeout, 600_000);
+      return JSON.stringify({ id: submissionID });
+    }
+    assert.deepEqual(args.slice(-4), ['--output-format', 'json', '--timeout', '60m']);
+    assert.equal(options.timeout, 3_660_000);
+    return JSON.stringify({ id: submissionID, status: 'Accepted' });
+  };
+  assert.equal(notarizeMacArtifact('candidate.zip', 'fixture', 'fixture-keychain', { execute, report }), submissionID);
+  assert.deepEqual(calls, [['submit', 'candidate.zip'], `Notarization submitted ${submissionID}`,
+    ['wait', submissionID], `Notarization ${submissionID}: Accepted`]);
+});
+
+test('failed or rejected notarization retains the same submission ID and suppresses raw command output', () => {
+  for (const reject of [true, false]) {
+    const phases = [];
+    const reports = [];
+    const execute = (_command, args) => {
+      phases.push(args[1]);
+      if (args[1] === 'submit') return JSON.stringify({ id: submissionID });
+      if (reject) return JSON.stringify({ id: submissionID, status: 'Rejected', message: 'raw output' });
+      throw new Error('raw output');
+    };
+    assert.throws(() => notarizeMacArtifact('candidate.dmg', 'fixture', undefined, {
+      execute, report: message => reports.push(message),
+    }), error => error.message.includes(submissionID) && !error.message.includes('raw output'));
+    assert.deepEqual(phases, ['submit', 'wait']);
+    assert.ok(reports[0].includes(submissionID));
+    assert.ok(reports.every(message => !message.includes('raw output')));
+  }
 });

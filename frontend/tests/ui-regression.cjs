@@ -12,11 +12,13 @@ async function readStore(page) { return page.evaluate(async () => (await window.
 async function emit(page, index, event) { await page.evaluate(({ index, event }) => window.qa.emit(index, event), { index, event }); }
 async function waitStatus(page, status) { await page.waitForFunction(async (status) => { const state = (await window.qa.store()).useChatStore.getState(); return state.sessions.find(s => s.id === state.activeId)?.messages.at(-1)?.status === status; }, status); }
 async function send(page, content) { await page.getByRole('textbox', { name: '输入问题', exact: true }).fill(content); await page.getByRole('button', { name: '发送', exact: true }).click(); await page.getByRole('button', { name: '停止生成', exact: true }).waitFor(); }
-async function createContext(browser, viewport, mock = true, reducedMotion) {
+async function createContext(browser, viewport, mock = true, reducedMotion, desktopPlatform) {
   const context = await browser.newContext({ viewport, reducedMotion });
-  if (mock) await context.addInitScript(() => {
+  if (mock) await context.addInitScript(platform => {
     const callbacks = new Map(); let callbackId = 0;
+    window.isTauri = Boolean(platform);
     window.qa = { runs: [], cancels: [], holdContext: false, contextResolvers: [], failStorage: false,
+      windowEvents: [],
       workspaces: [{id:'local',name:'本地工作区',project_path:'fixture',project_id:'code-fixture',default_model_id:'',created_at:'2026-10-08T00:00:00Z',updated_at:'2026-10-08T00:00:00Z'}], tasks: [], holdTasks: false,
       store() { const source = performance.getEntriesByType('resource').find(entry => new URL(entry.name).pathname === '/src/features/chat/chat-store.ts')?.name ?? '/src/features/chat/chat-store.ts'; return import(source); },
       emit(index, event) { const run = this.runs[index]; window.__TAURI_INTERNALS__.runCallback(run.onEvent.id, { index: run.index++, message: { request_id: run.requestId, ...event } }); },
@@ -25,13 +27,17 @@ async function createContext(browser, viewport, mock = true, reducedMotion) {
     if (location.protocol === 'http:') localStorage.setItem('noosphere-project-v1', JSON.stringify({state:{projectPath:'fixture',projectId:'code-fixture'},version:0}));
     const transaction = IDBDatabase.prototype.transaction;
     IDBDatabase.prototype.transaction = function (...args) { if (args[1] === 'readwrite' && window.qa.failStorage) throw new DOMException('Test quota', 'QuotaExceededError'); return transaction.apply(this, args); };
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
     window.__TAURI_INTERNALS__ = {
+      ...(platform ? { metadata: { currentWindow: { label: 'main' } } } : {}),
       transformCallback(fn) { callbacks.set(++callbackId, fn); return callbackId; },
       unregisterCallback(id) { callbacks.delete(id); },
       runCallback(id, value) { callbacks.get(id)?.(value); },
       async invoke(command, payload) {
         const qa = window.qa;
         switch (command) {
+          case 'desktop_platform': return platform ? { os: platform, native_titlebar: platform === 'macos' } : {};
+          case 'plugin:event|listen': qa.windowEvents.push(payload.event); return qa.windowEvents.length;
           case 'check_health': return { status: 'ok', modules: Object.fromEntries(['gateway', 'nebula', 'devops', 'codelens'].map(name => [name, { name, state: 'running' }])) };
           case 'get_backend_status': return { running: true, restarts: 0 };
           case 'list_workspaces': return {workspaces:qa.workspaces};
@@ -69,7 +75,7 @@ async function createContext(browser, viewport, mock = true, reducedMotion) {
         }
       },
     };
-  });
+  }, desktopPlatform);
   context.on('page', page => { page.on('pageerror', error => errors.push(error.message)); page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); }); });
   return context;
 }
