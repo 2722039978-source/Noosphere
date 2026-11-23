@@ -1,9 +1,48 @@
 import { lstat, mkdir, open, symlink } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
-import { files, run, sha256, verifyRuntimes } from './desktop-platform.mjs';
+import { files, run, sha256, verifyRuntimes, version } from './desktop-platform.mjs';
 
 const MACH_O = new Set(['feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca']);
 const NODE_ENTITLEMENTS = new URL('macos-node.entitlements.plist', import.meta.url);
+
+export function macBundleVersions(buildVersion) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$/.exec(buildVersion);
+  if (!match) throw new Error('Invalid Noosphere version for a macOS bundle');
+  const [, major, minor, patch, candidate] = match;
+  // Reserve the last build number in each patch for the stable release.
+  // The signed bundle also keeps the exact SemVer used by the application.
+  const order = candidate ? BigInt(candidate) : 999n;
+  if (candidate && order >= 999n) throw new Error('macOS bundle build number supports rc.1 through rc.998');
+  return {
+    CFBundleShortVersionString: `${major}.${minor}.${patch}`,
+    CFBundleVersion: `${major}.${minor}.${BigInt(patch) * 1000n + order}`,
+    NoosphereVersion: buildVersion,
+  };
+}
+
+const plistPath = app => join(app, 'Contents', 'Info.plist');
+const plist = (app, action) => run('/usr/libexec/PlistBuddy', ['-c', action, plistPath(app)], { capture: true });
+
+export function verifyMacBundleVersions(app, buildVersion) {
+  for (const [key, value] of Object.entries(macBundleVersions(buildVersion))) {
+    if (plist(app, `Print :${key}`) !== value) throw new Error(`macOS ${key} does not match ${buildVersion}`);
+  }
+  if (buildVersion.includes('-') && !plist(app, 'Print :CFBundleDisplayName').endsWith(`(${buildVersion})`)) {
+    throw new Error('macOS bundle display name does not identify the release candidate');
+  }
+}
+
+function configureMacBundleVersions(app) {
+  const versions = macBundleVersions(version);
+  plist(app, `Set :CFBundleShortVersionString ${versions.CFBundleShortVersionString}`);
+  plist(app, `Set :CFBundleVersion ${versions.CFBundleVersion}`);
+  plist(app, `Add :NoosphereVersion string ${versions.NoosphereVersion}`);
+  if (version.includes('-')) {
+    const name = plist(app, 'Print :CFBundleDisplayName');
+    plist(app, `Set :CFBundleDisplayName ${name} (${version})`);
+  }
+  verifyMacBundleVersions(app, version);
+}
 
 function versionGreater(actual, limit) {
   const a = actual.split('.').map(Number);
@@ -58,6 +97,7 @@ export async function buildMacArtifacts(target, app, stage, names, scratch, sign
   if (signed && (!identity?.startsWith('Developer ID Application: ') || !profile)) {
     throw new Error('Formal macOS packaging requires a Developer ID Application identity and a notarytool keychain profile');
   }
+  configureMacBundleVersions(app);
   const resources = join(app, 'Contents/Resources');
   const native = await machFiles(app);
   const componentHashesBeforeSigning = await checkMach(target, app, native);
@@ -111,6 +151,7 @@ export async function buildMacArtifacts(target, app, stage, names, scratch, sign
   await mkdir(moved);
   run('tar', ['-xzf', join(stage, names.app), '-C', moved]);
   const movedApp = join(moved, basename(app));
+  verifyMacBundleVersions(movedApp, version);
   run('codesign', ['--verify', '--deep', '--strict', movedApp]);
   if (signed) run('xcrun', ['stapler', 'validate', movedApp]);
   await verifyRuntimes(target, join(movedApp, 'Contents/Resources'), moved, true);
@@ -120,6 +161,7 @@ export async function buildMacArtifacts(target, app, stage, names, scratch, sign
   run('hdiutil', ['attach', '-nobrowse', '-readonly', '-mountpoint', mount, dmg]);
   try {
     const mountedApp = join(mount, basename(app));
+    verifyMacBundleVersions(mountedApp, version);
     run('codesign', ['--verify', '--deep', '--strict', mountedApp]);
     if (signed) run('xcrun', ['stapler', 'validate', mountedApp]);
     await verifyRuntimes(target, join(mountedApp, 'Contents/Resources'), moved, true);

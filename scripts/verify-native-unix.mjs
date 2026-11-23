@@ -3,7 +3,8 @@ import { chown, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { exists, json, nativeTarget, packageNames, run, runtimeEnv, sha256 } from './desktop-platform.mjs';
+import { exists, json, nativeTarget, packageNames, run, runtimeEnv, sha256, version } from './desktop-platform.mjs';
+import { verifyMacBundleVersions } from './desktop-macos.mjs';
 
 const [directory, mode, uidText, gidText] = process.argv.slice(2);
 if (!directory) throw new Error('Expected a versioned native package directory');
@@ -148,7 +149,9 @@ try {
   await chown(scratch, uid, gid);
   const packages = resolve(directory);
   const build = await json(join(packages, 'build-info.json'));
-  if (build.target !== target.id) throw new Error('Package metadata does not match the native verification target');
+  if (build.target !== target.id || build.version !== version) {
+    throw new Error('Package metadata does not match the native verification target and VERSION');
+  }
   console.log('Native host:', run('uname', ['-srvm'], { capture: true }));
   console.log('Build:', build.version, build.source_revision, 'source_dirty=' + build.source_dirty);
   for (const name of Object.values(names)) console.log('SHA-256', await sha256(join(packages, name)), name);
@@ -176,6 +179,7 @@ try {
     run('tar', ['-xzf', join(packages, names.app), '-C', archive]);
     const moved = join(scratch, 'Relocated Noosphere 搬迁.app');
     await rename(await onlyApp(archive), moved);
+    verifyMacBundleVersions(moved, version);
     await smoke('Relocated app archive', await appExecutable(moved), scratch, await stateDir(scratch, 'archive state'));
     await smoke('Relocated app hard exit', await appExecutable(moved), scratch, await stateDir(scratch, 'archive crash state'), {}, true);
     const mount = await stateDir(scratch, 'read-only DMG');
@@ -183,6 +187,7 @@ try {
     try {
       const installed = join(scratch, 'Installed Noosphere 搬迁.app');
       run('ditto', [await onlyApp(mount), installed]);
+      verifyMacBundleVersions(installed, version);
       run('codesign', ['--verify', '--deep', '--strict', installed]);
       if (build.signing?.state === 'developer-id-notarized') {
         run('xcrun', ['stapler', 'validate', installed]);
