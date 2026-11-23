@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { debianPackageVersion, verifyReleaseRef } from './desktop-release-manifest.mjs';
-import { macBundleVersions } from './desktop-macos.mjs';
+import { createMacDiskImage, macBundleVersions, notarizeMacArtifact } from './desktop-macos.mjs';
 
 test('a matching RC tag can build preview packages only', () => {
   assert.doesNotThrow(() => verifyReleaseRef('1.0.0-rc.1', 'v1.0.0-rc.1', false));
@@ -29,4 +33,108 @@ test('macOS requires numeric plist versions while preserving the canonical candi
   assert.equal(macBundleVersions('1.0.0').CFBundleVersion, '1.0.999');
   assert.equal(macBundleVersions('1.0.1-rc.1').CFBundleVersion, '1.0.1001');
   assert.throws(() => macBundleVersions('1.0.0-rc.999'), /macOS bundle build number/);
+});
+
+async function imageFixture(t) {
+  const stage = await mkdtemp(join(tmpdir(), 'noosphere-hdiutil-test-'));
+  t.after(() => rm(stage, { recursive: true, force: true }));
+  const name = 'candidate.dmg';
+  return { stage, name, image: join(stage, name) };
+}
+
+const busyError = () => new Error('hdiutil failed (1)\nhdiutil: create failed - Resource busy');
+
+test('a busy disk image creation retries after removing only its staged partial result', async t => {
+  const { stage, name, image } = await imageFixture(t);
+  const sibling = join(stage, 'other-package.dmg');
+  writeFileSync(sibling, 'untouched');
+  const waits = [];
+  let executions = 0;
+  const saved = await createMacDiskImage('contents', stage, name, {
+    wait: async ms => { waits.push(ms); },
+    execute: (command, arguments_, options) => {
+      assert.equal(command, 'hdiutil');
+      assert.equal(arguments_[0], 'create');
+      assert.equal(arguments_.at(-1), image);
+      assert.equal(options.capture, true);
+      assert.equal(existsSync(image), false);
+      assert.equal(readFileSync(sibling, 'utf8'), 'untouched');
+      writeFileSync(image, 'fixture');
+      if (++executions === 1) throw busyError();
+    },
+  });
+  assert.equal(saved, image);
+  assert.equal(executions, 2);
+  assert.deepEqual(waits, [1000]);
+});
+
+test('disk image creation returns permanent errors unchanged and bounds busy retries', async t => {
+  const { stage, name } = await imageFixture(t);
+  const waits = [];
+  const wait = async ms => { waits.push(ms); };
+  const permanent = new Error('hdiutil failed (1)\nhdiutil: create failed - Permission denied');
+  await assert.rejects(createMacDiskImage('contents', stage, name, {
+    wait, execute: () => { throw permanent; },
+  }), error => error === permanent);
+  assert.deepEqual(waits, []);
+
+  const busy = busyError();
+  let executions = 0;
+  await assert.rejects(createMacDiskImage('contents', stage, name, {
+    wait, execute: () => { executions++; throw busy; },
+  }), error => error === busy);
+  assert.equal(executions, 3);
+  assert.deepEqual(waits, [1000, 2000]);
+});
+
+test('disk image creation preserves existing staged output and rejects escaped names', async t => {
+  const { stage, name, image } = await imageFixture(t);
+  writeFileSync(image, 'previous output');
+  const options = { execute: () => assert.fail('hdiutil must not run') };
+  await assert.rejects(createMacDiskImage('contents', stage, name, options), /already exists/);
+  await assert.rejects(createMacDiskImage('contents', stage, '../outside.dmg', options), /Invalid staged DMG filename/);
+  assert.equal(readFileSync(image, 'utf8'), 'previous output');
+});
+
+const submissionID = '2efe2717-52ef-43a5-96dc-0797e4ca1041';
+
+test('mac notarization records its submission before waiting and accepts only the corresponding status', () => {
+  const calls = [];
+  const report = message => calls.push(message);
+  const execute = (command, args, options) => {
+    assert.equal(command, 'xcrun');
+    assert.equal(options.capture, true);
+    calls.push(args.slice(1, 3));
+    assert.deepEqual(args.slice(3, 7), ['--keychain-profile', 'fixture', '--keychain', 'fixture-keychain']);
+    if (args[1] === 'submit') {
+      assert.ok(!args.includes('--wait'));
+      assert.equal(options.timeout, 600_000);
+      return JSON.stringify({ id: submissionID });
+    }
+    assert.deepEqual(args.slice(-4), ['--output-format', 'json', '--timeout', '60m']);
+    assert.equal(options.timeout, 3_660_000);
+    return JSON.stringify({ id: submissionID, status: 'Accepted' });
+  };
+  assert.equal(notarizeMacArtifact('candidate.zip', 'fixture', 'fixture-keychain', { execute, report }), submissionID);
+  assert.deepEqual(calls, [['submit', 'candidate.zip'], `Notarization submitted ${submissionID}`,
+    ['wait', submissionID], `Notarization ${submissionID}: Accepted`]);
+});
+
+test('failed or rejected notarization retains the same submission ID and suppresses raw command output', () => {
+  for (const reject of [true, false]) {
+    const phases = [];
+    const reports = [];
+    const execute = (_command, args) => {
+      phases.push(args[1]);
+      if (args[1] === 'submit') return JSON.stringify({ id: submissionID });
+      if (reject) return JSON.stringify({ id: submissionID, status: 'Rejected', message: 'raw output' });
+      throw new Error('raw output');
+    };
+    assert.throws(() => notarizeMacArtifact('candidate.dmg', 'fixture', undefined, {
+      execute, report: message => reports.push(message),
+    }), error => error.message.includes(submissionID) && !error.message.includes('raw output'));
+    assert.deepEqual(phases, ['submit', 'wait']);
+    assert.ok(reports[0].includes(submissionID));
+    assert.ok(reports.every(message => !message.includes('raw output')));
+  }
 });

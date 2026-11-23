@@ -130,7 +130,7 @@ jobs:
   unix:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: ${{ inputs.formal && matrix.os == 'macOS' && 180 || 90 }}
     environment: ${{ inputs.formal && startsWith(github.ref, 'refs/tags/') && matrix.os == 'macOS' && 'desktop-release-signing' || 'desktop-preview' }}
     strategy:
       fail-fast: false
@@ -193,7 +193,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libxdo-dev libfuse2 patchelf xz-utils xvfb xauth dbus-x11
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libxdo-dev libfuse2 patchelf xz-utils xvfb xauth dbus-x11 gnome-keyring
       - name: Run locked native toolchain and application tests
         run: |
           node scripts/desktop.mjs setup "$NOOSPHERE_BUILD_TARGET"
@@ -220,6 +220,15 @@ jobs:
           xvfb-run -a dbus-run-session -- sudo --preserve-env=DISPLAY,XAUTHORITY,DBUS_SESSION_BUS_ADDRESS \
             unshare --net -- "$node_path" scripts/verify-native-unix.mjs "artifacts/$version/$NOOSPHERE_BUILD_TARGET" \
             --linux-netns "$(id -u)" "$(id -g)"
+      - name: Install Debian packages and verify v0.9.0 upgrade under X11
+        if: runner.os == 'Linux'
+        run: bash scripts/verify-debian-upgrade.sh "artifacts/$(cat VERSION)/$NOOSPHERE_BUILD_TARGET"
+      - name: Save and reload a synthetic model credential using Linux Secret Service
+        if: runner.os == 'Linux'
+        run: |
+          mapfile -t backends < <(dpkg-query -L noosphere-desktop | grep '/bin/noosphere-backend$')
+          test "${#backends[@]}" -eq 1
+          bash scripts/verify-linux-credentials.sh "${backends[0]}"
       - name: Boot relocated native macOS app
         if: runner.os == 'macOS'
         run: |

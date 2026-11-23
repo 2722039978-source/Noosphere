@@ -1,9 +1,59 @@
-import { lstat, mkdir, open, symlink } from 'node:fs/promises';
+import { lstat, mkdir, open, rm, symlink } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
-import { files, run, sha256, verifyRuntimes, version } from './desktop-platform.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { exists, files, run, sha256, verifyRuntimes, version } from './desktop-platform.mjs';
 
 const MACH_O = new Set(['feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca']);
 const NODE_ENTITLEMENTS = new URL('macos-node.entitlements.plist', import.meta.url);
+
+export async function createMacDiskImage(dmgTree, stage, name, { execute = run, wait = delay } = {}) {
+  if (name !== basename(name) || !name.endsWith('.dmg')) throw new Error('Invalid staged DMG filename');
+  const dmg = join(stage, name);
+  if (await exists(dmg)) throw new Error('Staged DMG already exists: ' + name);
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const output = execute('hdiutil', ['create', '-volname', 'Noosphere', '-srcfolder', dmgTree, '-format', 'UDZO', dmg], { capture: true });
+      if (output) console.log(output);
+      return dmg;
+    } catch (error) {
+      if (attempt === maxAttempts || !/^hdiutil: create failed - Resource busy\s*$/m.test(error?.message)) throw error;
+      // The fresh staging path was absent before the first invocation.
+      // Remove only a partial image from this build before retrying.
+      await rm(dmg, { force: true });
+      console.warn(`hdiutil create reported Resource busy. Retrying ${name} (${attempt + 1}/${maxAttempts}).`);
+      await wait(attempt * 1000);
+    }
+  }
+}
+
+export function notarizeMacArtifact(path, profile, keychain, { execute = run, report = console.log } = {}) {
+  const auth = ['--keychain-profile', profile];
+  if (keychain) auth.push('--keychain', keychain);
+  const runNotary = (command, target, timeout, message, ...options) => {
+    try {
+      const output = execute('xcrun', ['notarytool', command, target, ...auth, '--output-format', 'json', ...options], {
+        capture: true, timeout,
+      });
+      return JSON.parse(output);
+    } catch {
+      // Avoid printing raw subprocess output, which can contain temporary URLs.
+      throw new Error(message);
+    }
+  };
+  const submitted = runNotary('submit', path, 600_000, 'Notarization submission failed before receiving an ID');
+  const id = submitted?.id;
+  if (typeof id !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error('Notarization did not return a valid submission ID');
+  }
+  report(`Notarization submitted ${id}`);
+  const result = runNotary('wait', id, 3_660_000, `Notarization ${id}: status unavailable`, '--timeout', '60m');
+  if (result?.id && result.id !== id) throw new Error(`Notarization ${id}: response has a different submission ID`);
+  const status = ['Accepted', 'Invalid', 'Rejected', 'In Progress'].includes(result?.status) ? result.status : 'unknown';
+  report(`Notarization ${id}: ${status}`);
+  if (status !== 'Accepted') throw new Error(`Notarization ${id} did not complete with Accepted status`);
+  return id;
+}
 
 export function macBundleVersions(buildVersion) {
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-rc\.([1-9]\d*))?$/.exec(buildVersion);
@@ -115,18 +165,11 @@ export async function buildMacArtifacts(target, app, stage, names, scratch, sign
   run('codesign', [...options, app]);
   run('codesign', ['--verify', '--deep', '--strict', app]);
 
-  const submit = async path => {
-    const args = ['notarytool', 'submit', path, '--keychain-profile', profile, '--wait', '--output-format', 'json'];
-    if (keychain) args.push('--keychain', keychain);
-    const result = JSON.parse(run('xcrun', args, { capture: true, timeout: 900_000 }));
-    if (result.status !== 'Accepted' || !result.id) throw new Error('Notarization failed for ' + basename(path));
-    return result.id;
-  };
   const signing = { state: signed ? 'developer-id-notarized' : 'adhoc-preview' };
   if (signed) {
     const submission = join(scratch, 'app-for-notary.zip');
     run('ditto', ['-c', '-k', '--keepParent', app, submission]);
-    signing.app_submission_id = await submit(submission);
+    signing.app_submission_id = notarizeMacArtifact(submission, profile, keychain);
     run('xcrun', ['stapler', 'staple', app]);
     run('xcrun', ['stapler', 'validate', app]);
     run('spctl', ['--assess', '--type', 'execute', app]);
@@ -136,11 +179,10 @@ export async function buildMacArtifacts(target, app, stage, names, scratch, sign
   await mkdir(dmgTree);
   run('ditto', [app, join(dmgTree, basename(app))]);
   await symlink('/Applications', join(dmgTree, 'Applications'));
-  const dmg = join(stage, names.dmg);
-  run('hdiutil', ['create', '-volname', 'Noosphere', '-srcfolder', dmgTree, '-format', 'UDZO', dmg]);
+  const dmg = await createMacDiskImage(dmgTree, stage, names.dmg);
   if (signed) {
     run('codesign', [...options.filter(arg => arg !== '--options' && arg !== 'runtime'), dmg]);
-    signing.dmg_submission_id = await submit(dmg);
+    signing.dmg_submission_id = notarizeMacArtifact(dmg, profile, keychain);
     run('xcrun', ['stapler', 'staple', dmg]);
     run('xcrun', ['stapler', 'validate', dmg]);
     run('spctl', ['--assess', '--type', 'open', '--context', 'context:primary-signature', dmg]);

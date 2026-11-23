@@ -12,6 +12,29 @@ const localModel = {id:'local-model',name:'Local fixture',model_name:'fixture-lo
 const apiModel = {id:'api-model',name:'API fixture',model_name:'deepseek-chat',provider:'deepseek',base_url:'https://fixture.invalid',enabled:true};
 const disabledModel = {...localModel,id:'disabled',name:'Disabled fixture',model_name:'disabled',enabled:false};
 
+async function checkDesktopCloseHandler(browser) {
+  for (const platform of ['macos', 'windows', 'linux', 'unknown']) {
+    const context = await createContext(browser, { width: 1440, height: 960 }, true, 'reduce', platform);
+    try {
+      const page = await context.newPage();
+      await page.goto(base + '#/chat');
+      await page.getByRole('textbox', { name: '输入问题' }).waitFor();
+      if (platform === 'windows' || platform === 'linux') {
+        await page.waitForFunction(() => window.qa.windowEvents.includes('tauri://close-requested'));
+        continue;
+      }
+      if (platform === 'macos') {
+        await page.getByRole('button', { name: '关闭窗口', exact: true }).waitFor({ state: 'hidden' });
+      } else {
+        await page.getByRole('alert').filter({ hasText: '窗口关闭监听不可用' }).waitFor();
+      }
+      const events = await page.evaluate(() => window.qa.windowEvents);
+      assert.ok(!events.includes('tauri://close-requested'), `${platform} registered a destructive window close listener`);
+    } finally { await context.close(); }
+  }
+  console.log('PASS close handler installed only on a confirmed Windows or Linux desktop');
+}
+
 async function checkDefaultOption(browser) {
   const globalModel = {...apiModel,is_default:true};
   const fixtures = [
@@ -59,6 +82,7 @@ async function checkDefaultOption(browser) {
 (async()=>{
  const browser=await chromium.launch({channel:process.env.QA_BROWSER || 'msedge',headless:true});
  try {
+  await checkDesktopCloseHandler(browser);
   await checkDefaultOption(browser);
   const context=await createContext(browser,{width:1440,height:960});
   await context.addInitScript(({localModel,apiModel,disabledModel})=>{
