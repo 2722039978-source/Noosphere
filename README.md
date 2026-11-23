@@ -6,7 +6,7 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 
 本地模型和云端 API 共用对话右下角的模型菜单。已经安装的本地引擎可以在应用里发现、启动和验证。配置好云端 API 后，也可以在当前会话中切过去。
 
-[下载稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [下载 1.0 候选版](https://github.com/2722039978-source/Noosphere/releases) · [更新记录](CHANGELOG.md) · [使用说明](LIMITATIONS.md) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md) · [反馈问题](https://github.com/2722039978-source/Noosphere/issues)
+[下载稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [下载 1.0 候选版](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0-rc.2) · [更新记录](CHANGELOG.md) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md) · [反馈问题](https://github.com/2722039978-source/Noosphere/issues)
 
 ## 用 Noosphere 做什么
 
@@ -33,7 +33,7 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 3. 从对话右下角选择模型。选中还没启动的本地模型时，可在弹窗中启动并验证。接入云端服务时，在「模型 → 高级管理 → 手动配置」填写连接信息，配置完成后从同一个模型菜单选择带「API」标识的模型。
 4. 直接提问，或点击回形针添加附件。先从「这个项目的入口在哪里」或「总结这份文档的要求」开始。
 
-稳定版发行页列出当前可下载的软件包和支持范围。1.0 候选发行页提供 Windows x64、Linux x64、macOS arm64 和 macOS x64 的预览包。两种 Mac 架构的候选包采用 ad-hoc 签名。macOS 用 ⌘O 打开项目、⌘Q 退出。关闭主窗口会隐藏工作台，点击 Dock 图标可恢复窗口。 [稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [1.0 候选版](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0-rc.2) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md)
+1.0 候选提供 Windows x64 的 NSIS 和 ZIP、Linux x64 的 AppImage 和 deb，以及两种 Mac 架构各自的应用归档和 DMG。Linux 的 AppImage 普通启动需要系统 FUSE 和图形运行库。两种 Mac 候选包采用 ad-hoc 签名。macOS 用 ⌘O 打开项目、⌘Q 退出。关闭主窗口后，可点 Dock 图标返回工作台。稳定版支持范围以发行页为准。 [发行与验收状态](CROSS_PLATFORM_ACCEPTANCE.md)
 
 ## 更多工具
 
@@ -48,13 +48,28 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 
 本地模型可使用已安装的 Ollama、LM Studio 或受支持的便携 llama.cpp 环境。安装包提供桌面程序和内置服务，模型权重通过对应引擎获取。云端对话可接入 DeepSeek、OpenAI、Claude、Gemini 和 OpenAI 兼容服务。使用云端模型时，对话和提供给模型的上下文会发送至所选 API。
 
-每条消息可添加 3 份附件，每份最多 200 MB。文本、代码和有文字层的 PDF 可以直接添加，图片和扫描 PDF 可先转成文字。模型协议、附件格式和测评任务集的详细说明见 [使用说明](LIMITATIONS.md)。
+模型选择依次使用会话绑定、工作区默认和全局默认。显式选择不可用时会报告原因，执行中的任务保留启动时的模型。DeepSeek、OpenAI、OpenAI 兼容服务和 Ollama 提供结构化工具适配，每个模型的对话和工具能力分别验证。应用只管理自己启动并拥有的模型进程。
+
+每条消息最多添加 3 份附件，每份不超过 200 MiB。每个会话的原件与索引合计上限为 640 MiB，应用总上限为 2 GiB。文本和代码支持 UTF-8、带 BOM 的 UTF-16 与 GB18030。PDF 提取最多 100 页的文字层和 1 MiB 文本，图片与扫描 PDF 可先在本机识别。模型收到与问题相关的文字节选，引用记有文件名、页码或行号以及来源哈希。移除草稿或删除对应会话会清理附件。
+
+CodeLens 的静态关系依赖解析和索引覆盖范围，文件变化后请更新索引。REA 当前可读取项目内文件的 PE 导入表和 Go 构建信息，文件上限 64 MiB。项目文件修改和结构化测试须逐项审批。目标文件或项目绑定变化时，受影响的提案需要重新审阅。应用恢复限于有记录的改动，后续外部编辑会保留冲突。项目测试以当前用户权限运行，可能产生文件及外部服务副作用。
+
+本地测评使用受支持的 Ollama、llama.cpp 或 Windows 上可选的 OpenVINO。报告记录模型、任务集、参数和实际观测，结果适用于该次测试条件。系统性能指标按平台支持范围显示，缺失的指标保留为未知。 [OpenVINO 接入](scripts/openvino/USAGE.txt) · [原有测评细目](https://github.com/2722039978-source/Noosphere/blob/v1.0.0-rc.2/LIMITATIONS.md#本地模型测评)
 
 ## 更新备份与恢复
 
 「设置 → 应用信息」显示当前应用数据目录。「设置 → 会话备份」可导出会话和已有文字节选。附件原件、工作区和任务库使用应用数据备份。升级前先导出会话 JSON，再退出应用并保留原数据目录和 WebView 用户资料。跨系统迁移时导入会话，重新绑定项目和模型，配置系统凭证并重建索引。旧审批只可回看。
 
-1.0 候选的「设置 → 软件更新」按安装方式、系统及架构选择正式更新包，校验大小和 SHA-256，并导出会话 JSON。退出应用后按提示运行 NSIS、安装 deb、用 Finder 替换应用，或将 AppImage、便携 ZIP 解包到自己的目录。旧版便携目录如有 `config.yaml`，先核对应用数据目录并备份，再迁移配置与数据，避免打开另一份空资料。快照与恢复步骤见 [使用说明](LIMITATIONS.md#构建数据与自动检查)。
+1.0 候选的「设置 → 软件更新」按安装方式、系统及架构选择更新包，校验大小和 SHA-256，并导出会话 JSON。退出应用后按提示安装或替换程序。旧版便携目录如有 `config.yaml`，先核对应用数据目录再迁移。
+
+应用退出后，可用交付包资源目录的 `bin/noosphere-backend`（Windows 为 `bin/noosphere-backend.exe`）生成快照或从快照恢复。用「应用信息」显示的实际数据目录填写绝对路径。
+
+```text
+noosphere-backend -config "<原应用数据目录>/config.yaml" -backup-data
+noosphere-backend -restore-data-from "<快照目录>" -restore-data-to "<尚不存在的新目录>"
+```
+
+快照保存配置、SQLite 及其伴随文件、附件原件和任务库。恢复先核对清单与 SHA-256，再写入新目录。可用 `NOOSPHERE_DATA_DIR` 指定恢复目录并核对数据。需要回到 v0.9.0 时使用升级前快照与对应的 WebView 资料或会话 JSON。API 凭证由 Windows Credential Manager、macOS Keychain 或 Linux Secret Service 管理。需要跨机重新授权时，可从保留的模型连接记录继续配置。
 
 ## 开发和构建
 
@@ -91,4 +106,13 @@ node scripts/desktop.mjs package linux-x64
 | [backend](backend) | Go 后端，负责模型调用、工作区、附件、任务和测评。 |
 | [backend/python/codelens](backend/python/codelens) | Python CodeLens 源码解析和索引。 |
 
-[桌面 CI](https://github.com/2722039978-source/Noosphere/actions) · [MIT License](LICENSE) · [第三方资源](LIMITATIONS.md#设计来源与第三方资源)
+[桌面 CI](https://github.com/2722039978-source/Noosphere/actions) · [MIT License](LICENSE)
+
+## 第三方资源
+
+Noosphere 的档案界面与三维场景参考并适配 RhineLabUI 的阵列、档案盒模型、材质、运动和灯光。RhineLabUI 的视觉参考来自《明日方舟》「莱茵生命：访问」终端。相关名称、标志、设定和设计的权利归各自权利人所有。 [RhineLabUI 上游](https://github.com/LBEILC/RhineLabUI) · [MIT 声明](frontend/public/assets/RhineLabUI-LICENSE.txt)
+
+- REA 及依赖的许可证随内置分析组件分发。 [REA 上游](https://github.com/morluto/rea)
+- 附件的 PDF 提取与文本解码。 [附件依赖许可](frontend/public/assets/Attachment-Dependencies-LICENSE.txt)
+- MiSans 字体。 [版权说明](frontend/public/fonts/NOTICE.txt) · [字体许可](frontend/public/fonts/MiSans-license.pdf)
+- 模型厂商图标。 [来源及商标](frontend/public/model-brands/NOTICE.txt) · [图标许可](frontend/public/model-brands/LICENSE.txt)
