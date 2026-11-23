@@ -14,9 +14,20 @@ cleanup() {
     kill "$compositor" 2>/dev/null || true
     wait "$compositor" 2>/dev/null || true
   fi
-  rm -rf -- "$scratch"
+  # A portal activated on the private D-Bus can still be unmounting its
+  # document FUSE filesystem after dbus-run-session returns.
+  for _ in {1..50}; do
+    if ! mountpoint -q "$scratch/runtime/doc" \
+      && rm -rf --one-file-system -- "$scratch" 2>/dev/null \
+      && [[ ! -e "$scratch" ]]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  printf 'The temporary Wayland session did not release %s\n' "$scratch" >&2
+  return 1
 }
-trap cleanup EXIT
+trap 'status=$?; cleanup || exit 1; exit "$status"' EXIT
 export XDG_RUNTIME_DIR="$scratch/runtime" WAYLAND_DISPLAY=noosphere-ci-wayland
 export XDG_CONFIG_HOME="$scratch/config" XDG_DATA_HOME="$scratch/data" XDG_CACHE_HOME="$scratch/cache"
 install -d -m 700 "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
