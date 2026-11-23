@@ -1,0 +1,67 @@
+name: macOS data upgrade from Noosphere 0.9.0
+
+on:
+  push:
+    branches: [develop/noosphere-macos-upgrade-evidence]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  native-upgrade:
+    name: Upgrade and restore ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-26
+            arch: ARM64
+            preview_run: 45241333984
+            preview_sha256: 5a3a55de21ac965789cdf4895f2178c6890412ff6613fccbb5cd840188d0b877
+          - target: macos-x64
+            runner: macos-15-intel
+            arch: X64
+            preview_run: 45232545703
+            preview_sha256: ce2624e61ed8e098c8d847d1abc4c29521d4f0e3f29c4efc802e42e0091396ab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: noosphere-${{ matrix.target }}
+          github-token: ${{ github.token }}
+          run-id: 44788436392
+          path: ${{ runner.temp }}/v090-archive
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: noosphere-${{ matrix.target }}
+          github-token: ${{ github.token }}
+          run-id: ${{ matrix.preview_run }}
+          path: ${{ runner.temp }}/numeric-preview-archive
+      - name: Upgrade a data store from the actual 0.9.0 backend and restore the snapshot
+        env:
+          TARGET: ${{ matrix.target }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          CANDIDATE_SHA256: ${{ matrix.preview_sha256 }}
+          NOOSPHERE_UPGRADE_SIMULATE_FAILURE: '1'
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = macOS
+          test "$RUNNER_ARCH" = "$EXPECTED_ARCH"
+          sw_vers
+          mkdir "$RUNNER_TEMP/noosphere-macos-upgrade"
+          python scripts/verify-macos-package-data-upgrade.py "$RUNNER_TEMP/v090-archive" "$RUNNER_TEMP/numeric-preview-archive" \
+            "$RUNNER_TEMP/noosphere-macos-upgrade" "$TARGET" "$CANDIDATE_SHA256" | tee "$RUNNER_TEMP/noosphere-macos-upgrade/upgrade.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: upgrade-log-${{ matrix.target }}
+          path: ${{ runner.temp }}/noosphere-macos-upgrade/upgrade.log
+          if-no-files-found: error
