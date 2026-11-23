@@ -9,14 +9,45 @@
 | 状态 | 工作与涉及模块 | 当前证据、依赖及验收条件 |
 | --- | --- | --- |
 | 已完成 | 0.9.0 基线、目标与历史资产核对 | [主干 CI](https://github.com/2722039978-source/Noosphere/actions/runs/44781864724) 和 [标签 CI](https://github.com/2722039978-source/Noosphere/actions/runs/44788436392) 成功。标签 CI 四目标及汇总通过。公开资产包含 Windows x64、Linux x64、macOS arm64，Intel x64 没有公开资产。Linux、Apple Silicon 是预览。 [0.9.0 发行记录](https://github.com/2722039978-source/Noosphere/releases/tag/v0.9.0) |
-| 待验证 | 首启、连接向导、模型选择与能力。Gateway、工作区模型绑定、桌面引擎 | 现有选择回归和 Provider fixture 可作起点。验证首次生成、A→B→A、工作区及会话隔离、配置编辑和执行中的模型固定。每目标补真实云、本地模型及结构化工具调用证据。 |
-| 待验证 | 附件、项目索引、来源、记忆。Workspaces、Attachment、CodeLens、对话与知识界面 | 已有文本/PDF 提取、配额、索引、来源版本和记忆确认。核对取消、重试、片段实际发送、过期引用、上下文隔离及编辑来源。 |
-| 待实施 | 项目任务、审批、冲突与取消。Agent、Workspaces、任务和审批界面 | 沿用现有任务与操作记录，核对任务状态和授权绑定。使用真实小项目覆盖成功、取消、失败、外部编辑、重启、继续与恢复。 |
-| 待实施 | 数据准备、备份恢复与更新。SQLite、附件文件、桌面数据目录、更新器 | 隔离生成 0.9.0 数据并验证升级、原件保留、备份及恢复。系统凭证失败保留原数据。迁移后重新绑定路径、凭证、模型及索引，审批按新安装重新确认。 |
+| 已完成 | 模型连接、绑定和配置冻结的源码整改与自动回归。Gateway、Providers、Workspaces | 模拟 IPC、Provider HTTP 和 Go 测试覆盖 A→B→A、会话及工作区默认、显式停用、入队后编辑连接、协议参数与凭证错误。Windows 的现有本地 OpenVINO 可真实生成。每目标的真实云与真实模型工具见下方矩阵。 |
+| 已完成 | 文本附件版本核对、索引与来源提示。Attachment、Workspaces、CodeLens、对话界面 | 用等长正文替换回归核对原件 SHA-256。模拟 IPC 覆盖项目及记忆来源。Linux 和 macOS 的拖放、输入、原生目录选择仍待目标机。 |
+| 已完成 | 项目任务、审批、测试与恢复的源码整改及 Windows 后端集成。Agent、Workspaces、任务界面 | 10/10 通过，真实 Python 项目测试和文件恢复使用模拟 Provider 的结构化工具请求。覆盖取消、重启、会话与项目绑定失效、冲突以及单次审批。真实模型的工具往返待验证。 |
+| 已完成 | 后端数据升级、离线备份和隔离恢复。SQLite、附件文件、备份入口 | 公开 v0.9.0 后端写入真实 SQLite/WAL 与附件，RC 读取并生成快照。阻挡 SQLite 写入时，升级拒绝就绪，保留旧版本与原快照。解除锁后复用快照重试成功，v0.9.0 可读取恢复目录。证据在 `test/release-1.0/data-upgrade-final-backend.log` 和 `data-upgrade-retry.log`。 |
 | 待验证 | 私有运行时、窗口交互和生命周期。桌面 Rust、Go 后端、Python/Node、桌面验证脚本 | 四目标验证搬迁、离线启动、解析、服务异常与进程归属。目标包验证目录选择、输入法、键盘、拖放、剪贴板及显示设置。 |
 | 阻塞 | 1.0 原生签名与部分业务复验。四目标包、CI、签名环境 | 当前宿主为 Windows x64。Linux、两种 Mac 架构仍需原生桌面与目标版本；Mac 正式分发需要获授权的 Developer ID 及公证。候选的源码、包哈希和测试证据需独立生成。 |
 
 按模型与数据边界、审批与项目流程、源码回归、候选打包、最终包原生验收推进。签名后的实际文件参与最终验收及哈希记录。历史检查见下文。
+
+### 1.0.0-rc.1 的当前证据
+
+Windows 候选包从干净检出 `1e11ff985ad5443b8e77946894afda87d9c240a3` 构建。后续提交增加 macOS 版本字段和 Linux 许可正文处理。四目标的下一次汇总需要从同一份源码构建四个目标。保留本次 Windows 包的原始提交、哈希及验收记录。
+
+| 目标 | 已取得的 1.0 证据 | 待验证与阻塞 |
+| --- | --- | --- |
+| Windows x64 | NSIS 和完整 ZIP 已生成。已验证包内外构建信息及最终 SHA-256。Windows 11 x64、WebView2 157.0.4341.60 下的搬迁 ZIP 通过 7 组原生检查。私有 Python 3.14.7 解析 7 种源码类型，Node 24.22.2 与 REA 6.8.0 在移除宿主解释器搜索路径后运行。公开 v0.9.0 到该 ZIP 的 WebView 会话及项目数据升级通过，v0.9.0 从隔离恢复目录回看通过。 | 当前用户有已有 Noosphere 数据。NSIS 安装与就地升级脚本须在干净标准用户环境运行。高 DPI、真实输入法和剪贴板仍需人工复验。安装器 Authenticode 为 `NotSigned`。 |
+| Linux x64 | Go 服务及进程管理回归交叉编译通过。已准备 AppImage 与 deb 的 Unicode 路径、离线、崩溃、候选版本排序和许可校验。 | 缺原生 Ubuntu x64 环境。本轮包、X11/Wayland、Secret Service、安装升级和真实模型待验证。 |
+| macOS arm64 | Go 服务及进程管理回归交叉编译通过。已准备预览归档、DMG、数字 plist 版本、公证和最终 DMG 安装复验。 | 缺 Apple Silicon 原生环境及受授权签名和公证配置。本轮包、Keychain、Dock/Cmd+O/Q、13.5 候选下限、升级和真实模型待验证。 |
+| macOS x64 | Go 服务及进程管理回归交叉编译通过。使用独立 Intel 原生目标与包名。 | 缺 Intel Mac 原生环境及受授权签名和公证配置。同样需要独立的成品、Keychain、交互、最低系统、升级和真实 CPU 模型运行记录。 |
+
+Windows 最终候选文件在 `artifacts/1.0.0-rc.1/`。构建指纹为 `72227065f17b4679123feb71c054e38af41d34d7248788ac249ebcbb5ad3c765`。
+
+| 文件 | 字节 | SHA-256 |
+| --- | ---: | --- |
+| `Noosphere-1.0.0-rc.1-windows-x64-setup.exe` | 379892358 | `117cc6d3cf2edcd34b7b593e595d59a5af70568f2064d432926163d170ce1335` |
+| `Noosphere-1.0.0-rc.1-windows-x64.zip` | 124461818 | `a1085322c4d407b623d2a94a5131b985d83ebad56abe74bdcebd9774e93e4c35` |
+| `build-info.json` | 3533 | `089b7b5e7449c543dbddc3bbd3e0968d81ca4f5f75c6120a1196bf66312178cc` |
+
+源码与模拟验证通过 Go 全量测试及 `go vet`、52 项 Rust 单元测试（1 项可选集成未运行）、28 项前端单元测试、4 组模拟 IPC 浏览器流程和 4 项发行脚本回归。候选后端 SHA-256 `dd6ba6f918b5912c44425593c6e5f03452b2c4d9478c064789379aabe8597793` 与 ZIP 内一致，10/10 Agent 回归含真实 Python 测试。日志在 `test/release-1.0/` 的 `go-test.log`、`rust-tests.log`、`candidate-frontend-tests.log`、`candidate-agent-test.log`、`windows-package.log` 和 `windows-native-webview.log`。
+
+同一 ZIP 在 Windows 原生 WebView2 中通过 900×600、模拟 2× 像素比、低动效、中文文本、输入法组合期间 Enter 防误发送和 Shift+Enter 换行。证据见 `windows-motion-scale.log`。Windows 系统级缩放、实际输入法及与其他应用的剪贴板仍需独立桌面验收。
+
+`desktop-upgrade-final.log` 记录公开 v0.9.0 写入真实 WebView2 对话、原始附件和记忆后，用候选 ZIP 替换程序并读取原资料的结果。同系统的会话 JSON 导入也生成独立工作区，旧项目绑定、模型标识和审批授权留在原记录。用 v0.9.0 程序打开恢复的新目录与备份的 WebView 资料，原对话和项目记录可回看。一次退出后立即运行的备份命令返回错误，当时未捕获标准错误。手动重试成功，补齐日志后三次复验通过（`data-upgrade-exact-backend*.log`）。
+
+| 平台、引擎和模型 | 协议 | 模型和任务验收 |
+| --- | --- | --- |
+| Windows x64，OpenVINO GenAI 2026.4.1.0 CPU，Qwen3-0.6B-int4-ov | 本机 OpenAI 兼容 Chat Completions | 候选 ZIP 的原生界面打开 Unicode 项目、发现并验证外部服务、保存默认模型，发送中文问题并收到真实回答。候选后端另通过流式响应。退出桌面时外部服务继续运行。真实工具往返待验证。证据在 `.local/model-canary/windows-openvino-zip-webview2-canary.json` 和 `windows-openvino-package-canary.json`。 |
+| Windows x64，DeepSeek `deepseek-v4-pro` 与 `deepseek-flash` | HTTPS OpenAI 兼容连接探测 | 两次真实请求由上游返回 HTTP 401。需可用的授权凭证确认生成和工具往返。 |
+| Linux x64、macOS arm64、macOS x64 | 云端及本地各选实际引擎 | 1.0 候选未测试。 |
 
 ### 1.0 原生交接
 
@@ -92,7 +123,7 @@ Unix 包输出到 `artifacts/<版本>/<目标>/`。用 `node scripts/desktop.mjs
 
 项目测试使用项目之外、由用户安装并信任的 Go、Python 或 Node，通过批准记录执行固定参数数组。自定义工具链的绝对路径可通过 `NOOSPHERE_TEST_GO`、`NOOSPHERE_TEST_PYTHON`、`NOOSPHERE_TEST_NODE` 显式指定。进程回收覆盖正常进程组。被批准的测试代码可写外部文件或访问外部服务。现有文件内容在原子替换前复核，复核与替换之间仍存在外部程序并发编辑窗口，新建文件采用原子不覆盖机制。受限 Go 编程测评在 Linux/macOS 保持关闭，等价编译与执行约束待实施。
 
-## 当前工作区与本地证据
+## 0.8.0 至 0.9.0 的候选历史证据
 
 跨平台首轮是在 `255e1af95c18ae84d212e831942a33440a43ec38` 的开发工作区验证的。本轮 `0.9.0` 候选基于 `main / v0.8.1 / 057ab0e100a581b59d99861403738f9520447182` 整合。下方 `0.8.0` 产物仅记录首轮证据。
 
