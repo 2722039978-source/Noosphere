@@ -14,9 +14,13 @@ const names = packageNames(target);
 const offline = mode === '--linux-netns';
 const installed = mode === '--linux-installed';
 const wayland = mode === '--linux-wayland';
+const appImageFuse = mode === '--linux-appimage-fuse';
 const uid = offline ? Number(firstOption) : process.getuid();
 const gid = offline ? Number(secondOption) : process.getgid();
-if (mode && !offline && !installed && !wayland) throw new Error('Unknown native verification mode');
+if (mode && !offline && !installed && !wayland && !appImageFuse) throw new Error('Unknown native verification mode');
+if (appImageFuse && (target.os !== 'linux' || !process.env.DISPLAY || process.env.APPIMAGE_EXTRACT_AND_RUN)) {
+  throw new Error('The AppImage FUSE check requires Linux X11 with regular AppImage execution');
+}
 if (wayland && (target.os !== 'linux' || process.env.DISPLAY || process.env.GDK_BACKEND !== 'wayland'
   || !process.env.WAYLAND_DISPLAY || !process.env.XDG_RUNTIME_DIR)) {
   throw new Error('Wayland verification requires a Linux compositor and Wayland-only GTK session');
@@ -52,7 +56,7 @@ function processNamed(entry, name) {
 }
 
 async function smoke(label, executable, cwd, state, {
-  overrides = {}, hardExit = false, data = join(state, 'user data'), backendVersion,
+  overrides = {}, hardExit = false, data = join(state, 'user data'), backendVersion, verifyFuse = false,
 } = {}) {
   await mkdir(data, { recursive: true });
   await chown(data, uid, gid);
@@ -111,6 +115,19 @@ async function smoke(label, executable, cwd, state, {
     if (!owned.some(entry => processNamed(entry, 'noosphere-backend'))
       || !owned.some(entry => /^python3(?:\.\d+)?$/.test(basename(entry.executable)))) {
       throw new Error(label + ' did not start the expected private backend and CodeLens process tree');
+    }
+    if (verifyFuse) {
+      const app = owned.find(entry => processNamed(entry, 'noosphere-desktop'));
+      if (!app) throw new Error(label + ' lacks the mounted desktop process');
+      const program = await realpath('/proc/' + app.pid + '/exe');
+      const mountInfo = await readFile('/proc/' + app.pid + '/mountinfo', 'utf8');
+      const mountedFromFuse = mountInfo.split('\n').some(line => {
+        const [mount, device] = line.split(' - ');
+        const point = mount.split(' ')[4]?.replace(/\\([0-7]{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
+        return point && device?.startsWith('fuse') && program.startsWith(point + '/');
+      });
+      if (!mountedFromFuse) throw new Error(label + ' did not boot the desktop from a real FUSE mount');
+      console.log(label + ': desktop executable is inside a kernel FUSE mount');
     }
     if (hardExit) {
       if (!child.kill('SIGKILL') || await Promise.race([exited, delay(10_000, false)]) === false) {
@@ -195,14 +212,16 @@ try {
     await smoke('Installed deb ' + secondOption, '/usr/bin/noosphere-desktop', scratch,
       await stateDir(scratch, 'installed state'), { data: firstOption, backendVersion: secondOption });
   } else if (target.os === 'linux') {
-    const deb = await stateDir(scratch, 'relocated deb 搬迁');
-    run('dpkg-deb', ['--extract', join(packages, names.deb), deb]);
-    await smoke('Relocated deb', join(deb, 'usr/bin/noosphere-desktop'), deb, await stateDir(scratch, 'deb state'));
-    await smoke('Relocated deb hard exit', join(deb, 'usr/bin/noosphere-desktop'), deb,
-      await stateDir(scratch, 'deb crash state'), { hardExit: true });
+    if (!appImageFuse) {
+      const deb = await stateDir(scratch, 'relocated deb 搬迁');
+      run('dpkg-deb', ['--extract', join(packages, names.deb), deb]);
+      await smoke('Relocated deb', join(deb, 'usr/bin/noosphere-desktop'), deb, await stateDir(scratch, 'deb state'));
+      await smoke('Relocated deb hard exit', join(deb, 'usr/bin/noosphere-desktop'), deb,
+        await stateDir(scratch, 'deb crash state'), { hardExit: true });
+    }
     // AppImage bootstrap may use filesystem helpers. Its PATH contains neither a host Node nor a host Python.
     const utilityPath = await stateDir(scratch, 'appimage utilities');
-    for (const command of ['awk', 'basename', 'bash', 'cat', 'cut', 'dirname', 'env', 'find', 'grep', 'head', 'ln', 'locale',
+    for (const command of ['awk', 'basename', 'bash', 'cat', 'cut', 'dirname', 'env', 'find', 'fusermount', 'fusermount3', 'grep', 'head', 'ln', 'locale',
       'ls', 'mkdir', 'mktemp', 'printenv', 'readlink', 'realpath', 'rm', 'sed', 'sh', 'sort', 'stat', 'tail', 'tr', 'uname', 'which']) {
       const system = join('/usr/bin', command);
       if (await exists(system)) await symlink(system, join(utilityPath, command));
@@ -210,8 +229,10 @@ try {
     const image = await stateDir(scratch, 'relocated appimage 搬迁');
     const imageFile = join(image, names.appimage);
     run('cp', ['-p', join(packages, names.appimage), imageFile]);
-    await smoke('Final AppImage (extract-and-run)', imageFile, image, await stateDir(scratch, 'image state'), {
-      overrides: { APPIMAGE_EXTRACT_AND_RUN: '1', PATH: utilityPath },
+    const appImageLabel = appImageFuse ? 'AppImage (native FUSE)' : 'Final AppImage (extract-and-run)';
+    await smoke(appImageLabel, imageFile, image, await stateDir(scratch, 'image state'), {
+      overrides: appImageFuse ? { PATH: utilityPath } : { APPIMAGE_EXTRACT_AND_RUN: '1', PATH: utilityPath },
+      verifyFuse: appImageFuse,
     });
   } else {
     const archive = await stateDir(scratch, 'archive extraction');

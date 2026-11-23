@@ -1,0 +1,41 @@
+name: Native AppImage FUSE preview verification
+
+on:
+  push:
+    branches: [develop/noosphere-appimage-fuse-evidence]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  appimage-fuse:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: noosphere-linux-x64
+          github-token: ${{ github.token }}
+          run-id: 45232545703
+          path: ${{ runner.temp }}/native-appimage-preview
+      - name: Boot the untouched AppImage through FUSE under X11
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfuse2 fuse3 xvfb xauth dbus-x11
+          if ! test -c /dev/fuse; then sudo modprobe fuse; fi
+          test -c /dev/fuse && test -r /dev/fuse && test -w /dev/fuse
+          manifest="$(find "$RUNNER_TEMP/native-appimage-preview" -name build-info.json -type f)"
+          packages="$(dirname "$manifest")"
+          jq -e '.version == "1.0.0" and .target == "linux-x64" and .source_revision == "564ad1f93549b0a05d4cdfa6f19e5bbddfd6d5a0" and .source_dirty == false' "$manifest"
+          printf '%s  %s\n' 53ac848d4df4dd87cfe55080f195c6e7d16ea7b0cc764909ff2ef40173cc5421 \
+            "$packages/Noosphere-1.0.0-linux-x64.AppImage" | sha256sum --strict --check -
+          chmod 0755 "$packages/Noosphere-1.0.0-linux-x64.AppImage"
+          xvfb-run -a dbus-run-session -- node scripts/verify-native-unix.mjs "$packages" --linux-appimage-fuse
