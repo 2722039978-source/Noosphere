@@ -2,7 +2,7 @@
 
 ## 平台与模型接入
 
-当前稳定下载为 Windows x64 的 v0.9.0。已公开的 1.0 候选版覆盖 Windows x64、Linux x64、macOS arm64 和 macOS x64。两种 Mac 的包均为 ad-hoc 预览。Windows/Linux ARM64、macOS universal、RPM、Flatpak/Snap、商店版和 Lite 未纳入本轮交付。 [四目标预览包](https://github.com/2722039978-source/Noosphere/releases) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md)
+正式支持及下载以稳定版发行说明为准。已公开的 1.0 候选版覆盖 Windows x64、Linux x64、macOS arm64 和 macOS x64。候选版的两种 Mac 包均采用 ad-hoc 签名。Windows/Linux ARM64、macOS universal、RPM、Flatpak/Snap、商店版和 Lite 未纳入本轮交付。 [稳定版发行说明](https://github.com/2722039978-source/Noosphere/releases/latest) · [四目标预览包](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0-rc.2) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md)
 
 模型可以运行在本机服务中，也可以通过 API 接入。使用远程 Provider 时，对话、附件及提供给模型的项目上下文会发送到对应服务。源码和便携包均不附带模型权重。
 
