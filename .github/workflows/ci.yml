@@ -142,7 +142,7 @@ jobs:
             arch: X64
             abi: jammy-glibc235
           - target: macos-arm64
-            runner: macos-15
+            runner: macos-26
             os: macOS
             arch: ARM64
             abi: darwin-13.5

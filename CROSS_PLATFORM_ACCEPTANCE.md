@@ -14,9 +14,22 @@
 | 已完成 | 项目任务、审批、测试与恢复的源码整改及 Windows 后端集成。Agent、Workspaces、任务界面 | 10/10 通过，真实 Python 项目测试和文件恢复使用模拟 Provider 的结构化工具请求。覆盖取消、重启、会话与项目绑定失效、冲突以及单次审批。另有 1.0 候选后端与真实本地模型的只读工具往返证据。 |
 | 已完成 | 后端数据升级、离线备份和隔离恢复。SQLite、附件文件、备份入口 | 公开 v0.9.0 后端写入真实 SQLite/WAL 与附件，RC 读取并生成快照。阻挡 SQLite 写入时，升级拒绝就绪，保留旧版本与原快照。解除锁后复用快照重试成功，v0.9.0 可读取恢复目录。证据在 `test/release-1.0/data-upgrade-final-backend.log` 和 `data-upgrade-retry.log`。 |
 | 待验证 | 私有运行时、窗口交互和生命周期。桌面 Rust、Go 后端、Python/Node、桌面验证脚本 | 四目标验证搬迁、离线启动、解析、服务异常与进程归属。目标包验证目录选择、输入法、键盘、拖放、剪贴板及显示设置。 |
-| 阻塞 | 1.0 原生签名与部分业务复验。四目标包、CI、签名环境 | 当前宿主为 Windows x64。Linux、两种 Mac 架构仍需原生桌面与目标版本；Mac 正式分发需要获授权的 Developer ID 及公证。候选的源码、包哈希和测试证据需独立生成。 |
+| 阻塞 | 正式包签名、公证与最终业务验收。四目标包、CI、签名环境 | 已取得下方各版本的原生候选证据。正式包需要获授权的 Apple Developer ID、公证配置及成品复验。四目标的实际云端连接仍需能成功响应的授权服务。 |
 
 按模型与数据边界、审批与项目流程、源码回归、候选打包、最终包原生验收推进。签名后的实际文件参与最终验收及哈希记录。历史检查见下文。
+
+### 数值版本 1.0.0 的预览验收
+
+以下预览验收从提交 `564ad1f93549b0a05d4cdfa6f19e5bbddfd6d5a0`、源码树 `47eed7d21151c407605f617585ca5e73eb7c3ebf` 生成。包与日志保存在 Actions，公开下载仍为 rc.2。签名后的正式包需要独立哈希及验收。 [预览构建](https://github.com/2722039978-source/Noosphere/actions/runs/45232545703) · [正式源码 PR](https://github.com/2722039978-source/Noosphere/pull/9)
+
+| 目标 | 实际预览包证据 |
+| --- | --- |
+| Windows x64 | NSIS 通过公开 0.9.0 原位升级、卸载与重装。便携 ZIP 在 Unicode 路径的 WebView2 中连接真实 OpenVINO CPU 模型并获得回答。用公开 0.9.0 后端创建的工作区、模型、约定、任务与附件验证升级、阻挡写入及隔离恢复。ZIP 的 SHA-256 为 `fc18629249d4dff39da3131b3527b893461e403d239527b283f9f12d40b2fa9b`。本地证据保存于 `test/release-1.0/windows-1.0.0-preview-upgrade/` 和 `.local/model-canary/`。 [Windows 包与日志](https://github.com/2722039978-source/Noosphere/actions/runs/45232545703/job/137895851301) |
+| Linux x64 | Ubuntu 22.04 的 deb 通过 0.9.0 真实安装升级和合成凭证重启读回。deb 与 AppImage 通过搬迁、X11 离线启动和纯 Weston Wayland 窗口及缓冲区检查。AppImage 以 extract-and-run 启动。AppImage 与 deb 的 SHA-256 依次为 `53ac848d4df4dd87cfe55080f195c6e7d16ea7b0cc764909ff2ef40173cc5421` 与 `371faa5a62eb0ba84f3796a93e5f6d30c82c40efd8267f1d5d4d24aaace70deb`。 [Linux 包与日志](https://github.com/2722039978-source/Noosphere/actions/runs/45232545703/job/137895851881) |
+| macOS x64 | Intel 原生 `.app` 归档与 DMG 通过搬迁启动、私有运行时和进程清理。独立系统 Keychain 通过合成凭证保存、重启读回及锁定后保留密文。该次构建使用 ad-hoc 签名。 [Intel Mac 包与日志](https://github.com/2722039978-source/Noosphere/actions/runs/45232545703/job/137895851698) |
+| macOS arm64 | `macos-15` 两次在分配 runner 前取消。同一源码另在 `macos-26` Apple Silicon 上运行原生预览验证。两种 runner 记录分别保留。 [原队列](https://github.com/2722039978-source/Noosphere/actions/runs/45232545703) · [Apple Silicon 补充运行](https://github.com/2722039978-source/Noosphere/actions/runs/45241333984) |
+
+工作流的 Apple Silicon 构建使用 `macos-26`，目标架构为 arm64。macOS 13.5 仍是待在目标设备复验的最低系统候选。此前的 `macos-15` 原生记录保留在对应的历史版本下。
 
 ### 已公开的 1.0.0-rc.2
 
@@ -44,13 +57,15 @@ Windows x64 的同一候选 ZIP 内后端（SHA-256 `540e79abfa34cafa3d48b2b129a
 
 同一后端和模型在隔离 Git 项目另通过修改及验证。Bonsai 读取 `label.js` 并提出文件改动与 Node 测试。验收核对前后哈希和 NTFS 文件身份，确认未批准时文件未变。同任务测试提前批准与重复批准均返回 HTTP 409。批准后读取到实际修改，随后独立批准 `node --test`，运行退出码 `0` 且断言通过。首次使用 `.cjs` 作为读取目标时超出本次 Agent 支持的源文件范围，未执行操作。两次证据分别在 `.local/model-canary/windows-bonsai-reviewed-actions-45178383595-attempt2/` 和 `.local/model-canary/windows-bonsai-reviewed-actions-45178383595/`。
 
-### 正式签名输入
+### 正式签名与发行
 
 GitHub Actions 的 `desktop-release-signing` 环境允许从正式目标标签 `v1.0.0` 执行签名作业。发布负责人在该环境的 Secrets 中配置 `APPLE_CERTIFICATE`（以 Base64 编码的 Developer ID Application `.p12`）、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_ID`、`APPLE_PASSWORD`（公证用的 app 专用密码）和 `APPLE_TEAM_ID`。签名脚本在临时 Keychain 使用这些值，作业结束后清理。 [签名环境设置](https://github.com/2722039978-source/Noosphere/settings/environments/28270863494/edit)
 
 数值版 `VERSION` 与 `v1.0.0` 标签一致时，从该标签运行 Desktop delivery，启用 `formal`，也可运行 `gh workflow run ci.yml --ref v1.0.0 -f formal=true`。正式四目标汇总要求两种 Mac 的 Developer ID 签名、公证和 stapling 证据。下载工作流的 `noosphere-four-target-candidate` 产物，原生业务复验使用其中的实际包和 `SHA256SUMS.txt`。 [GitHub Actions](https://github.com/2722039978-source/Noosphere/actions/workflows/ci.yml)
 
 公证上传后查看 CI 日志中的提交 ID。等待超时或收到拒绝时，发布负责人可通过已授权的 `notarytool` 配置用 `xcrun notarytool info <提交ID> --keychain-profile <配置名>` 核对状态，必要时以 `xcrun notarytool log <提交ID> --keychain-profile <配置名>` 查看拒绝原因。应用和 DMG 都要获得 `Accepted` 并通过 stapling 校验。
+
+签名工作流完成后，用 `gh run download <运行ID> -n noosphere-four-target-candidate -D <成品目录>` 下载汇总产物。核对 `delivery-info.json` 的 `formal-packaging`、标签、源码树和四目标构建提交，再对 `SHA256SUMS.txt` 中列出的每个实际文件计算 SHA-256。按下方原生交接复验并在 `test/release-1.0/v1.0.0/<目标>/` 保存系统、测试结果、包哈希和日志。对通过验收的文件创建发行草稿，并核对 GitHub 资产列表中的名称、大小和摘要。草稿中的四目标文件与验收记录对应后再公开，最后确认 `/releases/latest`、预期标签与下载资产。
 
 ### 本地 Windows 候选历史证据
 
@@ -81,7 +96,8 @@ Windows 最终候选文件在 `artifacts/1.0.0-rc.1/`。构建指纹为 `7222706
 | --- | --- | --- |
 | Windows x64，OpenVINO GenAI 2026.4.1.0 CPU，Qwen3-0.6B-int4-ov | 本机 OpenAI 兼容 Chat Completions | 候选 ZIP 的原生界面打开 Unicode 项目、发现并验证外部服务、保存默认模型，发送中文问题并收到真实回答。候选后端另通过流式响应。退出桌面时外部服务继续运行。真实工具往返待验证。证据在 `.local/model-canary/windows-openvino-zip-webview2-canary.json` 和 `windows-openvino-package-canary.json`。 |
 | Windows x64，DeepSeek `deepseek-v4-pro` 与 `deepseek-flash` | HTTPS OpenAI 兼容连接探测 | 两次真实请求由上游返回 HTTP 401。需可用的授权凭证确认生成和工具往返。 |
-| Linux x64、macOS arm64、macOS x64 | 云端及本地各选实际引擎 | 1.0 候选未测试。 |
+| Linux x64、macOS arm64、macOS x64，llama.cpp b12359 CPU，SmolLM2-135M-Instruct Q4_K_M | 本机 OpenAI 兼容 Chat Completions | 公开 rc.2 的三个原生包内后端通过真实连接、生成及会话绑定。在各平台跟踪的包来自公开发行并事先验证 SHA-256。桌面交互、此模型的工具能力及签名后的包仍待复验。 [三目标真实模型日志](https://github.com/2722039978-source/Noosphere/actions/runs/45233010357) |
+| Linux x64、macOS arm64、macOS x64，云端 | 授权服务的 HTTPS API | 待验证。使用现有接入方式配置可用的测试凭证，在原生桌面保存连接并核对真实对话和所支持的工具往返。 |
 
 ### 1.0 原生交接
 
