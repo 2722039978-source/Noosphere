@@ -1,0 +1,151 @@
+name: Real hosted inference from Noosphere 1.0 previews
+
+on:
+  push:
+    branches: [develop/noosphere-cloud-release-evidence]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  cloud-model:
+    name: Ephemeral authenticated inference origin
+    runs-on: ubuntu-22.04
+    environment: desktop-cloud-canary
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Download the pinned CPU engine, weights and temporary HTTPS transport
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/noosphere-cloud-origin"
+          mkdir -p "$scratch/engine"
+          cd "$scratch"
+          fetch() {
+            curl --fail --location --silent --show-error --retry 2 --connect-timeout 20 --max-time 150 --output "$2" "$1"
+            printf '%s  %s\n' "$3" "$2" | sha256sum -c
+          }
+          engine=llama-b12359-bin-ubuntu-x64.tar.gz
+          fetch "https://github.com/ggml-org/llama.cpp/releases/download/b12359/$engine" "$engine" \
+            0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e
+          weights=SmolLM2-135M-Instruct-Q4_K_M.gguf
+          model=https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/c6f2d396a5faa22c9722908d47e8da81a5d8cebc
+          fetch "$model/$weights" "$weights" 2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d
+          fetch https://github.com/cloudflare/cloudflared/releases/download/2026.11.1/cloudflared-linux-amd64 cloudflared \
+            97bb3b02d23a5980fc9c15a1a270e692da1923f103f920d5b16d4931d5ab55e7
+          chmod 700 cloudflared
+          tar -xzf "$engine" -C engine
+      - name: Launch the bounded test-only model and publish its endpoint
+        env:
+          CLOUD_CANARY_KEY: ${{ secrets.CLOUD_CANARY_KEY }}
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/noosphere-cloud-origin"
+          server="$(find "$scratch/engine" -type f -name llama-server)"
+          test -x "$server"
+          python3 scripts/verify-native-cloud-canary.py serve "$scratch" "$server" \
+            "$scratch/SmolLM2-135M-Instruct-Q4_K_M.gguf" "$scratch/cloudflared" \
+            </dev/null >"$scratch/host.log" 2>&1 &
+          pid=$!
+          printf '%s\n' "$pid" > "$scratch/host.pid"
+          for _ in {1..150}; do
+            if [[ -s "$scratch/endpoint.txt" ]]; then exit 0; fi
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          cat "$scratch/host.log"
+          exit 1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cloud-canary-endpoint
+          path: ${{ runner.temp }}/noosphere-cloud-origin/endpoint.txt
+          if-no-files-found: error
+          retention-days: 1
+      - name: Verify that the remote CPU model completed the four requests
+        run: |
+          scratch="$RUNNER_TEMP/noosphere-cloud-origin"
+          pid="$(cat "$scratch/host.pid")"
+          for _ in {1..145}; do
+            if [[ -f "$scratch/done" ]]; then cat "$scratch/host.log"; exit 0; fi
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 10
+          done
+          cat "$scratch/host.log"
+          exit 1
+
+  native-client:
+    name: HTTPS model ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    environment: desktop-cloud-canary
+    timeout-minutes: 24
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            runner: windows-2025
+            arch: X64
+            source_run: 45232545703
+            suffix: zip
+            sha256: fc18629249d4dff39da3131b3527b893461e403d239527b283f9f12d40b2fa9b
+          - target: linux-x64
+            runner: ubuntu-22.04
+            arch: X64
+            source_run: 45232545703
+            suffix: deb
+            sha256: 371faa5a62eb0ba84f3796a93e5f6d30c82c40efd8267f1d5d4d24aaace70deb
+          - target: macos-x64
+            runner: macos-15-intel
+            arch: X64
+            source_run: 45232545703
+            suffix: app.tar.gz
+            sha256: ce2624e61ed8e098c8d847d1abc4c29521d4f0e3f29c4efc802e42e0091396ab
+          - target: macos-arm64
+            runner: macos-26
+            arch: ARM64
+            source_run: 45241333984
+            suffix: app.tar.gz
+            sha256: 5a3a55de21ac965789cdf4895f2178c6890412ff6613fccbb5cd840188d0b877
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version-file: .python-version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: noosphere-${{ matrix.target }}
+          github-token: ${{ github.token }}
+          run-id: ${{ matrix.source_run }}
+          path: ${{ runner.temp }}/noosphere-preview-client
+      - name: Wait for the controlled HTTPS test origin
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in {1..88}; do
+            if gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -n cloud-canary-endpoint --dir "$RUNNER_TEMP/noosphere-client-origin" >/dev/null 2>&1; then
+              test -s "$RUNNER_TEMP/noosphere-client-origin/endpoint.txt"
+              exit $?
+            fi
+            sleep 12
+          done
+          echo "The remote endpoint was not available in the allotted time."
+          exit 1
+      - name: Verify real remote generation and authentication rejection
+        shell: bash
+        env:
+          CLOUD_CANARY_KEY: ${{ secrets.CLOUD_CANARY_KEY }}
+          TARGET: ${{ matrix.target }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          PACKAGE_SUFFIX: ${{ matrix.suffix }}
+          PACKAGE_SHA256: ${{ matrix.sha256 }}
+        run: |
+          test "$RUNNER_ARCH" = "$EXPECTED_ARCH"
+          origin="$(cat "$RUNNER_TEMP/noosphere-client-origin/endpoint.txt")"
+          python scripts/verify-native-cloud-canary.py verify "$RUNNER_TEMP/noosphere-preview-client" \
+            "$origin" "$TARGET" "$PACKAGE_SUFFIX" "$PACKAGE_SHA256"
