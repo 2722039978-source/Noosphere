@@ -103,6 +103,19 @@ export async function collectLicenses(target, output, reaRuntime, env, go = 'go'
       await mkdir(join(output, 'system', name), { recursive: true });
       await copyLegalText(copyright, join(output, 'system', name, 'copyright'));
     }
+    // Ubuntu copyright notices refer to these texts by path. An AppImage
+    // must carry them even when the host is a different distribution.
+    const common = '/usr/share/common-licenses';
+    const texts = join(output, 'system', 'common-licenses');
+    await mkdir(texts, { recursive: true });
+    const commonLicenses = [];
+    for (const name of (await readdir(common)).sort()) {
+      const file = join(common, name);
+      if (!(await stat(file)).isFile()) continue;
+      await copyLegalText(file, join(texts, name));
+      commonLicenses.push(name);
+    }
+    index.linux_common_licenses = commonLicenses;
     index.linux_build_system_notices = 'system/ is a superset of source distribution notices for bundled AppImage libraries';
     const release = await readFile('/etc/os-release', 'utf8');
     await writeFile(join(output, 'system/os-release'), release);

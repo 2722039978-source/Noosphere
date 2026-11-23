@@ -176,6 +176,11 @@ async function verifyLinuxPackages(target, artifacts, names, scratch) {
       .filter(path => path.endsWith('/' + target.components.go.entry));
     if (packagedBackend.length !== 1) throw new Error('Expected one packaged backend in ' + bundle);
     const resources = dirname(dirname(packagedBackend[0]));
+    for (const name of ['Apache-2.0', 'GPL-2', 'LGPL-2.1']) {
+      if (!await exists(join(resources, 'third-party', 'system', 'common-licenses', name))) {
+        throw new Error('Linux package missing license text ' + name);
+      }
+    }
     await verifyRuntimes(target, resources, moved, true);
   }
 }
