@@ -1,6 +1,6 @@
 [package]
 name = "noosphere-desktop"
-version = "0.9.0"
+version = "1.0.0-rc.1"
 description = "Noosphere Desktop"
 authors = ["Noosphere"]
 edition = "2021"

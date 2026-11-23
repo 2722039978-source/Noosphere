@@ -101,7 +101,13 @@ export function TaskConversation({ runId }: { runId: string }) {
     setSwitching(false);
     if (useWorkspaceStore.getState().activeId !== workspaceId || useChatStore.getState().activeId !== id) return;
     chat.appendMessage(id, { id: newMsgId(), role: 'user', content: goal.slice(0, 3000), createdAt: Date.now() });
-    if (answer) chat.appendMessage(id, { id: newMsgId(), role: 'assistant', content: answer.slice(0, 5000), createdAt: Date.now() });
+    if (showRun.kind === 'agent') {
+      const previousTask = `历史任务状态：${RUN_STATUS_LABEL[showRun.status]}。${showRun.error ? `\n运行记录：${showRun.error.slice(0, 1000)}` : ''}`;
+      const conclusion = answer ? `\n\n模型结论：\n${answer.slice(0, 5000)}` : '';
+      chat.appendMessage(id, { id: newMsgId(), role: 'assistant', content: previousTask + conclusion, agentRunId: showRun.id, createdAt: Date.now() });
+    } else if (answer) {
+      chat.appendMessage(id, { id: newMsgId(), role: 'assistant', content: answer.slice(0, 5000), createdAt: Date.now() });
+    }
     navigate('/chat');
   }
 
@@ -118,7 +124,7 @@ export function TaskConversation({ runId }: { runId: string }) {
           {!showRun && !error && <p role="status" className="text-sm text-text-2">正在读取任务…</p>}
           {showRun && <>
             <article className="ns-chat-message"><h2 className="ns-chat-message-label">任务目标</h2><p className="ns-message-body whitespace-pre-wrap">{goal}</p></article>
-            <article className="ns-chat-message"><h2 className="ns-chat-message-label">{active ? '执行进度' : '任务结果'}</h2>
+            <article className="ns-chat-message"><h2 className="ns-chat-message-label">{active ? '执行进度' : showRun.kind === 'agent' && answer ? '模型结论' : '任务状态'}</h2>
               {answer && <p className="ns-message-body whitespace-pre-wrap">{answer}</p>}
               {showRun.error && <p role="alert" className="text-sm text-err">{showRun.error}</p>}
               {!answer && !showRun.error && <p className="text-sm text-text-2">{[...events].reverse().find(event => event.message)?.message || RUN_STATUS_LABEL[showRun.status]}</p>}
@@ -150,7 +156,7 @@ export function TaskConversation({ runId }: { runId: string }) {
                 {showRun.kind === 'agent' && <Button variant="outline" disabled={!ready || pathChanged || !!generation} onClick={() => {
                   const id = useChatStore.getState().newSession();
                   if (id) navigate('/chat?task=new', { state: { taskGoal: goal, taskSessionId: id } });
-                }}><RotateCcw size={14} />重新运行</Button>}
+                }}><RotateCcw size={14} />调整后重新发起</Button>}
               </div>
             </div>}
             {liveConversation && <Button asChild variant="ghost" size="sm" className="mt-3"><Link to="/chat" onClick={() => { if (session) useChatStore.getState().setActive(session.id); }}>返回运行中的对话</Link></Button>}

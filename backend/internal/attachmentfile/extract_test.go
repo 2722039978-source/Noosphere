@@ -3,6 +3,8 @@ package attachmentfile
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +13,25 @@ import (
 
 	"github.com/noosphere/backend/internal/ownedprocess"
 )
+
+func TestVerifiedTextScanRejectsChangedBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "source.txt")
+	original := []byte("\xef\xbb\xbf原始内容\r\n")
+	expected := fmt.Sprintf("%x", sha256.Sum256(original))
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var text strings.Builder
+	if err := ScanVerifiedTextFile(t.Context(), path, "utf-8", expected, func(r rune) { text.WriteRune(r) }); err != nil || text.String() != "原始内容\n" {
+		t.Fatalf("original scan = %q, %v", text.String(), err)
+	}
+	if err := os.WriteFile(path, []byte("\xef\xbb\xbf替换内容\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ScanVerifiedTextFile(t.Context(), path, "utf-8", expected, nil); !errors.Is(err, ErrSourceChanged) {
+		t.Fatalf("replacement scan = %v", err)
+	}
+}
 
 func TestMain(m *testing.M) {
 	ownedprocess.RunSupervisor()

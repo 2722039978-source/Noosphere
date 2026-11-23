@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"syscall"
 
@@ -16,11 +17,17 @@ import (
 )
 
 const supervisorFlag = "--noosphere-owned-process"
+const ollamaSupervisorFlag = "--noosphere-owned-ollama"
 
 type processResult struct {
 	ExitCode int    `json:"exit_code"`
 	Error    string `json:"error,omitempty"`
 }
+
+type exitStatus int
+
+func (s exitStatus) Error() string { return fmt.Sprintf("exit status %d", s) }
+func (s exitStatus) ExitCode() int { return int(s) }
 
 func startProcess(cmd *exec.Cmd, directory *os.File) (func() error, func(), error) {
 	executable, err := os.Executable()
@@ -99,7 +106,7 @@ func startProcess(cmd *exec.Cmd, directory *os.File) (func() error, func(), erro
 			return fmt.Errorf("owned process: %s", result.Error)
 		}
 		if result.ExitCode != 0 {
-			return fmt.Errorf("exit status %d", result.ExitCode)
+			return exitStatus(result.ExitCode)
 		}
 		return nil
 	}, stop, nil
@@ -109,15 +116,13 @@ func startProcess(cmd *exec.Cmd, directory *os.File) (func() error, func(), erro
 // by the owning backend. It exits on the owner's control-pipe EOF, and never
 // sends a signal to a process group that it does not itself lead.
 func RunSupervisor() {
-	if len(os.Args) < 2 || os.Args[1] != supervisorFlag {
+	if len(os.Args) < 2 || (os.Args[1] != supervisorFlag && os.Args[1] != ollamaSupervisorFlag) {
 		return
 	}
 	group, err := unix.Getpgid(0)
-	if len(os.Args) < 5 || err != nil || group != os.Getpid() {
+	if err != nil || group != os.Getpid() {
 		os.Exit(125)
 	}
-	result := os.NewFile(3, "owned-process-result")
-	unix.CloseOnExec(3)
 	defer func() {
 		// The leader is still alive here, so its group ID cannot be recycled.
 		_ = unix.Kill(0, unix.SIGKILL)
@@ -132,6 +137,15 @@ func RunSupervisor() {
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		_ = unix.Kill(0, unix.SIGKILL)
 	}()
+	if os.Args[1] == ollamaSupervisorFlag {
+		runOllamaSupervisor(os.Args[2:])
+		return
+	}
+	if len(os.Args) < 5 {
+		return
+	}
+	result := os.NewFile(3, "owned-process-result")
+	unix.CloseOnExec(3)
 	writeResult := func(r processResult) { _ = json.NewEncoder(result).Encode(r) }
 	if os.Args[2] == "true" {
 		err := unix.Fchdir(4)
@@ -155,5 +169,26 @@ func RunSupervisor() {
 		writeResult(processResult{Error: err.Error()})
 	} else {
 		writeResult(processResult{})
+	}
+}
+
+// The desktop uses stdin for ownership and stdout for the listener PID.
+// Ollama's existing stdout and stderr logs both go to the desktop's log file.
+func runOllamaSupervisor(args []string) {
+	if len(args) != 1 || !filepath.IsAbs(args[0]) || filepath.Base(args[0]) != "ollama" {
+		fmt.Fprintln(os.Stderr, "invalid local Ollama executable")
+		return
+	}
+	cmd := exec.Command(args[0], "serve")
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, "start Ollama:", err)
+		return
+	}
+	if _, err := fmt.Fprintln(os.Stdout, cmd.Process.Pid); err != nil {
+		return
+	}
+	if err := cmd.Wait(); err != nil {
+		fmt.Fprintln(os.Stderr, "Ollama exited:", err)
 	}
 }

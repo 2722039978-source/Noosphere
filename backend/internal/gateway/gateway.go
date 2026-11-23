@@ -343,7 +343,7 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 				errors.WriteHTTP(w, r, errors.New(errors.ErrConflict, errors.CatGateway, "保存的凭证无法读取。更改连接地址前，请重新输入此连接的凭证。"))
 				return
 			}
-			identityChanged := body.Provider != m.Provider || strings.TrimRight(body.BaseURL, "/") != strings.TrimRight(m.BaseURL, "/") || body.ModelName != m.ModelName
+			identityChanged := !sameModelDeployment(&m, body.Provider, body.BaseURL, body.ModelName)
 			if identityChanged && (body.Metadata == nil || (m.Metadata != nil && *body.Metadata == *m.Metadata)) {
 				// Metadata belongs to its deployment. An ordinary edit must not
 				// carry the previous model's discovered identity to a new target.
@@ -584,7 +584,11 @@ func (g *Gateway) getOrCreateProvider(model *ModelConfig) (providers.LLMProvider
 		return nil, fmt.Errorf("no provider factory for: %s", model.Provider)
 	}
 
-	p, err := factory(model.BaseURL, model.APIKey)
+	base, _, code := connectionBase(model)
+	if code != "" {
+		return nil, fmt.Errorf("%s", connectionConfigurationProblem(code).message)
+	}
+	p, err := factory(base, model.APIKey)
 	if err != nil {
 		return nil, err
 	}

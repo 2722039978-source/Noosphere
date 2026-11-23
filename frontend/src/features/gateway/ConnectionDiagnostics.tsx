@@ -9,6 +9,7 @@ const inference = { succeeded: '成功', failed: '失败', skipped: '待验证' 
 export function ConnectionDiagnostics({ result }: { result: ModelDiagnostic }) {
   return <div className="space-y-2 text-xs text-text-2" aria-label="连接诊断">
     <p role={result.status === 'error' ? 'alert' : 'status'} className={result.status === 'error' ? 'text-err' : 'text-ok'}>{result.status === 'ok' ? result.inference === 'succeeded' ? '真实推理验证通过' : '连接检查通过' : `${stageLabel[result.stage] ?? '连接检查'}：${result.error || result.code || '失败'}`}</p>
+    {result.temperature_omitted && <p>验证使用服务端默认采样设置，未发送温度参数。</p>}
     {(result.service || result.model_discovery) && <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
       <div><dt className="text-text-3">服务</dt><dd>{service[result.service] ?? '待确认'}</dd></div>
       <div><dt className="text-text-3">模型</dt><dd>{discovery[result.model_discovery] ?? '待确认'}</dd></div>

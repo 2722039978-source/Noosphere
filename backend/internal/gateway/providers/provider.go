@@ -32,19 +32,21 @@ type ChatOptions struct {
 
 // ChatResponse is the result of a non-streaming chat completion.
 type ChatResponse struct {
-	Content   string
-	Model     string
-	TokensIn  int
-	TokensOut int
+	Content            string
+	Model              string
+	TokensIn           int
+	TokensOut          int
+	TemperatureOmitted bool
 }
 
 // StreamChunk carries a delta, or one terminal result. Content on Done is the
 // complete authoritative answer. A closed channel without Done is an interruption.
 type StreamChunk struct {
-	Token   string
-	Done    bool
-	Content string
-	Error   error
+	Token              string
+	Done               bool
+	Content            string
+	Error              error
+	TemperatureOmitted bool
 }
 
 // sendChunk lets cancellation release producers even when the consumer stopped

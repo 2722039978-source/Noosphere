@@ -1,6 +1,7 @@
 package workspaces
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,9 @@ import (
 )
 
 // SetModelResolver is installed during bootstrap, before serving requests.
-func (m *Manager) SetModelResolver(resolve func(workspaceID, sessionID, modelID string) (string, error)) {
+// The resolver returns the model ID for task history and an optional function
+// that carries the admitted model configuration through the in-memory queue.
+func (m *Manager) SetModelResolver(resolve func(workspaceID, sessionID, modelID string) (string, func(context.Context) context.Context, error)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.modelResolver = resolve

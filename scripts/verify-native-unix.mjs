@@ -3,7 +3,8 @@ import { chown, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { exists, nativeTarget, packageNames, run, runtimeEnv } from './desktop-platform.mjs';
+import { exists, json, nativeTarget, packageNames, run, runtimeEnv, sha256, version } from './desktop-platform.mjs';
+import { verifyMacBundleVersions } from './desktop-macos.mjs';
 
 const [directory, mode, uidText, gidText] = process.argv.slice(2);
 if (!directory) throw new Error('Expected a versioned native package directory');
@@ -40,7 +41,7 @@ function processNamed(entry, name) {
   return actual === name || (target.os === 'linux' && actual === name.slice(0, 15));
 }
 
-async function smoke(label, executable, cwd, state, overrides = {}) {
+async function smoke(label, executable, cwd, state, overrides = {}, hardExit = false) {
   const data = join(state, 'user data');
   await mkdir(data);
   await chown(data, uid, gid);
@@ -79,6 +80,11 @@ async function smoke(label, executable, cwd, state, overrides = {}) {
       || !owned.some(entry => /^python3(?:\.\d+)?$/.test(basename(entry.executable)))) {
       throw new Error(label + ' did not start the expected private backend and CodeLens process tree');
     }
+    if (hardExit) {
+      if (!child.kill('SIGKILL') || await Promise.race([exited, delay(10_000, false)]) === false) {
+        throw new Error(label + ' could not stop the isolated desktop host');
+      }
+    }
   } catch (error) {
     const logText = await readFile(log, 'utf8').catch(problem => `<unavailable: ${problem.code ?? problem.message}>`);
     console.error(label + ' desktop-services.log:\n' + logText.slice(-16000));
@@ -115,6 +121,7 @@ async function smoke(label, executable, cwd, state, overrides = {}) {
     await delay(250);
   }
   console.log(label + ': private backend and CodeLens boot plus descendant cleanup passed'
+    + (hardExit ? ' after hard desktop termination' : '')
     + (offline ? ' in a loopback-only network namespace' : ''));
 }
 
@@ -141,10 +148,19 @@ const scratch = await mkdtemp(join(await realpath(tmpdir()), 'noosphere-native-'
 try {
   await chown(scratch, uid, gid);
   const packages = resolve(directory);
+  const build = await json(join(packages, 'build-info.json'));
+  if (build.target !== target.id || build.version !== version) {
+    throw new Error('Package metadata does not match the native verification target and VERSION');
+  }
+  console.log('Native host:', run('uname', ['-srvm'], { capture: true }));
+  console.log('Build:', build.version, build.source_revision, 'source_dirty=' + build.source_dirty);
+  for (const name of Object.values(names)) console.log('SHA-256', await sha256(join(packages, name)), name);
   if (target.os === 'linux') {
-    const deb = await stateDir(scratch, 'relocated deb');
+    const deb = await stateDir(scratch, 'relocated deb 搬迁');
     run('dpkg-deb', ['--extract', join(packages, names.deb), deb]);
     await smoke('Relocated deb', join(deb, 'usr/bin/noosphere-desktop'), deb, await stateDir(scratch, 'deb state'));
+    await smoke('Relocated deb hard exit', join(deb, 'usr/bin/noosphere-desktop'), deb,
+      await stateDir(scratch, 'deb crash state'), {}, true);
     // AppImage bootstrap may use filesystem helpers. Its PATH contains neither a host Node nor a host Python.
     const utilityPath = await stateDir(scratch, 'appimage utilities');
     for (const command of ['awk', 'basename', 'bash', 'cat', 'cut', 'dirname', 'env', 'find', 'grep', 'head', 'ln', 'locale',
@@ -152,7 +168,7 @@ try {
       const system = join('/usr/bin', command);
       if (await exists(system)) await symlink(system, join(utilityPath, command));
     }
-    const image = await stateDir(scratch, 'relocated appimage');
+    const image = await stateDir(scratch, 'relocated appimage 搬迁');
     const imageFile = join(image, names.appimage);
     run('cp', ['-p', join(packages, names.appimage), imageFile]);
     await smoke('Final AppImage (extract-and-run)', imageFile, image, await stateDir(scratch, 'image state'), {
@@ -163,11 +179,21 @@ try {
     run('tar', ['-xzf', join(packages, names.app), '-C', archive]);
     const moved = join(scratch, 'Relocated Noosphere 搬迁.app');
     await rename(await onlyApp(archive), moved);
+    verifyMacBundleVersions(moved, version);
     await smoke('Relocated app archive', await appExecutable(moved), scratch, await stateDir(scratch, 'archive state'));
+    await smoke('Relocated app hard exit', await appExecutable(moved), scratch, await stateDir(scratch, 'archive crash state'), {}, true);
     const mount = await stateDir(scratch, 'read-only DMG');
     run('hdiutil', ['attach', '-nobrowse', '-readonly', '-mountpoint', mount, join(packages, names.dmg)]);
     try {
-      await smoke('Mounted final DMG app', await appExecutable(await onlyApp(mount)), scratch, await stateDir(scratch, 'DMG state'));
+      const installed = join(scratch, 'Installed Noosphere 搬迁.app');
+      run('ditto', [await onlyApp(mount), installed]);
+      verifyMacBundleVersions(installed, version);
+      run('codesign', ['--verify', '--deep', '--strict', installed]);
+      if (build.signing?.state === 'developer-id-notarized') {
+        run('xcrun', ['stapler', 'validate', installed]);
+        run('spctl', ['--assess', '--type', 'execute', installed]);
+      }
+      await smoke('App installed from final DMG', await appExecutable(installed), scratch, await stateDir(scratch, 'DMG state'));
     } finally {
       run('hdiutil', ['detach', mount]);
     }

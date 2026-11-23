@@ -54,10 +54,7 @@ impl RuntimePaths {
     pub(crate) fn from_app(app: &tauri::AppHandle) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("定位应用程序失败: {e}"))?;
         let exe_dir = exe.parent().ok_or("应用程序路径没有父目录")?;
-        let mut app_data = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
-        if cfg!(debug_assertions) {
-            app_data = app_data.join("dev");
-        }
+        let app_data = default_data_dir(app)?;
         let override_dir = std::env::var_os("NOOSPHERE_DATA_DIR").map(PathBuf::from);
         let dev_dir = cfg!(debug_assertions).then(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
         let resource_dir = app.path().resource_dir();
@@ -131,7 +128,12 @@ impl RuntimePaths {
     }
 }
 
-fn choose_data_dir(
+pub(crate) fn default_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let directory = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    Ok(if cfg!(debug_assertions) { directory.join("dev") } else { directory })
+}
+
+pub(crate) fn choose_data_dir(
     exe_dir: &Path,
     app_data: &Path,
     override_dir: Option<&Path>,

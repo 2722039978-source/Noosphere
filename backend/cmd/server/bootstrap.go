@@ -85,10 +85,7 @@ func bootstrapWithParent(cfg *config.AppConfig, parent context.Context) *App {
 		Mux:       mux,
 	}
 	app.startupCtx, app.startupCancel = context.WithCancel(parent)
-	dataDir := cfg.App.DataDir
-	if dataDir == "" {
-		dataDir = filepath.Dir(cfg.Modules.Nebula.DataDir)
-	}
+	dataDir := cfg.WorkspaceDataDir()
 	initCodeLens(cfg, lc, mux, &app.CodeLens, eng, app, dataDir)
 	manager, err := workspaces.Open(filepath.Join(dataDir, "workspace.sqlite"))
 	if err != nil {

@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"net/url"
 	"strings"
 
 	"github.com/noosphere/backend/internal/gateway/providers"
@@ -55,12 +54,12 @@ func configuredCapability(cap Capability, model ModelConfig) Capability {
 		cap.Reason = model.Credential.Reason
 		return cap
 	}
-	u, err := url.Parse(model.BaseURL)
-	// Claude/Gemini constructors already resolve an empty URL to their official
-	// endpoint, including their registered aliases. Preserve those valid configs.
-	adapterDefault := model.BaseURL == "" && (model.Provider == "claude" || model.Provider == "anthropic" || model.Provider == "gemini" || model.Provider == "google")
-	validURL := err == nil && u != nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
-	if strings.TrimSpace(model.ModelName) == "" || (!adapterDefault && !validURL) {
+	if _, _, code := connectionBase(&model); code != "" {
+		cap.Code = code
+		cap.Reason = connectionConfigurationProblem(code).message
+		return cap
+	}
+	if strings.TrimSpace(model.ModelName) == "" {
 		cap.Code = "CONFIGURATION_INCOMPLETE"
 		cap.Reason = "请补齐模型名称和有效的 HTTP / HTTPS 服务地址。"
 		return cap

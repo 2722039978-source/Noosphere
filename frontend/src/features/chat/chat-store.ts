@@ -80,28 +80,24 @@ export const isChatPersistenceDirty = () => chatStorage.isDirty();
 export async function importChatBackup(raw: string) {
   if (!useChatPersistence.getState().ready) throw new Error('请等待会话加载完成。');
   const incoming = parseChatBackup(raw);
-  const needsRebinding = !incoming.sourcePlatform || incoming.sourcePlatform !== chatBackupPlatform();
   const existing = new Set(useChatStore.getState().sessions.map(session => session.id));
-  const foreignIds = new Set(incoming.sessions.filter(session => !existing.has(session.id)).map(sessionWorkspaceId).filter(id => id !== 'local'));
+  const sessions = incoming.sessions.filter(session => !existing.has(session.id));
   const restored = new Map<string, string>();
-  if (foreignIds.size) {
-    await useWorkspaceStore.getState().refresh();
-    const known = new Set(useWorkspaceStore.getState().workspaces.map(workspace => workspace.id));
-    for (const id of foreignIds) {
-      if (!needsRebinding && known.has(id)) continue;
-      // A different installation has no trustworthy project/model binding for
-      // this ID. Restore an empty workspace rather than hiding or mixing chats.
-      const workspace = await useWorkspaceStore.getState().save({ name: `导入工作区 ${id.slice(0, 12)}`, project_path: '', default_model_id: '' });
-      restored.set(id, workspace.id);
-    }
+  for (const id of new Set(sessions.map(sessionWorkspaceId))) {
+    // A conversation export carries archived IDs but no installation identity.
+    // Give it a new scope even when the operating system and IDs match.
+    const workspace = await useWorkspaceStore.getState().save({ name: `导入工作区 ${id.slice(0, 12)}`, project_path: '', default_model_id: '' });
+    restored.set(id, workspace.id);
   }
-  const normalized = { ...incoming, sessions: incoming.sessions.map(session => ({
+  const normalized = { ...incoming, sessions: sessions.map(session => ({
     ...session,
-    ...(restored.has(sessionWorkspaceId(session)) ? { workspaceId: restored.get(sessionWorkspaceId(session)) } : {}),
-    ...(needsRebinding || restored.has(sessionWorkspaceId(session)) ? { modelId: '' } : {}),
+    workspaceId: restored.get(sessionWorkspaceId(session)),
+    modelId: '',
     messages: session.messages.map(message => ({
       ...message,
-      ...(needsRebinding || restored.has(sessionWorkspaceId(session)) ? { sourceProjectPath: undefined, agentRunId: undefined, evidenceSnapshotOnly: true } : {}),
+      sourceProjectPath: undefined,
+      agentRunId: undefined,
+      evidenceSnapshotOnly: true,
       ...(message.streaming ? { streaming: false, status: 'interrupted' as const, error: '导入的未完成回复已中断' } : {}),
     })),
   })) };
@@ -109,7 +105,7 @@ export async function importChatBackup(raw: string) {
   // reply while importing must not be overwritten or marked interrupted.
   useChatStore.setState(mergeChatBackup(useChatStore.getState(), normalized));
   if (!await flushChatPersistence()) throw new Error('导入尚未保存，请重试保存。');
-  return { recoveredWorkspaces: restored.size, needsRebinding };
+  return { recoveredWorkspaces: restored.size };
 }
 
 export function exportChatBackup() {

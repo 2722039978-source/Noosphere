@@ -6,9 +6,137 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
+
+func TestNativeCloudProtocolsOmitDisabledTemperature(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, maxKey, response string
+		newProvider                  ProviderFactory
+		stream                       bool
+	}{
+		{"claude chat", "/proxy/v1/messages", "max_tokens", `{"content":[{"type":"text","text":"ok"}]}`, NewClaude, false},
+		{"claude stream", "/proxy/v1/messages", "max_tokens", "data: {\"type\":\"message_stop\"}\n\n", NewClaude, true},
+		{"gemini chat", "/proxy/v1/models/fixture:generateContent", "maxOutputTokens", `{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`, NewGemini, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != tc.path {
+					t.Errorf("request path = %q, want %q", r.URL.Path, tc.path)
+				}
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				options := body
+				if tc.maxKey == "maxOutputTokens" {
+					options, _ = body["generationConfig"].(map[string]any)
+				}
+				if _, found := options["temperature"]; found {
+					t.Error("request supplied disabled temperature")
+				}
+				if options[tc.maxKey] != float64(64) {
+					t.Errorf("request output budget = %v", options)
+				}
+				io.WriteString(w, tc.response)
+			}))
+			defer server.Close()
+			provider, err := tc.newProvider(server.URL+"/proxy/v1/", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			options := ChatOptions{MaxTokens: 64, MaxTokensField: "max_completion_tokens", OmitTemperature: true}
+			messages := []Message{{Role: "user", Content: "hello"}}
+			if tc.stream {
+				chunks, err := provider.ChatStream(context.Background(), "fixture", messages, options)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for chunk := range chunks {
+					if chunk.Error != nil {
+						t.Fatal(chunk.Error)
+					}
+				}
+			} else if _, err := provider.Chat(context.Background(), "fixture", messages, options); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestNativeCloudProtocolsRedactCredentialsFromErrors(t *testing.T) {
+	const key = "fixture-model-secret"
+	for _, tc := range []struct {
+		name, reply string
+		factory     ProviderFactory
+		stream      bool
+		status      int
+	}{
+		{"claude chat", "credential rejected: " + key, NewClaude, false, http.StatusUnauthorized},
+		{"claude stream setup", "credential rejected: " + key, NewClaude, true, http.StatusUnauthorized},
+		{"claude stream event", "data: {\"type\":\"error\",\"error\":{\"message\":\"credential rejected: " + key + "\"}}\n\n", NewClaude, true, http.StatusOK},
+		{"gemini chat", "credential rejected: " + key, NewGemini, false, http.StatusUnauthorized},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				io.WriteString(w, tc.reply)
+			}))
+			defer upstream.Close()
+			provider, err := tc.factory(upstream.URL, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.stream {
+				var chunks <-chan StreamChunk
+				chunks, err = provider.ChatStream(context.Background(), "fixture", nil, ChatOptions{})
+				if err == nil {
+					for chunk := range chunks {
+						err = chunk.Error
+					}
+				}
+			} else {
+				_, err = provider.Chat(context.Background(), "fixture", nil, ChatOptions{})
+			}
+			if err == nil || strings.Contains(err.Error(), key) || !strings.Contains(err.Error(), "credential rejected") {
+				t.Error("expected actionable provider error with the credential masked")
+			}
+		})
+	}
+}
+
+func TestNativeCloudProtocolsDoNotFollowDifferentOriginRedirect(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		factory ProviderFactory
+	}{{"claude", NewClaude}, {"gemini", NewGemini}} {
+		t.Run(tc.name, func(t *testing.T) {
+			var unexpectedCalls atomic.Int32
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				unexpectedCalls.Add(1)
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			defer target.Close()
+			original := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+			}))
+			defer original.Close()
+			provider, err := tc.factory(original.URL, "fixture-model-secret")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = provider.Chat(context.Background(), "fixture", nil, ChatOptions{})
+			if unexpectedCalls.Load() != 0 {
+				t.Error("chat forwarded the request to a different provider origin")
+			}
+			if upstream, ok := err.(*UpstreamHTTPError); !ok || upstream.Status != http.StatusTemporaryRedirect {
+				t.Errorf("request error = %v, want HTTP redirect", err)
+			}
+		})
+	}
+}
 
 func TestApplyChatOptionsSelectsTokenField(t *testing.T) {
 	official := &OpenAIProvider{openAIEndpoint: true}

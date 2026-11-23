@@ -29,7 +29,8 @@ export function MessageEvidence({ message, workspaceId, sessionId }: { message: 
   return <div className="mt-3 text-xs leading-6 text-text-3">
     {message.contextWarnings?.map((warning, index) => <p role="status" key={index}>{warning}</p>)}
     {!!message.citations?.length && <details className="border border-border-subtle px-3 py-2">
-      <summary className="cursor-pointer">本次提供给模型的依据 · {message.citations.length} 条</summary>
+      <summary className="cursor-pointer">本次对话的依据 · {message.citations.length} 条</summary>
+      {message.evidenceSnapshotOnly && <p>此会话保存了历史节选。项目原件和附件需要从原目录或完整备份核对。</p>}
       {message.citations.map(c => <details className="mt-2 border-t border-border-subtle pt-2" key={c.id}>
         <summary className="cursor-pointer break-all">[{c.id}] {c.kind === 'code' ? '代码' : c.kind === 'artifact' ? '编译产物' : c.kind === 'attachment' ? '附件' : '长期记忆'} · {c.title}{c.page ? ` · 第 ${c.page} 页` : c.start_line ? ` · L${c.start_line}–${c.end_line}` : ''}{c.symbol && ` · ${c.symbol}`}{c.revision && ` · 版本 ${c.revision}`}</summary>
         {c.source_hash && <p className="break-all">文件 SHA-256 {c.source_hash}</p>}

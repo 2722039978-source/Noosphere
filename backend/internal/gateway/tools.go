@@ -64,6 +64,6 @@ func (g *Gateway) ChatTools(ctx context.Context, model *ModelConfig, workspaceID
 	if err != nil {
 		entry.Error = err.Error()
 	}
-	g.appendLog(entry)
+	g.appendLog(entry, model.APIKey)
 	return result, err
 }

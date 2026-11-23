@@ -35,7 +35,7 @@ func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowl
 		if gw == nil {
 			return nil, fmt.Errorf("model gateway unavailable")
 		}
-		model, err := gw.SessionModel(ws.ID, args.SessionID, args.ModelID)
+		model, err := gw.RunModel(ctx, ws.ID, args.SessionID, args.ModelID)
 		if err != nil {
 			return nil, err
 		}
@@ -47,7 +47,7 @@ func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowl
 			if err != nil {
 				return err
 			}
-			if current.ProjectPath != ws.ProjectPath || current.ProjectID != ws.ProjectID {
+			if current.ProjectPath != ws.ProjectPath || current.ProjectID != ws.ProjectID || current.ProjectBindingID != ws.ProjectBindingID {
 				return fmt.Errorf("工作区项目绑定已变化，Agent 已停止；请在当前项目重新发起")
 			}
 			return nil

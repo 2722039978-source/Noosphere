@@ -1,6 +1,11 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$Installer)
+param(
+  [Parameter(Mandatory)][string]$Installer,
+  [string]$PreviousInstaller,
+  [string]$PreviousVersion,
+  [string]$PreviousSHA256
+)
 
 $ErrorActionPreference = 'Stop'
 # Tauri NSIS registers a single app for the Windows user. The checks below
@@ -8,6 +13,16 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $Root = Split-Path -Parent $PSScriptRoot
 $Installer = (Resolve-Path -LiteralPath $Installer).Path
+$Version = Get-NoosphereVersion $Root
+if ($PreviousInstaller) {
+  if ($PreviousVersion -notmatch '^\d+\.\d+\.\d+$' -or $PreviousSHA256 -notmatch '^[a-fA-F0-9]{64}$') {
+    throw 'The previous installer requires a numeric version and the published SHA-256.'
+  }
+  $PreviousInstaller = (Resolve-Path -LiteralPath $PreviousInstaller).Path
+  if ((Get-FileHash -LiteralPath $PreviousInstaller -Algorithm SHA256).Hash -ine $PreviousSHA256) {
+    throw 'Previous installer SHA-256 differs from the supplied release record.'
+  }
+}
 $Fixture = Join-Path ([IO.Path]::GetTempPath()) ('noosphere-installer-' + [guid]::NewGuid().ToString('N'))
 $Apps = @('HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall',
           'HKLM:/Software/Microsoft/Windows/CurrentVersion/Uninstall',
@@ -34,12 +49,12 @@ function Invoke-InstallerProcess {
   }
 }
 function Install-Fixture {
-  Invoke-InstallerProcess $Installer "/S /D=$InstallRoot"
+  param([string]$Package = $Installer, [string]$ExpectedVersion = $Version)
+  Invoke-InstallerProcess $Package "/S /D=$InstallRoot"
   if (-not (Test-Path -LiteralPath $Uninstaller -PathType Leaf)) { throw 'Uninstaller missing in selected path.' }
   $Registered = @(Get-RegisteredNoosphere)
   if ($Registered.Count -ne 1) { throw 'Windows uninstall entry is missing or duplicated.' }
-  $Version = Get-NoosphereVersion $Root
-  if ($Registered[0].DisplayVersion -ne $Version) { throw 'Installed version differs from VERSION.' }
+  if ($Registered[0].DisplayVersion -ne $ExpectedVersion) { throw 'Installed version differs from the expected release.' }
 }
 function Uninstall-Fixture {
   # NSIS copies the uninstaller to a temporary location before removing the
@@ -51,7 +66,18 @@ function Uninstall-Fixture {
   if (@(Get-ChildItem -LiteralPath $InstallRoot -Filter '*.exe' -File -ErrorAction SilentlyContinue |
       Where-Object Name -ne 'uninstall.exe').Count) { throw 'Uninstall left the desktop executable in the selected location.' }
 }
+if ($PreviousInstaller) {
+  Install-Fixture $PreviousInstaller $PreviousVersion
+  New-Item -ItemType Directory -Path $UserRoot -Force | Out-Null
+  [IO.File]::WriteAllText($Marker, 'retained across in-place upgrade')
+}
 Install-Fixture
+if ($PreviousInstaller) {
+  if (-not (Test-Path -LiteralPath $Marker) -or [IO.File]::ReadAllText($Marker) -ne 'retained across in-place upgrade') {
+    throw 'In-place upgrade modified existing user data.'
+  }
+  Write-Host "PASS in-place NSIS upgrade $PreviousVersion -> $Version with data directory retained"
+}
 $Desktop = @(Get-ChildItem -LiteralPath $InstallRoot -Filter '*.exe' -File |
   Where-Object Name -ne 'uninstall.exe')
 if ($Desktop.Count -ne 1) { throw 'Expected one installed desktop executable.' }
