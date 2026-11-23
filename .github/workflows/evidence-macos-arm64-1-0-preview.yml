@@ -1,0 +1,73 @@
+name: Noosphere 1.0 Apple Silicon preview evidence
+
+on:
+  push:
+    branches: [develop/noosphere-arm64-preview-evidence]
+
+permissions:
+  contents: read
+
+jobs:
+  macos-arm64-preview:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      NOOSPHERE_BUILD_TARGET: macos-arm64
+      TESTED_COMMIT: 564ad1f93549b0a05d4cdfa6f19e5bbddfd6d5a0
+      TESTED_TREE: 47eed7d21151c407605f617585ca5e73eb7c3ebf
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TESTED_COMMIT }}
+          persist-credentials: false
+      - name: Confirm immutable pull request source and Apple Silicon host
+        run: |
+          test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$TESTED_TREE"
+          test "$(cat VERSION)" = "1.0.0"
+          test -z "$(git status --porcelain)"
+          test "$RUNNER_OS" = "macOS"
+          test "$RUNNER_ARCH" = "ARM64"
+          test "$(uname -m)" = "arm64"
+          sw_vers
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git
+            test/cache/desktop/macos-arm64/*.tar.gz
+            test/cache/desktop/macos-arm64/*.tar.xz
+            test/cache/desktop/macos-arm64/pip
+            test/cache/desktop/macos-arm64/npm
+          key: macos-arm64-darwin-13.5-${{ hashFiles('rust-toolchain.toml', 'desktop/src-tauri/Cargo.lock', 'scripts/platform-targets.json', 'scripts/codelens-runtime/*.lock', 'scripts/rea-runtime/package-lock.json') }}
+      - name: Run locked native desktop tests
+        run: |
+          rustup show
+          node scripts/desktop.mjs check-release-ref
+          node scripts/desktop.mjs setup "$NOOSPHERE_BUILD_TARGET"
+          node scripts/desktop.mjs test "$NOOSPHERE_BUILD_TARGET"
+          python3 scripts/test-agent-release.py --backend desktop/src-tauri/bin/noosphere-backend
+      - name: Build and boot the relocated preview archive and DMG
+        run: |
+          node scripts/desktop.mjs package "$NOOSPHERE_BUILD_TARGET"
+          node scripts/verify-native-unix.mjs "artifacts/1.0.0/$NOOSPHERE_BUILD_TARGET"
+      - name: Exercise the packaged backend with an isolated system Keychain
+        timeout-minutes: 8
+        run: bash scripts/verify-macos-credentials.sh artifacts/1.0.0/macos-arm64/Noosphere-1.0.0-macos-arm64.app.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: noosphere-macos-arm64
+          path: artifacts/1.0.0/macos-arm64/*
+          if-no-files-found: error
