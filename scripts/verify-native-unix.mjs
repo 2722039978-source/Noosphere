@@ -13,9 +13,14 @@ if (target.os === 'windows') throw new Error('Use scripts/verify-desktop.cjs on 
 const names = packageNames(target);
 const offline = mode === '--linux-netns';
 const installed = mode === '--linux-installed';
+const wayland = mode === '--linux-wayland';
 const uid = offline ? Number(firstOption) : process.getuid();
 const gid = offline ? Number(secondOption) : process.getgid();
-if (mode && !offline && !installed) throw new Error('Unknown native verification mode');
+if (mode && !offline && !installed && !wayland) throw new Error('Unknown native verification mode');
+if (wayland && (target.os !== 'linux' || process.env.DISPLAY || process.env.GDK_BACKEND !== 'wayland'
+  || !process.env.WAYLAND_DISPLAY || !process.env.XDG_RUNTIME_DIR)) {
+  throw new Error('Wayland verification requires a Linux compositor and Wayland-only GTK session');
+}
 if (installed && (target.os !== 'linux' || !firstOption || !isAbsolute(firstOption) || !secondOption)) {
   throw new Error('Installed Debian smoke requires a Linux host, an absolute fixture data path and the expected app version');
 }
@@ -60,6 +65,7 @@ async function smoke(label, executable, cwd, state, {
     ...runtimeEnv(), ...overrides, NOOSPHERE_DATA_DIR: data, TMPDIR: state,
     NOOSPHERE_RUNTIME_DIAGNOSTICS: '1',
   };
+  if (wayland) env.WAYLAND_DEBUG = 'client';
   if (offline && process.env.SUDO_USER) {
     const home = run('getent', ['passwd', process.env.SUDO_USER], { capture: true }).split(':')[5];
     if (!home) throw new Error('Could not identify desktop account home');
@@ -67,10 +73,18 @@ async function smoke(label, executable, cwd, state, {
     env.USER = process.env.SUDO_USER;
     env.LOGNAME = process.env.SUDO_USER;
   }
-  const child = spawn(executable, [], { cwd, env, uid, gid, stdio: 'inherit' });
+  const child = spawn(executable, [], { cwd, env, uid, gid, stdio: ['inherit', 'inherit', wayland ? 'pipe' : 'inherit'] });
   const exited = new Promise(resolve => {
     child.once('error', resolve);
     child.once('exit', (code, signal) => resolve(code ?? signal));
+  });
+  let waylandTrace = '';
+  let hasToplevel = false;
+  let hasBuffer = false;
+  if (wayland) child.stderr.on('data', bytes => {
+    waylandTrace = (waylandTrace + bytes.toString('utf8')).slice(-48000);
+    hasToplevel ||= /xdg_surface@\d+\.get_toplevel\(/.test(waylandTrace);
+    hasBuffer ||= /wl_surface@\d+\.attach\(wl_buffer@\d+/.test(waylandTrace);
   });
   let owned = [];
   try {
@@ -86,9 +100,12 @@ async function smoke(label, executable, cwd, state, {
         if (backendVersion && !logText.includes(`=== Noosphere Backend v${backendVersion} ===`)) {
           throw new Error(label + ' started a backend with a different version');
         }
-        break;
+        if (!wayland || hasToplevel && hasBuffer) break;
       }
-      if (Date.now() >= deadline) throw new Error(label + ' backend and private CodeLens worker did not become healthy');
+      if (Date.now() >= deadline) {
+        throw new Error(label + (wayland ? ' did not present a Wayland window and healthy private services'
+          : ' backend and private CodeLens worker did not become healthy'));
+      }
     }
     owned = descendants(child.pid, processSnapshot());
     if (!owned.some(entry => processNamed(entry, 'noosphere-backend'))
@@ -103,6 +120,7 @@ async function smoke(label, executable, cwd, state, {
   } catch (error) {
     const logText = await readFile(log, 'utf8').catch(problem => `<unavailable: ${problem.code ?? problem.message}>`);
     console.error(label + ' desktop-services.log:\n' + logText.slice(-16000));
+    if (wayland) console.error(label + ' Wayland client trace:\n' + waylandTrace.slice(-12000));
     if (child.pid) {
       try {
         owned = descendants(child.pid, processSnapshot());
@@ -137,7 +155,8 @@ async function smoke(label, executable, cwd, state, {
   }
   console.log(label + ': private backend and CodeLens boot plus descendant cleanup passed'
     + (hardExit ? ' after hard desktop termination' : '')
-    + (offline ? ' in a loopback-only network namespace' : ''));
+    + (offline ? ' in a loopback-only network namespace' : '')
+    + (wayland ? ' with a Wayland toplevel and surface buffer' : ''));
 }
 
 async function appExecutable(app) {
@@ -184,7 +203,7 @@ try {
     // AppImage bootstrap may use filesystem helpers. Its PATH contains neither a host Node nor a host Python.
     const utilityPath = await stateDir(scratch, 'appimage utilities');
     for (const command of ['awk', 'basename', 'bash', 'cat', 'cut', 'dirname', 'env', 'find', 'grep', 'head', 'ln', 'locale',
-      'ls', 'mkdir', 'mktemp', 'printenv', 'readlink', 'realpath', 'rm', 'sed', 'sh', 'sort', 'stat', 'tr', 'uname', 'which']) {
+      'ls', 'mkdir', 'mktemp', 'printenv', 'readlink', 'realpath', 'rm', 'sed', 'sh', 'sort', 'stat', 'tail', 'tr', 'uname', 'which']) {
       const system = join('/usr/bin', command);
       if (await exists(system)) await symlink(system, join(utilityPath, command));
     }

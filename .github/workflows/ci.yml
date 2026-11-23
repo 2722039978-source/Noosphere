@@ -193,7 +193,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libxdo-dev libfuse2 patchelf xz-utils xvfb xauth dbus-x11 gnome-keyring
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libxdo-dev libfuse2 patchelf xz-utils xvfb xauth dbus-x11 gnome-keyring weston
       - name: Run locked native toolchain and application tests
         run: |
           node scripts/desktop.mjs setup "$NOOSPHERE_BUILD_TARGET"
@@ -229,11 +229,20 @@ jobs:
           mapfile -t backends < <(dpkg-query -L noosphere-desktop | grep '/bin/noosphere-backend$')
           test "${#backends[@]}" -eq 1
           bash scripts/verify-linux-credentials.sh "${backends[0]}"
+      - name: Boot packaged Linux applications in a Wayland-only session
+        if: runner.os == 'Linux'
+        run: bash scripts/verify-linux-wayland.sh "artifacts/$(cat VERSION)/$NOOSPHERE_BUILD_TARGET"
       - name: Boot relocated native macOS app
         if: runner.os == 'macOS'
         run: |
           version="$(cat VERSION)"
           node scripts/verify-native-unix.mjs "artifacts/$version/$NOOSPHERE_BUILD_TARGET"
+      - name: Verify packaged backend in an isolated macOS Keychain
+        if: runner.os == 'macOS'
+        timeout-minutes: 8
+        run: |
+          version="$(cat VERSION)"
+          bash scripts/verify-macos-credentials.sh "artifacts/$version/$NOOSPHERE_BUILD_TARGET/Noosphere-$version-$NOOSPHERE_BUILD_TARGET.app.tar.gz"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: noosphere-${{ matrix.target }}
