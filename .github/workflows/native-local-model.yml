@@ -1,0 +1,89 @@
+name: Real local model from release packages
+
+on:
+  push:
+    branches: [develop/noosphere-native-model-evidence]
+
+permissions:
+  contents: read
+
+jobs:
+  local-model:
+    name: CPU model ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-22.04
+            arch: X64
+            package_suffix: deb
+            package_sha256: a8ae952a4a4a69d98320a4da406ae2b8489fb4a17fce8014bd55e3eb4b26c992
+            engine_target: ubuntu-x64
+            engine_sha256: 0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e
+          - target: macos-arm64
+            runner: macos-15
+            arch: ARM64
+            package_suffix: app.tar.gz
+            package_sha256: b0184c54164e8deab99bdedf86235f10d4f4b57ef4a2aab5a9ad84f0a9af90f8
+            engine_target: macos-arm64
+            engine_sha256: 82b00abc740160e1b9980e6cc79c117345fa34af058c80e6c0a69aa8ddccde75
+          - target: macos-x64
+            runner: macos-15-intel
+            arch: X64
+            package_suffix: app.tar.gz
+            package_sha256: 3218b1c4e75852aeecbcb23f994f2f692841a8ce0dd44a9fb225adba4bca6651
+            engine_target: macos-x64
+            engine_sha256: 25320d529077ef5a3d16e7b5da26438f221d88c8c0930a32b0c79457f5eede56
+    env:
+      CANDIDATE: 1.0.0-rc.2
+      TARGET: ${{ matrix.target }}
+      HOST_ARCH: ${{ matrix.arch }}
+      PACKAGE_SUFFIX: ${{ matrix.package_suffix }}
+      PACKAGE_SHA256: ${{ matrix.package_sha256 }}
+      ENGINE_TARGET: ${{ matrix.engine_target }}
+      ENGINE_SHA256: ${{ matrix.engine_sha256 }}
+      MODEL_SHA256: 2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify inference through the packaged gateway on loopback
+        timeout-minutes: 10
+        run: |
+          test "$RUNNER_ARCH" = "$HOST_ARCH"
+          uname -srvm
+          scratch="$(mktemp -d "$RUNNER_TEMP/noosphere-native-model-XXXXXX")"
+          trap 'rm -rf -- "$scratch"' EXIT
+          mkdir "$scratch/package" "$scratch/engine"
+          cd "$scratch"
+          fetch() {
+            curl --fail --location --silent --show-error --connect-timeout 20 --max-time 180 --retry 2 \
+              --output "$2" "$1"
+            printf '%s  %s\n' "$3" "$2" | shasum -a 256 -c
+          }
+          package="Noosphere-$CANDIDATE-$TARGET.$PACKAGE_SUFFIX"
+          release="https://github.com/2722039978-source/Noosphere/releases/download/v$CANDIDATE"
+          fetch "$release/$package" "$package" "$PACKAGE_SHA256"
+          engine="llama-b12359-bin-$ENGINE_TARGET.tar.gz"
+          fetch "https://github.com/ggml-org/llama.cpp/releases/download/b12359/$engine" "$engine" "$ENGINE_SHA256"
+          weights=SmolLM2-135M-Instruct-Q4_K_M.gguf
+          repo=https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/c6f2d396a5faa22c9722908d47e8da81a5d8cebc
+          fetch "$repo/$weights" "$weights" "$MODEL_SHA256"
+          tar -xzf "$engine" -C "$scratch/engine"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            dpkg-deb --extract "$package" "$scratch/package"
+          else
+            tar -xzf "$package" -C "$scratch/package"
+            set -- "$scratch/package"/*.app
+            [[ $# -eq 1 && -d "$1" ]]
+            codesign --verify --deep --strict "$1"
+          fi
+          backend="$(find "$scratch/package" -type f -name noosphere-backend -print)"
+          server="$(find "$scratch/engine" -type f -name llama-server -print)"
+          test -x "$backend"
+          test -x "$server"
+          "$server" --version
+          python3 "$GITHUB_WORKSPACE/scripts/verify-native-local-model.py" "$backend" "$server" "$scratch/$weights" "$CANDIDATE"
