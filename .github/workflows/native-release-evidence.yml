@@ -1,0 +1,89 @@
+name: Native release evidence
+
+on:
+  push:
+    branches: [develop/noosphere-native-release-evidence]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-release-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CANDIDATE: 1.0.0-rc.2
+  RELEASE_URL: https://github.com/2722039978-source/Noosphere/releases/download/v1.0.0-rc.2
+
+jobs:
+  linux:
+    name: Ubuntu Wayland and Secret Service
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - name: Verify exact publicly released Linux packages
+        run: |
+          packages="$RUNNER_TEMP/noosphere-packages"
+          install -d -m 755 "$packages"
+          cd "$packages"
+          fetch() {
+            curl --fail --location --silent --show-error --connect-timeout 20 --max-time 240 --retry 2 \
+              --output "$2" "$RELEASE_URL/$1"
+            printf '%s  %s\n' "$3" "$2" | sha256sum --strict --check -
+          }
+          stem="Noosphere-$CANDIDATE-linux-x64"
+          fetch "$stem.deb" "$stem.deb" a8ae952a4a4a69d98320a4da406ae2b8489fb4a17fce8014bd55e3eb4b26c992
+          fetch "$stem.AppImage" "$stem.AppImage" 89bab6625bdb114dce0da5b58f8a97c3a03b0e87b77a28e8d3c725636dcc76b8
+          fetch build-info-linux-x64.json build-info.json 97b883f18a13ef0e0429348a203d160d5182fab8d3eda185c40a162ee7b0e405
+      - name: Exercise candidate packages under native Wayland
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y weston dbus-x11 gnome-keyring \
+            "$RUNNER_TEMP/noosphere-packages/Noosphere-$CANDIDATE-linux-x64.deb"
+          bash scripts/verify-linux-wayland.sh "$RUNNER_TEMP/noosphere-packages"
+      - name: Reopen synthetic credentials from the packaged Linux backend
+        run: |
+          mapfile -t backends < <(dpkg-query -L noosphere-desktop | grep '/bin/noosphere-backend$')
+          test "${#backends[@]}" -eq 1
+          bash scripts/verify-linux-credentials.sh "${backends[0]}"
+
+  macos:
+    name: macOS Keychain ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-15
+            arch: ARM64
+            sha256: b0184c54164e8deab99bdedf86235f10d4f4b57ef4a2aab5a9ad84f0a9af90f8
+          - target: macos-x64
+            runner: macos-15-intel
+            arch: X64
+            sha256: 3218b1c4e75852aeecbcb23f994f2f692841a8ce0dd44a9fb225adba4bca6651
+    env:
+      TARGET: ${{ matrix.target }}
+      HOST_ARCH: ${{ matrix.arch }}
+      ARCHIVE_SHA256: ${{ matrix.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify packaged backend against an isolated Keychain
+        timeout-minutes: 8
+        run: |
+          test "$RUNNER_ARCH" = "$HOST_ARCH"
+          uname -srvm
+          archive="Noosphere-$CANDIDATE-$TARGET.app.tar.gz"
+          curl --fail --location --silent --show-error --connect-timeout 20 --max-time 240 --retry 2 \
+            --output "$RUNNER_TEMP/$archive" "$RELEASE_URL/$archive"
+          printf '%s  %s\n' "$ARCHIVE_SHA256" "$RUNNER_TEMP/$archive" | shasum -a 256 -c
+          bash scripts/verify-macos-credentials.sh "$RUNNER_TEMP/$archive"
