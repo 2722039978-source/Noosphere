@@ -242,12 +242,12 @@ def verify(package_root, origin, target, suffix, expected):
         private_token = secrets.token_hex(32)
         env = dict(os.environ, NOOSPHERE_DESKTOP_MANAGED="1", NOOSPHERE_BACKEND_TOKEN=private_token)
         with subprocess.Popen([backend, "-config", config], cwd=root, env=env,
-                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as app:
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE) as app:
             try:
-                app.stdin.write("start\n")
+                app.stdin.write(b"start\n")
                 app.stdin.flush()
                 for line in app.stdout:
-                    if line.startswith("NOOSPHERE_READY "):
+                    if line.startswith(b"NOOSPHERE_READY "):
                         base = f"http://127.0.0.1:{int(line.split()[1])}"
                         break
                 else:
