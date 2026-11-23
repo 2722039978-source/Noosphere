@@ -109,7 +109,7 @@
       "go_arch": "arm64",
       "node_os": "darwin",
       "node_arch": "arm64",
-      "runner": "macos-15",
+      "runner": "macos-26",
       "minimum_os": "macOS 13.5 candidate; deployable bundle floor pending native verification",
       "abi": "aarch64 Mach-O; CGO disabled",
       "packages": {
