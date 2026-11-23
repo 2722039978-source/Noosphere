@@ -40,6 +40,8 @@ jobs:
           stem="Noosphere-$CANDIDATE-linux-x64"
           fetch "$stem.deb" "$stem.deb" a8ae952a4a4a69d98320a4da406ae2b8489fb4a17fce8014bd55e3eb4b26c992
           fetch "$stem.AppImage" "$stem.AppImage" 89bab6625bdb114dce0da5b58f8a97c3a03b0e87b77a28e8d3c725636dcc76b8
+          # HTTP downloads do not preserve the executable bit.
+          chmod u+x "$stem.AppImage"
           fetch build-info-linux-x64.json build-info.json 97b883f18a13ef0e0429348a203d160d5182fab8d3eda185c40a162ee7b0e405
       - name: Exercise candidate packages under native Wayland
         run: |
