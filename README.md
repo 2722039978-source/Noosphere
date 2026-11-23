@@ -6,7 +6,7 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 
 本地模型和云端 API 共用对话右下角的模型菜单。已经安装的本地引擎可以在应用里发现、启动和验证。配置好云端 API 后，也可以在当前会话中切过去。
 
-[下载稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [下载 1.0 候选版](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0-rc.2) · [更新记录](CHANGELOG.md) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md) · [反馈问题](https://github.com/2722039978-source/Noosphere/issues)
+[下载稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [更新记录](CHANGELOG.md) · [发行验收](CROSS_PLATFORM_ACCEPTANCE.md) · [反馈问题](https://github.com/2722039978-source/Noosphere/issues)
 
 ## 用 Noosphere 做什么
 
@@ -28,12 +28,12 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 
 ## 开始使用
 
-1. 打开 [GitHub Releases](https://github.com/2722039978-source/Noosphere/releases/latest)，下载 Windows x64 安装器。也可以解压便携 ZIP 后运行 `Noosphere.exe`，便携版使用系统中的 WebView2 Runtime。
+1. 打开 [GitHub Releases](https://github.com/2722039978-source/Noosphere/releases/latest)，下载适用的软件包。Windows 可运行安装器，或完整解压 ZIP 后启动 `Noosphere.exe`，便携版使用系统 WebView2 Runtime。Linux 可用 `sudo apt install ./Noosphere-1.0.0-linux-x64.deb` 安装 deb，或给 AppImage 添加执行权限后启动。
 2. 点击左侧文件夹图标打开项目。可以直接选择检测到的启动目录，也可以浏览到另一个本地目录。
 3. 从对话右下角选择模型。选中还没启动的本地模型时，可在弹窗中启动并验证。接入云端服务时，在「模型 → 高级管理 → 手动配置」填写连接信息，配置完成后从同一个模型菜单选择带「API」标识的模型。
 4. 直接提问，或点击回形针添加附件。先从「这个项目的入口在哪里」或「总结这份文档的要求」开始。
 
-1.0 候选提供 Windows x64 的 NSIS 和 ZIP、Linux x64 的 AppImage 和 deb，以及两种 Mac 架构各自的应用归档和 DMG。Linux 的 AppImage 普通启动需要系统 FUSE 和图形运行库。两种 Mac 候选包采用 ad-hoc 签名。macOS 用 ⌘O 打开项目、⌘Q 退出。关闭主窗口后，可点 Dock 图标返回工作台。稳定版支持范围以发行页为准。 [发行与验收状态](CROSS_PLATFORM_ACCEPTANCE.md)
+1.0 正式发行面向 Windows x64 和 Linux x64。Linux 包在 Ubuntu 22.04 桌面环境验收。AppImage 普通启动需要 FUSE 和系统图形运行库，缺少 FUSE 时可用 `./Noosphere-1.0.0-linux-x64.AppImage --appimage-extract-and-run`。 [发行与验收状态](CROSS_PLATFORM_ACCEPTANCE.md)
 
 ## 更多工具
 
@@ -60,7 +60,7 @@ CodeLens 的静态关系依赖解析和索引覆盖范围，文件变化后请�
 
 「设置 → 应用信息」显示当前应用数据目录。「设置 → 会话备份」可导出会话和已有文字节选。附件原件、工作区和任务库使用应用数据备份。升级前先导出会话 JSON，再退出应用并保留原数据目录和 WebView 用户资料。跨系统迁移时导入会话，重新绑定项目和模型，配置系统凭证并重建索引。旧审批只可回看。
 
-1.0 候选的「设置 → 软件更新」按安装方式、系统及架构选择更新包，校验大小和 SHA-256，并导出会话 JSON。退出应用后按提示安装或替换程序。旧版便携目录如有 `config.yaml`，先核对应用数据目录再迁移。
+「设置 → 软件更新」按安装方式、系统及架构选择更新包，校验大小和 SHA-256，并导出会话 JSON。退出应用后按提示安装或替换程序。旧版便携目录如有 `config.yaml`，先核对应用数据目录再迁移。
 
 应用退出后，可用交付包资源目录的 `bin/noosphere-backend`（Windows 为 `bin/noosphere-backend.exe`）生成快照或从快照恢复。用「应用信息」显示的实际数据目录填写绝对路径。
 
@@ -69,7 +69,7 @@ noosphere-backend -config "<原应用数据目录>/config.yaml" -backup-data
 noosphere-backend -restore-data-from "<快照目录>" -restore-data-to "<尚不存在的新目录>"
 ```
 
-快照保存配置、SQLite 及其伴随文件、附件原件和任务库。恢复先核对清单与 SHA-256，再写入新目录。可用 `NOOSPHERE_DATA_DIR` 指定恢复目录并核对数据。需要回到 v0.9.0 时使用升级前快照与对应的 WebView 资料或会话 JSON。API 凭证由 Windows Credential Manager、macOS Keychain 或 Linux Secret Service 管理。需要跨机重新授权时，可从保留的模型连接记录继续配置。
+快照保存配置、SQLite 及其伴随文件、附件原件和任务库。恢复先核对清单与 SHA-256，再写入新目录。可用 `NOOSPHERE_DATA_DIR` 指定恢复目录并核对数据。需要回到 v0.9.0 时使用升级前快照与对应的 WebView 资料或会话 JSON。API 凭证由 Windows Credential Manager 或 Linux Secret Service 管理。需要跨机重新授权时，可从保留的模型连接记录继续配置。
 
 ## 开发和构建
 
@@ -87,7 +87,7 @@ pwsh -NoProfile -File scripts/package.ps1
 
 `build.ps1` 将桌面程序构建到 `release/`。`package.ps1` 将 NSIS 安装器、便携 ZIP、构建信息和 SHA-256 校验文件生成到 `artifacts/<版本>/`。
 
-Linux 使用原生 Ubuntu 22.04 x64 构建环境，安装 GTK 3、WebKitGTK 4.1 开发包和系统打包工具。macOS 使用对应 CPU 架构的 Xcode Command Line Tools。下面的命令以 Linux 为例，macOS 将目标参数改为 `macos-arm64` 或 `macos-x64`。各命令和具体依赖见 [验收记录](CROSS_PLATFORM_ACCEPTANCE.md)。
+Linux 使用原生 Ubuntu 22.04 x64 构建环境，安装 GTK 3、WebKitGTK 4.1 开发包和系统打包工具。 [构建依赖与验收记录](CROSS_PLATFORM_ACCEPTANCE.md)
 
 ```sh
 node scripts/desktop.mjs setup linux-x64

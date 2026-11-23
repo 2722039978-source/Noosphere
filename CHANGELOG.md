@@ -4,8 +4,8 @@
 
 - 项目工作台整合模型连接、资料引用、项目记忆与任务操作。会话保存显式模型选择，已入队任务固定当时的模型配置。
 - 任务审批核对项目、操作和目标文件版本。项目验证记录真实退出状态，备份和恢复保留可追溯的数据及附件。
-- Linux AppImage 在仅有 Wayland 的会话启动时选择 Wayland。桌面构建增加 Wayland 窗口与 macOS Keychain 读回及锁定检查。
-- 桌面分发使用四个独立构建目标。最新下载和每个平台的验收状态随实际发行物公布。 [稳定版下载](https://github.com/2722039978-source/Noosphere/releases/latest) · [跨平台验收](CROSS_PLATFORM_ACCEPTANCE.md#10-实施与验收)
+- Linux AppImage 在仅有 Wayland 的会话启动时选择 Wayland。验收覆盖 Linux X11、Wayland、deb 升级和 Secret Service 凭证读回。
+- 正式发行包括 Windows x64 安装器和完整便携 ZIP，以及 Linux x64 AppImage 和 deb。 [稳定版下载](https://github.com/2722039978-source/Noosphere/releases/latest) · [发行验收](CROSS_PLATFORM_ACCEPTANCE.md#10-实施与验收)
 
 ## v1.0.0-rc.2 · 候选
 
