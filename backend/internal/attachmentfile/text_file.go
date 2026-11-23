@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 )
 
 var errMalformedUTF8 = errors.New(encodingProblem)
+
+var ErrSourceChanged = errors.New("附件原件与保存的 SHA-256 不一致，请重新选择文件")
 
 // DetectTextEncoding validates the full file once and records how it was
 // decoded so subsequent searches can read it in a single pass.
@@ -51,6 +54,16 @@ func DetectTextEncoding(ctx context.Context, path string) (string, error) {
 // ScanTextFile emits normalized text without allocating a buffer the size of
 // the attachment. A nil visitor validates the file and its declared encoding.
 func ScanTextFile(ctx context.Context, path, encoding string, visit func(rune)) error {
+	return scanTextFile(ctx, path, encoding, "", visit)
+}
+
+// ScanVerifiedTextFile checks the same raw bytes used to produce the excerpts.
+// Callers must discard the excerpts and any side effects of visit on error.
+func ScanVerifiedTextFile(ctx context.Context, path, encoding, expectedHash string, visit func(rune)) error {
+	return scanTextFile(ctx, path, encoding, expectedHash, visit)
+}
+
+func scanTextFile(ctx context.Context, path, encoding, expectedHash string, visit func(rune)) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -59,9 +72,23 @@ func ScanTextFile(ctx context.Context, path, encoding string, visit func(rune)) 
 		return err
 	}
 	defer file.Close()
+	var input io.Reader = io.LimitReader(file, MaxBytes+1)
+	hash := sha256.New()
+	if expectedHash != "" {
+		input = io.TeeReader(input, hash)
+	}
+	if err := scanText(ctx, input, encoding, visit); err != nil {
+		return err
+	}
+	if expectedHash != "" && fmt.Sprintf("%x", hash.Sum(nil)) != expectedHash {
+		return ErrSourceChanged
+	}
+	return nil
+}
 
+func scanText(ctx context.Context, input io.Reader, encoding string, visit func(rune)) error {
 	const bufferSize = 64 << 10
-	raw := bufio.NewReaderSize(file, bufferSize)
+	raw := bufio.NewReaderSize(input, bufferSize)
 	reader := raw
 	switch encoding {
 	case "utf-8":

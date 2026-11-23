@@ -303,8 +303,10 @@ async function main() {
     await page.getByRole('link', { name: '打开任务 Delivery agent', exact: true }).click();
     await page.getByRole('heading', { name: '任务目标', exact: true }).waitFor();
     await page.getByText('Review the fixture file', { exact: true }).waitFor();
-    await page.getByRole('heading', { name: '任务结果', exact: true }).waitFor();
-    await page.getByRole('region', { name: 'Agent 操作审批' }).waitFor();
+    await page.getByRole('heading', { name: '模型结论', exact: true }).waitFor();
+    await page.getByText('delivery fixture', { exact: true }).waitFor();
+    const approvals = page.getByRole('region', { name: 'Agent 操作审批' });
+    await approvals.getByText(/文件修改.*已执行/).waitFor();
     if (evidence) await page.screenshot({ path: path.join(evidence, '12-final-windows-task-record.png') });
     await page.getByRole('button', { name: '继续对话', exact: true }).click();
     await page.getByRole('textbox', { name: '输入问题', exact: true }).waitFor();
@@ -365,7 +367,7 @@ async function main() {
     assert.match(attachedPrompt, /页码证据\.pdf.*page 1/);
     assert.ok(attachedPrompt.length < 3000, 'entire original file leaked into model call');
     await page.getByRole('button', { name: '重新生成', exact: true }).waitFor();
-    await page.getByText(/本次提供给模型的依据/).click();
+    await page.getByText(/本次对话的依据/).click();
     await page.getByText(/页码证据\.pdf.*第 1 页/).waitFor();
     const attachmentRun = (await ipc('list_workspace_runs', { workspaceId: 'local' })).runs.find(item => item.kind === 'chat' && item.session_id !== 'delivery-native');
     assert.ok(attachmentRun);

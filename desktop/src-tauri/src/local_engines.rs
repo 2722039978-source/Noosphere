@@ -471,6 +471,8 @@ fn inspect(id: EngineId) -> Observation {
 
 struct OwnedEngineProcess {
     child: Child,
+    #[cfg(unix)]
+    engine_pid: u32,
     #[cfg(windows)]
     job: Option<crate::runtime::ProcessJob>,
 }
@@ -563,16 +565,28 @@ impl LocalEngines {
         slot.error.clone()
     }
 
-    fn process_id(&self, id: EngineId) -> Option<u32> {
-        self.state()
-            .slots
-            .get(&id)
-            .and_then(|slot| slot.process.as_ref())
-            .map(|process| process.child.id())
+    fn tracked_listener_matches(&self, id: EngineId) -> Option<bool> {
+        let state = self.state();
+        let process = state.slots.get(&id)?.process.as_ref()?;
+        #[cfg(windows)]
+        let pid = process.child.id();
+        #[cfg(unix)]
+        let pid = process.engine_pid;
+        #[cfg(unix)]
+        {
+            // The supervisor reports the engine PID. Require it to still
+            // belong to the retained process group before trusting the port.
+            let group = unsafe { libc::getpgid(pid as libc::pid_t) };
+            if pid == 0 || group <= 0 || group as u32 != process.child.id() {
+                return Some(false);
+            }
+        }
+        drop(state);
+        Some(discovery::listener_matches(id.port(), pid))
     }
 
     fn owns_listener(&self, id: EngineId) -> bool {
-        self.process_id(id).is_some_and(|pid| discovery::listener_matches(id.port(), pid))
+        self.tracked_listener_matches(id) == Some(true)
     }
 
     fn snapshot(
@@ -664,6 +678,7 @@ impl LocalEngines {
         action: EngineAction,
         data: &Path,
         directory: Option<&Path>,
+        supervisor: Option<&Path>,
     ) -> Result<LocalEngine, ApiError> {
         if !id.supported() {
             return Err(ApiError::new("此便携模型配置仅适用于 Windows x64。"));
@@ -690,7 +705,7 @@ impl LocalEngines {
                 self.stop(id, data)?;
             }
             if matches!(action, EngineAction::Start | EngineAction::Restart) {
-                self.start(id, data, directory)?;
+                self.start(id, data, directory, supervisor)?;
             }
             Ok::<(), String>(())
         })();
@@ -708,7 +723,7 @@ impl LocalEngines {
         let other = id.other_portable().ok_or("此运行环境不支持便携模型切换。")?;
         let target = inspect(id);
         if target.state != "stopped" || !socket_online(other.address()) {
-            return self.start(id, data, directory);
+            return self.start(id, data, directory, None);
         }
         self.recent_exit(other);
         if !self.owns_listener(other) {
@@ -722,8 +737,8 @@ impl LocalEngines {
             .map_err(|error| error.message)?
             .ok_or("另一个模型正在切换，请稍后重试。")?;
         self.stop(other, data)?;
-        if let Err(error) = self.start(id, data, directory) {
-            return match self.start(other, data, None) {
+        if let Err(error) = self.start(id, data, directory, None) {
+            return match self.start(other, data, None, None) {
                 Ok(()) => Err(format!("{error} 已恢复原模型服务。")),
                 Err(_) => Err(format!("{error} 原模型服务也未能恢复，可重新启动。")),
             };
@@ -731,7 +746,9 @@ impl LocalEngines {
         Ok(())
     }
 
-    fn start(&self, id: EngineId, data: &Path, directory: Option<&Path>) -> Result<(), String> {
+    fn start(&self, id: EngineId, data: &Path, directory: Option<&Path>, supervisor: Option<&Path>) -> Result<(), String> {
+        #[cfg(windows)]
+        let _ = supervisor;
         let status = inspect(id);
         match status.state {
             "online" => return Ok(()),
@@ -774,9 +791,18 @@ impl LocalEngines {
             command
         } else {
             let exe = install.launcher.ok_or("未发现 Ollama，请安装后刷新。")?;
+            #[cfg(windows)]
             let mut command = Command::new(exe);
+            #[cfg(windows)]
+            command.arg("serve");
+            #[cfg(unix)]
+            let mut command = {
+                let backend = supervisor.ok_or("应用内的本地引擎进程管理组件不可用，请检查安装包。")?;
+                let mut command = Command::new(backend);
+                command.arg("--noosphere-owned-ollama").arg(exe);
+                command
+            };
             command
-                .arg("serve")
                 .current_dir(data)
                 .env("OLLAMA_HOST", "127.0.0.1:11434")
                 .env("OLLAMA_NO_CLOUD", "1")
@@ -836,10 +862,8 @@ impl LocalEngines {
             }
             let observed = inspect(id);
             if observed.state == "online" {
-                if let Some(pid) = self.process_id(id) {
-                    if !discovery::listener_matches(id.port(), pid) {
-                        return Err("此端口的就绪响应来自其他进程，启动已中止。".into());
-                    }
+                if self.tracked_listener_matches(id) == Some(false) {
+                    return Err("此端口的就绪响应来自其他进程，启动已中止。".into());
                 }
                 return Ok(());
             }
@@ -903,12 +927,17 @@ fn spawn_owned(mut command: Command, path: &Path) -> Result<OwnedEngineProcess, 
     let file = File::create(path).map_err(|_| "无法打开本地引擎启动日志。")?;
     configure_process(&mut command, file).map_err(|_| "无法配置本地引擎日志。")?;
     #[cfg(unix)]
-    crate::platform::own_process_group(&mut command);
+    {
+        crate::platform::own_process_group(&mut command);
+        command.stdin(Stdio::piped()).stdout(Stdio::piped());
+    }
     let child = command
         .spawn()
         .map_err(|error| format!("启动本地引擎失败：{error}"))?;
     let process = OwnedEngineProcess {
         child,
+        #[cfg(unix)]
+        engine_pid: 0,
         #[cfg(windows)]
         job: None,
     };
@@ -922,7 +951,35 @@ fn spawn_owned(mut command: Command, path: &Path) -> Result<OwnedEngineProcess, 
         return Ok(process);
     }
     #[cfg(unix)]
-    Ok(process)
+    {
+        let mut process = process;
+        process.engine_pid = start_unix_engine(&mut process.child)?;
+        Ok(process)
+    }
+}
+
+#[cfg(unix)]
+fn start_unix_engine(child: &mut Child) -> Result<u32, String> {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+
+    let control = child.stdin.as_mut().ok_or("缺少本地引擎退出控制管道。")?;
+    // Keep the write end in Child. The OS closes it even after a hard exit.
+    control.write_all(&[1]).map_err(|error| format!("无法启动本地引擎管理进程：{error}"))?;
+    let mut status = child.stdout.take().ok_or("缺少本地引擎状态管道。")?;
+    let mut pipe = libc::pollfd { fd: status.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    // The private supervisor acknowledges the PID in one short pipe write.
+    if unsafe { libc::poll(&mut pipe, 1, 5000) } <= 0 {
+        return Err("本地引擎管理进程未报告状态，请查看日志。".into());
+    }
+    let mut reply = [0; 32];
+    let count = status.read(&mut reply).map_err(|error| format!("本地引擎启动状态读取失败：{error}"))?;
+    let pid = std::str::from_utf8(&reply[..count]).ok()
+        .and_then(|reply| reply.strip_suffix('\n'))
+        .and_then(|reply| reply.parse::<libc::pid_t>().ok())
+        .filter(|pid| *pid > 0)
+        .ok_or("本地引擎启动失败，请查看日志。")?;
+    Ok(pid as u32)
 }
 
 fn ollama_disk_models() -> Vec<LocalModel> {
@@ -1076,12 +1133,17 @@ pub async fn control_local_engine(
 ) -> Result<LocalEngine, ApiError> {
     let state = state.inner().clone();
     let data = data_directory(&app)?;
+    #[cfg(unix)]
+    let supervisor = RuntimePaths::from_app(&app).ok().map(|paths| paths.backend);
+    #[cfg(windows)]
+    let supervisor: Option<PathBuf> = None;
     tauri::async_runtime::spawn_blocking(move || {
         state.handle(
             engine_id,
             action,
             &data,
             directory.as_deref().map(Path::new),
+            supervisor.as_deref(),
         )
     })
     .await

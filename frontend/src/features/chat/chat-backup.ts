@@ -38,8 +38,8 @@ export function validateChatSnapshot(value: unknown): ChatSnapshot {
   if (!state || !Array.isArray(state.sessions) || (state.activeId !== null && typeof state.activeId !== 'string')) throw new Error('会话备份格式无效。');
   const ids = new Set<string>();
   for (const session of state.sessions) {
-    if (session.workspaceId !== undefined && (typeof session.workspaceId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(session.workspaceId))) throw new Error('会话工作区标识无效。');
     if (!session || typeof session.id !== 'string' || !session.id || ids.has(session.id) || typeof session.title !== 'string' || typeof session.modelId !== 'string' || !Number.isFinite(session.createdAt) || !Number.isFinite(session.updatedAt) || !Array.isArray(session.messages)) throw new Error('会话数据不完整或 ID 重复。');
+    if (session.workspaceId !== undefined && (typeof session.workspaceId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(session.workspaceId))) throw new Error('会话工作区标识无效。');
     ids.add(session.id);
     const messages = new Set<string>();
     for (const message of session.messages) {

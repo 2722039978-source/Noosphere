@@ -6,7 +6,31 @@ function validHash(hash) {
   return typeof hash === 'string' && /^[a-f0-9]{64}$/i.test(hash);
 }
 
-async function verifyTarget(dir, id, target, revision, formal) {
+const numeric = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const candidate = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-rc\.[1-9]\d*$/;
+
+export function verifyReleaseRef(buildVersion, tag, formal) {
+  if (formal && (!tag || !numeric.test(buildVersion))) {
+    throw new Error('Formal packaging requires a selected numeric release tag');
+  }
+  if (tag && !numeric.test(buildVersion) && !candidate.test(buildVersion)) {
+    throw new Error('A release tag requires a numeric version or an rc.N version');
+  }
+  if (tag && tag !== 'v' + buildVersion) throw new Error('Tag must exactly match VERSION');
+}
+
+export function debianPackageVersion(buildVersion) {
+  // In Debian's version order, a hyphen starts the package revision.
+  // A tilde makes a pre-release upgrade normally to the stable version.
+  return candidate.test(buildVersion) ? buildVersion.replace('-rc.', '~rc.') : buildVersion;
+}
+
+function commitTree(revision) {
+  if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('Invalid source commit ' + revision);
+  return run('git', ['rev-parse', '--verify', revision + '^{commit}^{tree}'], { capture: true });
+}
+
+async function verifyTarget(dir, id, target, revision, tree, formal) {
   const expected = Object.values(packageNames(target));
   const scope = [...expected, 'build-info.json'];
   const manifestPath = join(dir, 'SHA256SUMS.txt');
@@ -14,7 +38,7 @@ async function verifyTarget(dir, id, target, revision, formal) {
     if (!(await lstat(join(dir, name))).isFile()) throw new Error('Non-regular release file: ' + id + '/' + name);
   }
   const info = await json(join(dir, 'build-info.json'));
-  if (info.version !== version || info.source_revision !== revision || info.target !== id
+  if (info.version !== version || info.target !== id
     || info.arch !== target.arch || info.os !== target.os || info.build_profile !== 'release'
     || typeof info.source_dirty !== 'boolean' || !validHash(info.source_fingerprint) || !validHash(info.frontend_sha256)
     || !validHash(info.desktop_sha256) || !validHash(info.backend_sha256)) {
@@ -22,6 +46,10 @@ async function verifyTarget(dir, id, target, revision, formal) {
   }
   if (formal && (info.source_dirty || !/^\d+\.\d+\.\d+$/.test(info.version))) {
     throw new Error('Expected a clean numeric release build for ' + id);
+  }
+  if (info.source_revision !== revision
+    && (!formal || info.source_dirty || commitTree(info.source_revision) !== tree)) {
+    throw new Error('Build source does not match the checked out source tree for ' + id);
   }
   if (!info.codelens_runtime || !info.rea_runtime || info.runtime_revision < 2) {
     throw new Error('Missing private runtimes in ' + id);
@@ -42,7 +70,7 @@ async function verifyTarget(dir, id, target, revision, formal) {
   if (scope.some(name => !seen.has(name))) throw new Error('Missing assets for ' + id);
   const forbidden = (await readdir(dir)).filter(name => !scope.includes(name) && name !== 'SHA256SUMS.txt');
   if (forbidden.length) throw new Error('Unexpected assets for ' + id + ': ' + forbidden.join(', '));
-  return expected;
+  return { assets: expected, sourceRevision: info.source_revision, fingerprint: info.source_fingerprint };
 }
 
 export async function aggregate([input, output, ...flags]) {
@@ -51,12 +79,12 @@ export async function aggregate([input, output, ...flags]) {
   }
   const formal = flags.length === 2;
   const tag = flags[1];
-  let revision = run('git', ['rev-parse', 'HEAD'], { capture: true });
+  const revision = run('git', ['rev-parse', 'HEAD'], { capture: true });
+  const tree = commitTree(revision);
   if (formal) {
-    if (!/^\d+\.\d+\.\d+$/.test(version) || tag !== 'v' + version) throw new Error('Tag does not match VERSION');
+    verifyReleaseRef(version, tag, true);
     const taggedRevision = run('git', ['rev-parse', '--verify', 'refs/tags/' + tag + '^{}'], { capture: true });
     if (taggedRevision !== revision) throw new Error('Current source revision does not match the tag');
-    revision = taggedRevision;
   }
   const candidates = (await files(resolve(input))).filter(path => basename(path) === 'build-info.json');
   const buildDirs = new Map();
@@ -74,10 +102,12 @@ export async function aggregate([input, output, ...flags]) {
   await mkdir(dirname(destination), { recursive: true });
   const stage = await mkdtemp(join(dirname(destination), '.aggregate-'));
   const all = [];
+  const sources = {};
   try {
     for (const [id, target] of Object.entries(manifest.targets)) {
       const dir = buildDirs.get(id);
-      const assets = await verifyTarget(dir, id, target, revision, formal);
+      const { assets, sourceRevision, fingerprint } = await verifyTarget(dir, id, target, revision, tree, formal);
+      sources[id] = { source_revision: sourceRevision, source_fingerprint: fingerprint };
       for (const asset of assets) await copyFile(join(dir, asset), join(stage, asset));
       const infoName = 'build-info-' + id + '.json';
       await copyFile(join(dir, 'build-info.json'), join(stage, infoName));
@@ -88,6 +118,10 @@ export async function aggregate([input, output, ...flags]) {
         all.push('build-info.json');
       }
     }
+    const releaseInfo = { version, mode: formal ? 'formal-packaging' : 'preview', source_revision: revision, source_tree: tree,
+      ...(formal ? { source_tag: tag } : {}), targets: sources };
+    await writeFile(join(stage, 'delivery-info.json'), JSON.stringify(releaseInfo, null, 2) + '\n');
+    all.push('delivery-info.json');
     await writeFile(join(stage, 'SHA256SUMS.txt'), await checksums(stage, all));
     await rename(stage, destination);
     console.log('Verified four target packages for ' + revision + ' in ' + destination);

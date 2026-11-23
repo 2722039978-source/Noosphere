@@ -38,7 +38,10 @@ func (g *Gateway) acquireCall(ctx context.Context) error {
 	}
 }
 
-func (g *Gateway) appendLog(entry CallLog) {
+func (g *Gateway) appendLog(entry CallLog, credential string) {
+	entry.RequestPreview = providers.RedactCredential(entry.RequestPreview, credential)
+	entry.ResponsePreview = providers.RedactCredential(entry.ResponsePreview, credential)
+	entry.Error = providers.RedactCredential(entry.Error, credential)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.logs = append(g.logs, entry)
@@ -148,7 +151,7 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 			if callErr != nil {
 				entry.Error = callErr.Error()
 			}
-			g.appendLog(entry)
+			g.appendLog(entry, model.APIKey)
 		}()
 	}
 
@@ -196,9 +199,6 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	finishInference := g.countInference(false)
 	streamCtx, stopStream := context.WithCancel(ctx)
-	if body.Preview {
-		streamCtx = providers.ConnectionProbeContext(streamCtx)
-	}
 	ch, err := provider.ChatStream(streamCtx, model.ModelName, pMsgs, providers.ChatOptions{
 		SystemPrompt: body.SystemPrompt, Temperature: temp, MaxTokens: maxT,
 		MaxTokensField: model.MaxTokensKey(), OmitTemperature: !model.TemperatureEnabled(),

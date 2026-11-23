@@ -47,11 +47,16 @@ class Model(BaseHTTPRequestHandler):
                 assert 'propose_file_change' in names and 'approve' not in names
                 if body['messages'][-1]['role'] == 'tool':
                     assert json.loads(body['messages'][-1]['content'])['success']
+                    if goal == 'propose then hold':
+                        received.set()
+                        release.wait(20)
                     message = {'content': 'Proposal saved; awaiting human approval.'}
                 else:
                     name = 'propose_test' if goal == 'propose test' else 'propose_file_change'
                     args = {'runner': 'python', 'reason': 'run fixture tests'} if goal == 'propose test' else {'path': 'main.go', 'old_text': 'func start() {}', 'new_text': 'func boot() {}', 'reason': 'rename fixture function'}
                     message = {'tool_calls': [{'id': 'proposal-call', 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
+                    if goal == 'propose edit and test':
+                        message['tool_calls'].append({'id': 'test-call', 'type': 'function', 'function': {'name': 'propose_test', 'arguments': json.dumps({'runner': 'python', 'reason': 'verify edited fixture'})}})
             elif body['messages'][-1]['role'] == 'tool':
                 result = json.loads(body['messages'][-1]['content'])
                 assert body['messages'][-1]['tool_call_id'] == 'file-call'
@@ -174,6 +179,25 @@ try:
         return api(f"/api/workspaces/{ws['id']}/runs/{task['id']}/actions")['actions']
     def decide(action, decision):
         return api(f"/api/workspaces/{ws['id']}/actions/{action['id']}", {'decision': decision})
+    def assert_blocked(action):
+        try:
+            decide(action, 'approve')
+        except HTTPError as error:
+            assert error.code == 409, error
+        else:
+            raise AssertionError('ineligible action executed')
+    received.clear(); release.clear()
+    pending = submit('propose then hold', True)
+    assert received.wait(5)
+    held_action = actions(pending)[0]
+    assert held_action['status'] == 'pending' and held_action['blocked_reason']
+    assert_blocked(held_action)
+    cancelled = api(f"/api/runs/{pending['id']}/cancel", {})
+    assert cancelled['status'] == 'cancelled'
+    release.set()
+    assert_blocked(held_action)
+    assert (source / 'main.go').read_bytes() == raw
+    check('pending proposal cannot execute during generation or after task cancellation')
     proposed = submit('propose file', True)
     assert wait(proposed['id'])['status'] == 'completed'
     action = actions(proposed)[0]
@@ -200,17 +224,23 @@ try:
     assert (source / 'main.go').read_bytes() == raw
     check('rollback rejects external changes and restores the exact original')
     (source / 'test_smoke.py').write_text('import unittest\nclass Smoke(unittest.TestCase):\n    def test_pass(self): self.assertEqual(2 + 2, 4)\n', encoding='utf-8')
-    test_task = submit('propose test', True)
+    test_task = submit('propose edit and test', True)
     assert wait(test_task['id'])['status'] == 'completed'
-    test_action = actions(test_task)[0]
+    edit_action, test_action = actions(test_task)
+    assert test_action['blocked_reason']
+    assert_blocked(test_action)
+    decide(edit_action, 'approve')
+    assert b'func boot()' in (source / 'main.go').read_bytes()
     decide(test_action, 'approve')
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        test_action = actions(test_task)[0]
+        test_action = actions(test_task)[1]
         if test_action['status'] != 'running': break
         time.sleep(.1)
-    assert test_action['status'] == 'completed' and 'OK' in test_action['output'], test_action
-    check('approved fixed test runner executes real isolated Python tests')
+    assert test_action['status'] == 'completed' and test_action['exit_code'] == 0 and 'Ran 1 test' in test_action['output'] and 'OK' in test_action['output'], test_action
+    decide(edit_action, 'rollback')
+    assert (source / 'main.go').read_bytes() == raw
+    check('planned edit precedes approved real isolated Python tests and exact restoration')
     assert not upstream_errors, upstream_errors
     report = {'passed': len(passed), 'checks': passed, 'artifact': str(EXE), 'fixture': str(fixture)}
     (fixture / 'result.json').write_text(json.dumps(report, indent=2), encoding='utf-8')

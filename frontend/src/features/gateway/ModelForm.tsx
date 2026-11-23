@@ -31,7 +31,14 @@ export function ModelForm({ onSaved, onCancel, initial }: {
   const [result, setResult] = useState<ModelDiagnostic>();
   const [error, setError] = useState('');
   const inFlight = useRef(false);
-  const update = (patch: Partial<ModelConfig>) => { setForm(previous => ({ ...previous, ...patch })); setError(''); };
+  const update = (patch: Partial<ModelConfig>) => {
+    setForm(previous => ({ ...previous, ...patch }));
+    if (patch.provider !== undefined || patch.base_url !== undefined || patch.api_key !== undefined ||
+        patch.model_name !== undefined && result?.inference !== 'skipped') {
+      setResult(undefined);
+    }
+    setError('');
+  };
   const choice = providers.find(provider => provider.id === form.provider);
   const draft = (): ModelConfig => ({ ...form, capabilities: undefined, credential: undefined, is_default: Boolean(initial?.is_default), id: form.id.trim(), name: form.name.trim() || form.model_name.trim(), base_url: form.base_url.trim(), model_name: form.model_name.trim() });
 
@@ -59,7 +66,7 @@ export function ModelForm({ onSaved, onCancel, initial }: {
     <fieldset disabled={!!working} className="grid gap-3">
       <label className="ns-model-field">服务商<select className="ns-workspace-select" value={form.provider} onChange={event => {
         const provider = providers.find(item => item.id === event.target.value);
-        if (provider) { setResult(undefined); update({ provider: provider.id, base_url: provider.url, model_name: '', api_key: '' }); }
+        if (provider) update({ provider: provider.id, base_url: provider.url, model_name: '', api_key: '' });
       }}>{!choice && <option value={form.provider}>{form.provider}</option>}{providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></label>
       {!['ollama', 'openvino'].includes(form.provider) && <label className="ns-model-field">API 密钥<Input type="password" autoComplete="off" value={form.api_key ?? ''} placeholder={initial ? '留空保留已保存的密钥' : '按需填写'} onChange={event => update({ api_key: event.target.value })} /></label>}
       {initial?.credential && !form.api_key && <p role="status" className="text-xs text-text-2">{initial.credential.reason}</p>}

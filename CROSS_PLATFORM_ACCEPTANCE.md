@@ -1,8 +1,50 @@
 # 桌面跨平台验收记录
 
-记录日期为 2026-11-20（America/Los_Angeles）。每次复验记录版本、源码提交及工作区指纹、原生产物 SHA-256、目标 OS/CPU、测试命令及日志位置。状态使用 **已完成**、**待验证**、**待实施**、**阻塞** 和 **待核实**。源码适配、原生测试包和正式发行分别判断。
+每次复验记录版本、源码提交及工作区指纹、原生产物 SHA-256、目标 OS/CPU、测试命令及日志位置。源码实现、自动检查、原生运行、真实模型和最终发行包分别取证。
 
-## 目标和证据矩阵
+## 1.0 实施与验收
+
+2026-11-23（America/Los_Angeles）核对后，从 `0f6cdef68f6296aeebf1eee6e120db07dfacef57` 建立 `develop/noosphere-1.0`。远端 `main` 和 `v0.9.0` 都在该提交。起点的跟踪文件无修改，工作树原有的 `.codex/environments/environment.toml` 属于本地配置。
+
+| 状态 | 工作与涉及模块 | 当前证据、依赖及验收条件 |
+| --- | --- | --- |
+| 已完成 | 0.9.0 基线、目标与历史资产核对 | [主干 CI](https://github.com/2722039978-source/Noosphere/actions/runs/44781864724) 和 [标签 CI](https://github.com/2722039978-source/Noosphere/actions/runs/44788436392) 成功。标签 CI 四目标及汇总通过。公开资产包含 Windows x64、Linux x64、macOS arm64，Intel x64 没有公开资产。Linux、Apple Silicon 是预览。 [0.9.0 发行记录](https://github.com/2722039978-source/Noosphere/releases/tag/v0.9.0) |
+| 待验证 | 首启、连接向导、模型选择与能力。Gateway、工作区模型绑定、桌面引擎 | 现有选择回归和 Provider fixture 可作起点。验证首次生成、A→B→A、工作区及会话隔离、配置编辑和执行中的模型固定。每目标补真实云、本地模型及结构化工具调用证据。 |
+| 待验证 | 附件、项目索引、来源、记忆。Workspaces、Attachment、CodeLens、对话与知识界面 | 已有文本/PDF 提取、配额、索引、来源版本和记忆确认。核对取消、重试、片段实际发送、过期引用、上下文隔离及编辑来源。 |
+| 待实施 | 项目任务、审批、冲突与取消。Agent、Workspaces、任务和审批界面 | 沿用现有任务与操作记录，核对任务状态和授权绑定。使用真实小项目覆盖成功、取消、失败、外部编辑、重启、继续与恢复。 |
+| 待实施 | 数据准备、备份恢复与更新。SQLite、附件文件、桌面数据目录、更新器 | 隔离生成 0.9.0 数据并验证升级、原件保留、备份及恢复。系统凭证失败保留原数据。迁移后重新绑定路径、凭证、模型及索引，审批按新安装重新确认。 |
+| 待验证 | 私有运行时、窗口交互和生命周期。桌面 Rust、Go 后端、Python/Node、桌面验证脚本 | 四目标验证搬迁、离线启动、解析、服务异常与进程归属。目标包验证目录选择、输入法、键盘、拖放、剪贴板及显示设置。 |
+| 阻塞 | 1.0 原生签名与部分业务复验。四目标包、CI、签名环境 | 当前宿主为 Windows x64。Linux、两种 Mac 架构仍需原生桌面与目标版本；Mac 正式分发需要获授权的 Developer ID 及公证。候选的源码、包哈希和测试证据需独立生成。 |
+
+按模型与数据边界、审批与项目流程、源码回归、候选打包、最终包原生验收推进。签名后的实际文件参与最终验收及哈希记录。历史检查见下文。
+
+### 1.0 原生交接
+
+每个平台在独立测试账号或测试机准备同一份小项目和测试数据。项目包含可搜索的定义、文本和有文字层的 PDF，以及一项固定的项目测试。先用 v0.9.0 写入工作区、会话、项目约定、任务与附件并退出，再用候选验证各项数据和来源。保留升级前快照和独立 WebView 资料。用新目录恢复前一版本并重复核对。在无法安全继续的外部编辑场景记录冲突和当前文件。可用会话演示真实工具调用，但只有模型确实返回结构化调用、收到工具结果并继续时，才记为真实 Agent 通过。
+
+| 目标与前提 | 在目标机器上的操作 | 通过证据 |
+| --- | --- | --- |
+| Windows x64，独立标准用户，WebView2，公开 0.9.0 NSIS | `pwsh -NoProfile -File scripts/verify-installer.ps1 -Installer <RC.exe> -PreviousInstaller <0.9.0.exe> -PreviousVersion 0.9.0 -PreviousSHA256 0de517f1566517cd4e36b3631a5b7a14def883e7bf988cb1245d55b6f851f2d7`。解包到包含空格及中文的目录，运行 `node scripts/verify-desktop.cjs <便携目录>`。 | 升级后安装注册版本、启动、数据保留、重复安装和卸载均通过。核对会话、附件、系统凭证、缩放、中文输入、拖放与低动效。 |
+| Linux x64，Ubuntu 22.04 X11 与 Wayland，原生桌面和 Secret Service | 按下方构建命令打包。运行 `node scripts/verify-native-unix.mjs artifacts/<版本>/linux-x64`，离线用 [CI 网络命名空间入口](.github/workflows/ci.yml)。在干净测试机 `sudo apt install ./<0.9.0.deb>`，保存测试数据后安装候选 deb。单独验证 AppImage FUSE 启动、替换及数据保留。 | 输出两个最终包 SHA-256。X11 与 Wayland 分别记录窗口、目录选择、Secret Service、Unicode、离线启动、模型和核心任务；deb 记录旧版到候选的升级及恢复。 |
+| macOS arm64，Apple Silicon 原生桌面、Keychain、已授权签名环境 | 用原生目标 `macos-arm64` 构建和运行 `node scripts/verify-native-unix.mjs artifacts/<版本>/macos-arm64`。签名、Submit、Staple 和成品检查由 `scripts/desktop-ci-sign.mjs` 和已配置的受保护 CI 环境办理。 | 最终归档和 DMG 内复制出的 .app 通过签名、Gatekeeper、私有组件、启动和清理。另取 13.5 候选最低系统、Keychain、Finder 安装升级、Dock、Cmd+O/Q、真实模型证据。 |
+| macOS x64，Intel 原生桌面、Keychain、已授权签名环境 | 使用 `macos-x64` 重做以上过程。最低桌面候选测试 13.5，实际 Ollama CPU 选用引擎支持的系统及现有模型权重。 | 独立 Intel 哈希、签名和系统记录。分开记录桌面下限和模型引擎下限。 |
+
+每个目标在包含空格及 Unicode 的路径复跑，并记录系统版本、架构、窗口系统及 WebView、应用与引擎版本、模型 ID、API 协议、工具调用状态、源码提交、产物哈希与失败原因。将可公开的证据保存到对应 CI 日志及工作区 `test/release-1.0/<目标>/`，截图和日志仅保留测试数据。聚合命令校验来源与实际分发文件，并生成 `delivery-info.json`，记录各包真实构建提交与汇总所用源码树。签名构建与本表业务验收均通过后，再按仓库授权发正式版。
+
+## 0.9.0 发布后的状态
+
+| 目标 | 0.9.0 已取得的证据 | 分发状态 |
+| --- | --- | --- |
+| Windows x64 | 标签 CI 安装器、便携包和原生 WebView2 通过。发行说明记录了本地 Bonsai SYCL 验收。 | 公共 NSIS、完整便携 ZIP |
+| Linux x64 | Ubuntu 22.04 标签 CI 通过。deb 和 AppImage 均验证搬迁后仅回环网络下的 X11 启动及清理。 | 公共 AppImage、deb 预览；安装升级、Wayland 和真实模型待验证 |
+| macOS arm64 | ARM64 runner 原生构建，搬迁后的归档及 DMG 内应用完成服务启动和清理。 | 公共 ad-hoc 预览；正式签名、公证、最低系统和完整业务待验证 |
+| macOS x64 | Intel runner 的构建、归档、DMG 原生启动检查和汇总通过。 | CI 候选；无公共下载，正式签名及原生业务待验证 |
+
+[0.9.0 发行说明与资产](https://github.com/2722039978-source/Noosphere/releases/tag/v0.9.0) · [0.9.0 标签 CI](https://github.com/2722039978-source/Noosphere/actions/runs/44788436392)
+
+## 0.9.0 候选历史矩阵
+
+以下矩阵保存 2026-11-20 的候选阶段记录。已复验的状态见上表。
 
 | 目标 | 构建环境与最低系统 | 计划分发 | 源码与构建 | 原生运行与正式发行 |
 | --- | --- | --- | --- | --- |

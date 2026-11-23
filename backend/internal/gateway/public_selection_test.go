@@ -161,6 +161,42 @@ providers:
 	}
 }
 
+func TestEditProbeUsesProtocolOverridesForExistingDeploymentOnly(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"data":[{"id":"fixture"}]}`)
+			return
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		_, hasTemperature := payload["temperature"]
+		if r.URL.Path == "/v1/chat/completions" {
+			if hasTemperature || payload["max_completion_tokens"] == nil {
+				t.Error("probe did not use the saved deployment's protocol overrides")
+			}
+		} else if r.URL.Path != "/v2/chat/completions" || !hasTemperature || payload["max_completion_tokens"] != nil {
+			t.Error("probe reused protocol overrides on a different deployment")
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"4"}}]}`)
+	}))
+	defer upstream.Close()
+
+	g := New(filepath.Join(t.TempDir(), "models.yaml"))
+	disabledTemperature := false
+	g.config.Models = []ModelConfig{{ID: "fixture", ModelName: "fixture", Provider: "openai_compatible", BaseURL: upstream.URL + "/v1", Enabled: true,
+		SupportsTemperature: &disabledTemperature, MaxTokensField: "max_completion_tokens"}}
+	for _, apiPath := range []string{"/v1/", "/v2"} {
+		request := fmt.Sprintf(`{"model":{"id":"fixture","model_name":"fixture","provider":"openai_compatible","base_url":%q}}`, upstream.URL+apiPath)
+		response := httptest.NewRecorder()
+		g.HandleProbeModel(response, httptest.NewRequest(http.MethodPost, "/api/gateway/models/probe", strings.NewReader(request)))
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"inference":"succeeded"`) {
+			t.Fatalf("probe returned %d: %s", response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestPublicModelSelectionRejectsUnavailableModels(t *testing.T) {
 	g, manager, workspace := publicSelectionGateway(t)
 	for _, requested := range []string{"missing", "disabled"} {
@@ -217,6 +253,92 @@ func TestPublicModelSelectionRejectsSwitchDuringActiveTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	requirePublicSessionModel(t, g, workspace.ID, "active", "", "explicit")
+}
+
+func TestConnectionRejectsInferenceURLsAsBase(t *testing.T) {
+	for _, tc := range []struct {
+		provider, endpoint string
+	}{
+		{"openai", "/proxy/v1/chat/completions"},
+		{"openai", "/proxy/v1/responses"},
+		{"claude", "/proxy/v1/messages"},
+		{"gemini", "/proxy/v1beta/models/gemini:generateContent"},
+		{"gemini", "/proxy/v1beta/models/gemini:streamGenerateContent"},
+	} {
+		t.Run(tc.endpoint, func(t *testing.T) {
+			model := &ModelConfig{Provider: tc.provider, ModelName: "fixture", BaseURL: "https://relay.example" + tc.endpoint + "/"}
+			_, code := connectionEndpoints(model)
+			if code != "BASE_URL_REQUIRED" {
+				t.Errorf("connection validation returned %q", code)
+			}
+			g := New(filepath.Join(t.TempDir(), "models.yaml"))
+			if _, err := g.getOrCreateProvider(model); err == nil {
+				t.Error("saved model accepted an inference endpoint as a base URL")
+			}
+		})
+	}
+}
+
+func TestOllamaCompatibilityKeepsReverseProxyPrefix(t *testing.T) {
+	model := &ModelConfig{Provider: "ollama", BaseURL: "http://127.0.0.1:11434/engines/ollama/api/", ModelName: "fixture"}
+	endpoints, code := connectionEndpoints(model)
+	if code != "" || endpoints.catalog != "http://127.0.0.1:11434/engines/ollama/api/tags" ||
+		endpoints.inference != "http://127.0.0.1:11434/engines/ollama/v1/chat/completions" {
+		t.Errorf("connection endpoints = %+v (%s)", endpoints, code)
+	}
+}
+
+func TestConnectionDiagnosticReportsUnsupportedTemperatureFallback(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"data":[{"id":"fixture"}]}`)
+			return
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		if _, found := payload["temperature"]; found {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"Unsupported parameter: temperature"}}`)
+			return
+		}
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"4"}}]}`)
+	}))
+	defer upstream.Close()
+
+	g := New(filepath.Join(t.TempDir(), "models.yaml"))
+	model := &ModelConfig{ID: "fixture", Provider: "openai_compatible", BaseURL: upstream.URL + "/v1", ModelName: "fixture", Enabled: true}
+	result := g.testModelContext(context.Background(), model)
+	raw, err := json.Marshal(result)
+	if err != nil || result.Inference != "succeeded" || !strings.Contains(string(raw), `"temperature_omitted":true`) {
+		t.Fatalf("connection diagnostic = %s (%v)", raw, err)
+	}
+}
+
+func TestProviderCallLogRedactsEchoedCredential(t *testing.T) {
+	const credential = "test-credential-kept-out-of-call-logs"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"choices":[{"message":{"content":%q}}]}`, strings.Repeat("x", 195)+credential)
+	}))
+	defer upstream.Close()
+
+	g, _, _ := publicSelectionGateway(t)
+	g.sem = make(chan struct{}, 1)
+	g.providers = make(map[string]providers.LLMProvider)
+	g.config.Models[0].BaseURL = upstream.URL + "/v1"
+	g.config.Models[0].APIKey = credential
+	body := fmt.Sprintf(`{"model_id":"explicit","messages":[{"role":"user","content":%q}]}`, credential)
+	response := httptest.NewRecorder()
+	g.HandleChat(response, httptest.NewRequest(http.MethodPost, "/api/gateway/chat", strings.NewReader(body)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("chat returned %d: %s", response.Code, response.Body.String())
+	}
+	logs := httptest.NewRecorder()
+	g.HandleLogs(logs, httptest.NewRequest(http.MethodGet, "/api/gateway/logs", nil))
+	if contents := logs.Body.String(); strings.Contains(contents, credential[:5]) || !strings.Contains(contents, "[redacted]") {
+		t.Error("request or response previews retained a full or truncated credential")
+	}
 }
 
 func TestPublicModelSelectionProviderRouting(t *testing.T) {
@@ -349,11 +471,17 @@ func TestPublicModelSelectionProviderRouting(t *testing.T) {
 			requirePublicSessionModel(t, g, "local", "routing", "", "global")
 		})
 	}
+	if w := selectModel(context.Background(), "explicit"); w.Code != http.StatusOK {
+		t.Fatalf("切回原会话模型失败：%d %s", w.Code, w.Body.String())
+	}
+	chat("explicit", true)
+	requirePublicSessionModel(t, g, "local", "routing", "", "explicit")
 	mu.Lock()
 	defer mu.Unlock()
 	want := []providerRequest{
 		{Model: "explicit"}, {Model: "global"}, {Model: "global", Stream: true},
 		{Model: "unauthorized"}, {Model: "not-found"}, {Model: "empty"}, {Model: "slow"},
+		{Model: "explicit"}, {Model: "explicit", Stream: true},
 	}
 	if !slices.Equal(calls, want) {
 		t.Fatalf("本地推理服务收到 %+v，预期 %+v", calls, want)

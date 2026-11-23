@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -23,32 +24,41 @@ import (
 const maxActionJournalBytes = 512 * 1024
 
 type Action struct {
-	ID            string          `json:"id"`
-	WorkspaceID   string          `json:"workspace_id"`
-	RunID         string          `json:"run_id"`
-	Root          string          `json:"project_path"`
-	ProjectID     string          `json:"project_id"`
-	Kind          string          `json:"kind"`
-	Status        string          `json:"status"`
-	Reason        string          `json:"reason"`
-	Path          string          `json:"path,omitempty"`
-	Before        string          `json:"before,omitempty"`
-	After         string          `json:"after,omitempty"`
-	Existed       bool            `json:"existed"`
-	BeforeHash    string          `json:"before_hash,omitempty"`
-	AfterHash     string          `json:"after_hash,omitempty"`
-	FileDirectory string          `json:"file_directory_identity,omitempty"`
-	Mode          uint32          `json:"file_mode,omitempty"`
-	Runner        string          `json:"runner,omitempty"`
-	Command       string          `json:"command,omitempty"`
-	Test          *testInvocation `json:"test,omitempty"`
-	Service       string          `json:"service,omitempty"`
-	Target        string          `json:"target,omitempty"`
-	Previous      string          `json:"previous,omitempty"`
-	Output        string          `json:"output,omitempty"`
-	Error         string          `json:"error,omitempty"`
-	CreatedAt     string          `json:"created_at"`
-	UpdatedAt     string          `json:"updated_at"`
+	ID               string          `json:"id"`
+	WorkspaceID      string          `json:"workspace_id"`
+	RunID            string          `json:"run_id"`
+	Root             string          `json:"project_path"`
+	ProjectID        string          `json:"project_id"`
+	ProjectBindingID string          `json:"project_binding_id,omitempty"`
+	Kind             string          `json:"kind"`
+	Status           string          `json:"status"`
+	Reason           string          `json:"reason"`
+	Path             string          `json:"path,omitempty"`
+	Before           string          `json:"before,omitempty"`
+	After            string          `json:"after,omitempty"`
+	Existed          bool            `json:"existed"`
+	BeforeHash       string          `json:"before_hash,omitempty"`
+	AfterHash        string          `json:"after_hash,omitempty"`
+	FileDirectory    string          `json:"file_directory_identity,omitempty"`
+	FileVersion      int             `json:"file_version,omitempty"`
+	BeforeFileID     string          `json:"before_file_identity,omitempty"`
+	AfterFileID      string          `json:"after_file_identity,omitempty"`
+	RollbackFileID   string          `json:"rollback_file_identity,omitempty"`
+	Mode             uint32          `json:"file_mode,omitempty"`
+	Runner           string          `json:"runner,omitempty"`
+	Command          string          `json:"command,omitempty"`
+	Test             *testInvocation `json:"test,omitempty"`
+	Service          string          `json:"service,omitempty"`
+	Target           string          `json:"target,omitempty"`
+	Previous         string          `json:"previous,omitempty"`
+	Output           string          `json:"output,omitempty"`
+	ExitCode         *int            `json:"exit_code,omitempty"`
+	Error            string          `json:"error,omitempty"`
+	RestoredHistory  bool            `json:"restored_history,omitempty"`
+	RestoredStatus   string          `json:"restored_status,omitempty"`
+	BlockedReason    string          `json:"blocked_reason,omitempty"`
+	CreatedAt        string          `json:"created_at"`
+	UpdatedAt        string          `json:"updated_at"`
 }
 type ActionExecutor interface {
 	ServiceState(context.Context, string) (string, error)
@@ -101,7 +111,7 @@ func OpenActions(dir string, m *workspaces.Manager, executor ActionExecutor) (*A
 		if json.Unmarshal(raw, &a) != nil || a.ID+".json" != entry.Name() {
 			return nil, fmt.Errorf("invalid action journal")
 		}
-		if a.Status == "running" || a.Status == "applying" || a.Status == "rolling_back" {
+		if !a.RestoredHistory && (a.Status == "running" || a.Status == "applying" || a.Status == "rolling_back") {
 			a.Status = "interrupted"
 			a.Error = "执行期间应用退出；不会自动重放。文件操作可尝试恢复原文件，其他操作请核查实际状态。"
 			if err = s.save(a); err != nil {
@@ -169,6 +179,11 @@ func (s *Actions) List(workspaceID, runID string) []Action {
 	out := []Action{}
 	for _, a := range s.items {
 		if a.WorkspaceID == workspaceID && a.RunID == runID {
+			if a.Status == "pending" && !a.RestoredHistory {
+				if err := s.review(a, false); err != nil {
+					a.BlockedReason = err.Error()
+				}
+			}
 			out = append(out, a)
 		}
 	}
@@ -180,8 +195,53 @@ func (s *Actions) binding(a Action) error {
 	if err != nil {
 		return err
 	}
-	if ws.ProjectPath != a.Root || ws.ProjectID != a.ProjectID {
+	if ws.ProjectPath != a.Root || ws.ProjectID != a.ProjectID || ws.ProjectBindingID != a.ProjectBindingID {
 		return fmt.Errorf("工作区项目已变化，请重新生成操作预览")
+	}
+	return nil
+}
+
+// The run must be settled before it can authorize a proposal or finish
+// adding dependencies. A cancelled/failed run only contributes history.
+func (s *Actions) review(a Action, verifyFiles bool) error {
+	run, err := s.manager.Run(a.RunID)
+	if err != nil || run.WorkspaceID != a.WorkspaceID || run.Kind != "agent" {
+		return fmt.Errorf("找不到此提案的原始 Agent 任务")
+	}
+	switch run.Status {
+	case "queued", "running":
+		return fmt.Errorf("任务仍在生成提案，结束后可以确认执行")
+	case "completed":
+	default:
+		return fmt.Errorf("任务已取消、失败或中断，请在新任务中重新生成提案")
+	}
+	if err := s.binding(a); err != nil {
+		return err
+	}
+	if a.Kind != "test" {
+		if a.Kind == "file" && a.FileVersion == 0 {
+			return fmt.Errorf("旧版文件提案缺少文件版本，请重新生成预览")
+		}
+		return nil
+	}
+	for _, edit := range s.items {
+		if edit.WorkspaceID != a.WorkspaceID || edit.RunID != a.RunID || edit.Kind != "file" {
+			continue
+		}
+		if edit.Status != "applied" {
+			return fmt.Errorf("此测试验证本任务的文件修改，请先完成 %s；调整方案后请重新提出测试", edit.Path)
+		}
+		if verifyFiles {
+			target, err := inspectFile(edit.Root, edit.Path)
+			if err != nil {
+				return err
+			}
+			target.parent.Close()
+			if target.directoryID != edit.FileDirectory || !target.exists || hashText(target.text) != edit.AfterHash ||
+				(edit.AfterFileID != "" && target.fileID != edit.AfterFileID) {
+				return fmt.Errorf("待验证的文件 %s 已变化，请重新提出测试", edit.Path)
+			}
+		}
 	}
 	return nil
 }
@@ -202,7 +262,7 @@ func (s *Actions) Propose(ctx context.Context, ws workspaces.Workspace, runID, n
 	if count >= 3 {
 		return a, fmt.Errorf("每个任务最多提出 3 个操作，请分步处理")
 	}
-	a = Action{ID: actionID(), WorkspaceID: ws.ID, Root: ws.ProjectPath, ProjectID: ws.ProjectID, RunID: runID, Status: "pending", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	a = Action{ID: actionID(), WorkspaceID: ws.ID, Root: ws.ProjectPath, ProjectID: ws.ProjectID, ProjectBindingID: ws.ProjectBindingID, RunID: runID, Status: "pending", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if err := s.binding(a); err != nil {
 		return Action{}, err
 	}
@@ -253,6 +313,8 @@ func (s *Actions) Propose(ctx context.Context, ws workspaces.Workspace, runID, n
 		a.BeforeHash = hashText(before)
 		a.AfterHash = hashText(after)
 		a.FileDirectory = target.directoryID
+		a.FileVersion = 1
+		a.BeforeFileID = target.fileID
 		a.Reason = clip(redact(p.Reason), 500)
 	case "propose_test":
 		var p struct {
@@ -325,6 +387,9 @@ func (s *Actions) Decide(id, workspaceID, decision string) (Action, error) {
 	if s.closed {
 		return a, fmt.Errorf("action service closed")
 	}
+	if a.RestoredHistory {
+		return a, fmt.Errorf("备份中的历史操作仅供查看，请生成新的提案")
+	}
 	if decision == "reject" && a.Status == "pending" {
 		a.Status = "rejected"
 		return a, s.save(a)
@@ -345,10 +410,20 @@ func (s *Actions) Decide(id, workspaceID, decision string) (Action, error) {
 	if rollback && a.Kind == "test" {
 		return a, fmt.Errorf("测试产生的副作用不能自动回滚")
 	}
-	if err := s.binding(a); err != nil {
+	if rollback {
+		if err := s.binding(a); err != nil {
+			return a, err
+		}
+	} else if err := s.review(a, true); err != nil {
 		return a, err
 	}
 	if a.Kind == "file" {
+		for runningID := range s.cancel {
+			running := s.items[runningID]
+			if running.Kind == "test" && running.WorkspaceID == a.WorkspaceID {
+				return a, fmt.Errorf("当前项目正在验证，请等待测试结束后再修改文件")
+			}
+		}
 		return s.changeFile(a, rollback)
 	}
 	if len(s.cancel) > 0 {
@@ -399,31 +474,48 @@ func (s *Actions) Decide(id, workspaceID, decision string) (Action, error) {
 	return a, nil
 }
 func (s *Actions) changeFile(a Action, rollback bool) (Action, error) {
-	if !rollback && a.FileDirectory == "" {
-		return a, fmt.Errorf("文件预览缺少目录身份，请重新生成操作预览")
+	if !rollback && (a.FileDirectory == "" || a.Existed && a.BeforeFileID == "") {
+		return a, fmt.Errorf("文件预览缺少版本信息，请重新生成操作预览")
 	}
 	target, err := inspectFile(a.Root, a.Path)
 	if err != nil {
+		if !rollback && errors.Is(err, errFileSpellingChanged) {
+			return s.recordObsoleteFile(a, err)
+		}
 		return a, err
 	}
 	defer target.parent.Close()
 	if a.FileDirectory != "" && target.directoryID != a.FileDirectory {
-		return a, fmt.Errorf("文件所在目录已替换，请重新生成操作预览")
+		err := fmt.Errorf("文件所在目录已替换，请重新生成操作预览")
+		if !rollback {
+			return s.recordObsoleteFile(a, err)
+		}
+		return a, err
 	}
 	expected, expectedExists, content := a.BeforeHash, a.Existed, a.After
+	expectedFileID := a.BeforeFileID
 	if rollback {
 		expected = a.AfterHash
+		expectedFileID = a.AfterFileID
 		expectedExists = true
 		content = a.Before
 		// A crash before writing or after rollback is already safely at the original state.
-		if a.Status == "interrupted" && target.exists == a.Existed && hashText(target.text) == a.BeforeHash {
+		if a.Status == "interrupted" && target.exists == a.Existed && hashText(target.text) == a.BeforeHash &&
+			(a.BeforeFileID == "" || target.fileID == a.BeforeFileID || target.fileID == a.RollbackFileID) {
 			a.Status = "rolled_back"
 			a.Error = ""
 			return a, s.save(a)
 		}
+		if a.FileVersion > 0 && expectedFileID == "" {
+			return a, fmt.Errorf("未记录已写入的文件版本，请对照预览手动核查，未覆盖当前文件")
+		}
 	}
-	if target.exists != expectedExists || hashText(target.text) != expected {
-		return a, fmt.Errorf("文件已被外部修改，未覆盖；请重新生成预览")
+	if target.exists != expectedExists || hashText(target.text) != expected ||
+		(expectedFileID != "" && target.fileID != expectedFileID) || (a.Existed && target.mode != os.FileMode(a.Mode)) {
+		if !rollback {
+			return s.recordObsoleteFile(a, fmt.Errorf("文件版本已变化，请重新生成预览"))
+		}
+		return a, fmt.Errorf("当前文件与操作记录中的修改结果不同，请对照修改前后内容手动处理冲突")
 	}
 	a.Status = "applying"
 	if rollback {
@@ -433,7 +525,17 @@ func (s *Actions) changeFile(a Action, rollback bool) (Action, error) {
 	if err = s.save(a); err != nil {
 		return a, err
 	}
-	recheck := func() error {
+	recheck := func(replacementID string) error {
+		if replacementID != "" {
+			if rollback {
+				a.RollbackFileID = replacementID
+			} else {
+				a.AfterFileID = replacementID
+			}
+			if err := s.save(a); err != nil {
+				return fmt.Errorf("无法保存待写入的文件版本：%w", err)
+			}
+		}
 		if err := s.binding(a); err != nil {
 			return err
 		}
@@ -442,14 +544,15 @@ func (s *Actions) changeFile(a Action, rollback bool) (Action, error) {
 			return err
 		}
 		defer live.parent.Close()
-		if live.directoryID != target.directoryID || live.exists != expectedExists || hashText(live.text) != expected {
+		if live.directoryID != target.directoryID || live.exists != expectedExists || hashText(live.text) != expected ||
+			live.fileID != target.fileID || live.mode != target.mode {
 			return fmt.Errorf("目录或文件已被外部修改，未覆盖")
 		}
 		return nil
 	}
 	name := path.Base(a.Path)
 	if rollback && !a.Existed {
-		if err = recheck(); err == nil {
+		if err = recheck(""); err == nil {
 			err = target.parent.Remove(name)
 		}
 	} else {
@@ -457,7 +560,7 @@ func (s *Actions) changeFile(a Action, rollback bool) (Action, error) {
 	}
 	if err != nil {
 		a.Status = "interrupted"
-		a.Error = "写入未完成，请检查文件后恢复"
+		a.Error = clip(redact("写入未完成："+err.Error()), 1000)
 		_ = s.save(a)
 		return a, err
 	}
@@ -470,6 +573,16 @@ func (s *Actions) changeFile(a Action, rollback bool) (Action, error) {
 	}
 	return a, nil
 }
+
+func (s *Actions) recordObsoleteFile(a Action, conflict error) (Action, error) {
+	a.Status = "obsolete"
+	a.Error = conflict.Error()
+	if err := s.save(a); err != nil {
+		return a, errors.Join(conflict, fmt.Errorf("无法保存冲突记录：%w", err))
+	}
+	return a, conflict
+}
+
 func (s *Actions) execute(ctx context.Context, cancel context.CancelFunc, a Action, rollback bool) {
 	defer s.workers.Done()
 	defer cancel()
@@ -492,6 +605,10 @@ func (s *Actions) execute(ctx context.Context, cancel context.CancelFunc, a Acti
 	a.Status = "applied"
 	if a.Kind == "test" {
 		a.Status = "completed"
+		if err == nil && ctx.Err() == nil {
+			code := 0
+			a.ExitCode = &code
+		}
 	}
 	if rollback {
 		a.Status = "rolled_back"
@@ -502,6 +619,14 @@ func (s *Actions) execute(ctx context.Context, cancel context.CancelFunc, a Acti
 			err = ctx.Err()
 		}
 		a.Error = clip(redact(err.Error()), 1000)
+		var exitError interface{ ExitCode() int }
+		if a.Kind == "test" && errors.As(err, &exitError) && exitError.ExitCode() >= 0 {
+			code := exitError.ExitCode()
+			a.ExitCode = &code
+		}
+		if a.Kind == "test" && errors.Is(err, context.Canceled) {
+			a.Status = "cancelled"
+		}
 		if a.Kind == "service" {
 			a.Status = "interrupted"
 		}

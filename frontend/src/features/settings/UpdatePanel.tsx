@@ -21,6 +21,7 @@ interface DownloadedUpdate {
 
 const installInstructions: Record<string, string> = {
   nsis: '请打开下载目录，退出 Noosphere，再运行安装器。',
+  zip: '请关闭 Noosphere，将 ZIP 完整解压到新目录。如旧目录已有便携配置，请先备份配置和数据，再按使用说明迁移。',
   dmg: '请用 ⌘Q 退出 Noosphere，再打开 DMG，并按系统提示替换应用。',
   deb: '请退出 Noosphere，再用系统软件安装器或软件包管理器安装下载的 deb。',
   appimage: '请退出 Noosphere，将新 AppImage 放在自己可写的目录，设置可执行权限后再启动。',
@@ -39,6 +40,7 @@ export function UpdatePanel() {
   async function check() {
     setBusy("check");
     setMessage("");
+    setInfo(undefined);
     try {
       const next = await invoke<UpdateInfo>("update_check");
       setInfo(next);
@@ -48,7 +50,9 @@ export function UpdatePanel() {
           : `${next.available_version} 没有匹配当前系统、架构及安装方式的可校验更新包。`
         : next.current_version === next.downloaded_version
           ? `当前运行的是已下载的 ${next.current_version} 版。`
-          : "当前已是最新正式版。");
+          : next.current_version.includes("-")
+            ? `当前运行候选版 ${next.current_version}，暂无更高的正式版。`
+            : "当前已是最新正式版。");
     } catch (error) {
       setMessage(String(error));
     } finally {

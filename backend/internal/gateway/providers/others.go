@@ -59,10 +59,12 @@ func (p *ClaudeProvider) Chat(ctx context.Context, model string, messages []Mess
 	}
 
 	body := map[string]interface{}{
-		"model":       model,
-		"messages":    anthropicMsgs,
-		"max_tokens":  maxT,
-		"temperature": temp,
+		"model":      model,
+		"messages":   anthropicMsgs,
+		"max_tokens": maxT,
+	}
+	if !opts.OmitTemperature {
+		body["temperature"] = temp
 	}
 	if systemPrompt != "" {
 		body["system"] = systemPrompt
@@ -90,11 +92,7 @@ func (p *ClaudeProvider) Chat(ctx context.Context, model string, messages []Mess
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		limit := len(respBody)
-		if limit > 300 {
-			limit = 300
-		}
-		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: string(respBody[:limit])}
+		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: truncateDetail(RedactCredential(string(respBody), p.apiKey))}
 	}
 
 	var result struct {
@@ -119,10 +117,11 @@ func (p *ClaudeProvider) Chat(ctx context.Context, model string, messages []Mess
 		}
 	}
 	return &ChatResponse{
-		Content:   content.String(),
-		Model:     result.Model,
-		TokensIn:  result.Usage.InputTokens,
-		TokensOut: result.Usage.OutputTokens,
+		Content:            content.String(),
+		Model:              result.Model,
+		TokensIn:           result.Usage.InputTokens,
+		TokensOut:          result.Usage.OutputTokens,
+		TemperatureOmitted: opts.OmitTemperature,
 	}, nil
 }
 
@@ -147,11 +146,13 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, model string, messages 
 	}
 
 	body := map[string]interface{}{
-		"model":       model,
-		"messages":    anthropicMsgs,
-		"max_tokens":  maxT,
-		"temperature": temp,
-		"stream":      true,
+		"model":      model,
+		"messages":   anthropicMsgs,
+		"max_tokens": maxT,
+		"stream":     true,
+	}
+	if !opts.OmitTemperature {
+		body["temperature"] = temp
 	}
 	if systemPrompt != "" {
 		body["system"] = systemPrompt
@@ -174,7 +175,7 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, model string, messages 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
-		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: string(b)}
+		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: truncateDetail(RedactCredential(string(b), p.apiKey))}
 	}
 
 	ch := make(chan StreamChunk, 64)
@@ -194,7 +195,7 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, model string, messages 
 			}
 			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if data == "[DONE]" {
-				sendChunk(ctx, ch, StreamChunk{Done: true, Content: full.String()})
+				sendChunk(ctx, ch, StreamChunk{Done: true, Content: full.String(), TemperatureOmitted: opts.OmitTemperature})
 				return
 			}
 			// Anthropic SSE format: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
@@ -213,11 +214,11 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, model string, messages 
 				return
 			}
 			if event.Type == "message_stop" {
-				sendChunk(ctx, ch, StreamChunk{Done: true, Content: full.String()})
+				sendChunk(ctx, ch, StreamChunk{Done: true, Content: full.String(), TemperatureOmitted: opts.OmitTemperature})
 				return
 			}
 			if event.Type == "error" {
-				sendChunk(ctx, ch, StreamChunk{Error: fmt.Errorf("upstream stream error: %s", event.Error.Message)})
+				sendChunk(ctx, ch, StreamChunk{Error: fmt.Errorf("upstream stream error: %s", RedactCredential(event.Error.Message, p.apiKey))})
 				return
 			}
 			if event.Type != "content_block_delta" {
@@ -292,12 +293,13 @@ func (p *GeminiProvider) Chat(ctx context.Context, model string, messages []Mess
 		maxT = 4096
 	}
 
+	generationConfig := map[string]interface{}{"maxOutputTokens": maxT}
+	if !opts.OmitTemperature {
+		generationConfig["temperature"] = temp
+	}
 	body := map[string]interface{}{
-		"contents": contents,
-		"generationConfig": map[string]interface{}{
-			"temperature":     temp,
-			"maxOutputTokens": maxT,
-		},
+		"contents":         contents,
+		"generationConfig": generationConfig,
 	}
 
 	jsonBody, _ := json.Marshal(body)
@@ -324,11 +326,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, model string, messages []Mess
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		limit := len(respBody)
-		if limit > 300 {
-			limit = 300
-		}
-		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: string(respBody[:limit])}
+		return nil, &UpstreamHTTPError{Status: resp.StatusCode, Detail: truncateDetail(RedactCredential(string(respBody), p.apiKey))}
 	}
 
 	var result struct {
@@ -361,10 +359,11 @@ func (p *GeminiProvider) Chat(ctx context.Context, model string, messages []Mess
 	tokensOut = result.UsageMetadata.CandidatesTokenCount
 
 	return &ChatResponse{
-		Content:   content,
-		Model:     result.ModelVersion,
-		TokensIn:  tokensIn,
-		TokensOut: tokensOut,
+		Content:            content,
+		Model:              result.ModelVersion,
+		TokensIn:           tokensIn,
+		TokensOut:          tokensOut,
+		TemperatureOmitted: opts.OmitTemperature,
 	}, nil
 }
 
@@ -379,7 +378,7 @@ func (p *GeminiProvider) ChatStream(ctx context.Context, model string, messages 
 			return
 		}
 		// The fallback's single terminal frame carries the full answer.
-		sendChunk(ctx, ch, StreamChunk{Content: resp.Content, Done: true})
+		sendChunk(ctx, ch, StreamChunk{Content: resp.Content, Done: true, TemperatureOmitted: resp.TemperatureOmitted})
 	}()
 	return ch, nil
 }

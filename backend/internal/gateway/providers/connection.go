@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -17,20 +16,27 @@ type UpstreamHTTPError struct {
 
 func (e *UpstreamHTTPError) Error() string { return fmt.Sprintf("upstream %d: %s", e.Status, e.Detail) }
 
-type connectionProbeKey struct{}
-
-func ConnectionProbeContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, connectionProbeKey{}, true)
+func sendChatRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	// Keep normal inference on the same endpoint validated by the connection
+	// probe. Redirects could forward provider-specific headers and prompts.
+	direct := *client
+	direct.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return direct.Do(req)
 }
 
-func sendChatRequest(client *http.Client, req *http.Request) (*http.Response, error) {
-	if req.Context().Value(connectionProbeKey{}) == true {
-		// Report the selected endpoint. Never forward draft credentials on redirect.
-		probeClient := *client
-		probeClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-		return probeClient.Do(req)
+// RedactCredential removes echoed credentials and a partial credential at the
+// end of a bounded response body. Call before truncating for display.
+func RedactCredential(message, apiKey string) string {
+	if apiKey == "" {
+		return message
 	}
-	return client.Do(req)
+	message = strings.ReplaceAll(message, apiKey, "[redacted]")
+	for size := min(len(apiKey)-1, len(message)); size > 0; size-- {
+		if strings.HasSuffix(message, apiKey[:size]) {
+			return message[:len(message)-size] + "[redacted]"
+		}
+	}
+	return message
 }
 
 // Ollama's compatibility API uses /v1, including when the user provided
@@ -41,9 +47,11 @@ func OllamaCompatibilityBase(base string) string {
 	if err != nil || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
 		return base
 	}
-	if u.Path == "" || u.Path == "/api" {
-		u.Path = "/v1"
-		return u.String()
+	if u.Path == "" {
+		return base + "/v1"
+	}
+	if strings.HasSuffix(u.EscapedPath(), "/api") {
+		return strings.TrimSuffix(base, "/api") + "/v1"
 	}
 	return base
 }

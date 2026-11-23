@@ -16,6 +16,29 @@ type fileTarget struct {
 	exists      bool
 	mode        os.FileMode
 	directoryID string
+	fileID      string
+}
+
+var errFileSpellingChanged = errors.New("文件名的大小写或 Unicode 拼写已变化，请使用项目中的确切名称")
+
+// A case-insensitive filesystem can resolve a moved or differently spelled
+// directory entry to the same file identity. Use the stored directory name so
+// a reviewed replacement does not silently rename that entry.
+func requireFileSpelling(directory *os.File, name string) error {
+	for {
+		names, err := directory.Readdirnames(128)
+		for _, actual := range names {
+			if actual == name {
+				return nil
+			}
+		}
+		if err == io.EOF {
+			return errFileSpellingChanged
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func inspectFile(rootPath, name string) (target fileTarget, err error) {
@@ -74,6 +97,9 @@ func inspectFile(rootPath, name string) (target fileTarget, err error) {
 	if err != nil || !entry.Mode().IsRegular() || entry.Size() > 64*1024 {
 		return target, fmt.Errorf("仅支持不超过 64 KiB 的普通文本文件")
 	}
+	if err = requireFileSpelling(directory, base); err != nil {
+		return target, err
+	}
 	f, err := parent.OpenFile(base, os.O_RDONLY|fileReadFlags, 0)
 	if err != nil {
 		return target, err
@@ -91,11 +117,15 @@ func inspectFile(rootPath, name string) (target fileTarget, err error) {
 	if err != nil || !os.SameFile(info, live) || info.ModTime() != live.ModTime() || info.Size() != live.Size() {
 		return target, fmt.Errorf("读取期间文件已变化")
 	}
+	target.fileID, err = directoryIdentity(f)
+	if err != nil {
+		return target, err
+	}
 	target.text, target.exists, target.mode = string(raw), true, info.Mode().Perm()
 	return target, nil
 }
 
-func replaceFile(root *os.Root, name, content string, mode os.FileMode, create bool, recheck func() error) error {
+func replaceFile(root *os.Root, name, content string, mode os.FileMode, create bool, recheck func(string) error) error {
 	temp := ".noosphere-" + actionID() + ".tmp"
 	f, err := root.OpenFile(temp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
@@ -109,10 +139,14 @@ func replaceFile(root *os.Root, name, content string, mode os.FileMode, create b
 	if err == nil {
 		err = f.Sync()
 	}
+	var replacementID string
+	if err == nil {
+		replacementID, err = directoryIdentity(f)
+	}
 	if err := errors.Join(err, f.Close()); err != nil {
 		return err
 	}
-	if err := recheck(); err != nil {
+	if err := recheck(replacementID); err != nil {
 		return err
 	}
 	if create {

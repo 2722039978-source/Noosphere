@@ -36,13 +36,14 @@ const maxEventBytes = 64 * 1024
 var safeID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 type Workspace struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	ProjectPath    string `json:"project_path"`
-	ProjectID      string `json:"project_id"`
-	DefaultModelID string `json:"default_model_id"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	ProjectPath      string `json:"project_path"`
+	ProjectID        string `json:"project_id"`
+	ProjectBindingID string `json:"project_binding_id,omitempty"`
+	DefaultModelID   string `json:"default_model_id"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
 }
 type Run struct {
 	ID                  string          `json:"id"`
@@ -96,13 +97,14 @@ type registration struct {
 }
 type cancellationOperation struct{ done chan struct{} }
 type job struct {
-	run     Run
-	ws      Workspace
-	input   json.RawMessage
-	handler Handler
+	run       Run
+	ws        Workspace
+	input     json.RawMessage
+	handler   Handler
+	withModel func(context.Context) context.Context
 }
 type Manager struct {
-	modelResolver     func(workspaceID, sessionID, modelID string) (string, error)
+	modelResolver     func(workspaceID, sessionID, modelID string) (string, func(context.Context) context.Context, error)
 	mu                sync.Mutex
 	db                *sql.DB
 	closed            bool
@@ -414,6 +416,7 @@ func (m *Manager) saveWorkspace(w Workspace, key string) (Workspace, error) {
 		w.ID = newID()
 		w.CreatedAt = stamp
 		w.ProjectID = ""
+		w.ProjectBindingID = newID()
 	} else {
 		if !safeID.MatchString(w.ID) {
 			return Workspace{}, ErrInvalid
@@ -424,8 +427,11 @@ func (m *Manager) saveWorkspace(w Workspace, key string) (Workspace, error) {
 		}
 		w.CreatedAt = old.CreatedAt
 		w.ProjectID = ""
+		w.ProjectBindingID = old.ProjectBindingID
 		if old.ProjectPath == w.ProjectPath {
 			w.ProjectID = old.ProjectID
+		} else {
+			w.ProjectBindingID = newID()
 		}
 	}
 	var occupied string
@@ -722,8 +728,9 @@ func (m *Manager) submit(workspaceID, kind, title string, reference TaskReferenc
 	if len(input) > maxResultBytes || !json.Valid(input) {
 		return Run{}, ErrInvalid
 	}
-	// Resolve outside m.mu: Gateway resolution reads this Manager. Pin before
-	// enqueue so later configuration edits cannot reroute queued Agent work.
+	// Resolve outside m.mu: Gateway resolution reads this Manager. Retain the
+	// actual configuration in memory because an ID can be edited while queued.
+	var withModel func(context.Context) context.Context
 	if kind == "agent" {
 		m.mu.Lock()
 		resolver := m.modelResolver
@@ -736,10 +743,11 @@ func (m *Manager) submit(workspaceID, kind, title string, reference TaskReferenc
 			if json.Unmarshal(input, &source) != nil {
 				return Run{}, ErrInvalid
 			}
-			id, err := resolver(workspaceID, source.SessionID, source.ModelID)
+			id, modelSnapshot, err := resolver(workspaceID, source.SessionID, source.ModelID)
 			if err != nil {
 				return Run{}, fmt.Errorf("%w: 模型不可用或会话绑定已变化", ErrInvalid)
 			}
+			withModel = modelSnapshot
 			var fields map[string]json.RawMessage
 			if json.Unmarshal(input, &fields) != nil || fields == nil {
 				return Run{}, ErrInvalid
@@ -807,7 +815,7 @@ func (m *Manager) submit(workspaceID, kind, title string, reference TaskReferenc
 	if e != nil {
 		return Run{}, e
 	}
-	q <- job{r, ws, append(json.RawMessage(nil), input...), reg.handler}
+	q <- job{run: r, ws: ws, input: append(json.RawMessage(nil), input...), handler: reg.handler, withModel: withModel}
 	return r, nil
 }
 
@@ -909,7 +917,11 @@ func (m *Manager) worker(lane string) {
 					ex.Finish(nil, errors.New("task handler panicked"))
 				}
 			}()
-			result, err := j.handler(ex.ctx, j.ws, j.input, ex.Emit)
+			ctx := ex.ctx
+			if j.withModel != nil {
+				ctx = j.withModel(ctx)
+			}
+			result, err := j.handler(ctx, j.ws, j.input, ex.Emit)
 			ex.Finish(result, err)
 		}()
 	}

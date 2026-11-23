@@ -71,9 +71,9 @@ async function check(name,fn){await fn();passed.push(name);console.log('PASS '+n
   await check('chat displays evidence, stale-source warning and snapshot after reload',async()=>{
    await page.goto(base+'#/chat');await page.getByRole('textbox',{name:'输入问题',exact:true}).fill('如何保存事务');await page.getByRole('button',{name:'发送',exact:true}).click();await page.waitForFunction(()=>window.qa.runs.length===1);
    await page.evaluate(()=>window.qa.emit(0,{done:true,status:'completed',content:'应使用事务保存 [R1]。'}));await page.getByText('应使用事务保存 [R1]。',{exact:true}).waitFor();
-   await page.getByText(/本次提供给模型的依据/).click();await page.getByText(/\[R1\] 代码/).click();await page.getByText('def save():',{exact:false}).waitFor();await page.getByText(/部分代码已变化/).waitFor();
+   await page.getByText(/本次对话的依据/).click();await page.getByText(/\[R1\] 代码/).click();await page.getByText('def save():',{exact:false}).waitFor();await page.getByText(/部分代码已变化/).waitFor();
    await page.screenshot({path:path.join(output,'knowledge-chat-evidence.png'),animations:'disabled'});
-   await page.evaluate(async()=>await (await window.qa.store()).flushChatPersistence());await page.reload();await page.getByText(/本次提供给模型的依据/).waitFor();
+   await page.evaluate(async()=>await (await window.qa.store()).flushChatPersistence());await page.reload();await page.getByText(/本次对话的依据/).waitFor();
    await page.getByRole('button',{name:'整理为待确认记忆',exact:true}).click();await page.getByText('已保存为待确认，可在记忆区查看。',{exact:true}).waitFor();
    assert.equal(await page.evaluate(()=>window.qa.memories.at(-1).source.kind),'chat');assert.equal(await page.evaluate(()=>window.qa.memories.at(-1).status),'proposed');
   });

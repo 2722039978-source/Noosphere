@@ -48,9 +48,7 @@ export function CodeLensPage() {
   const workspaceId = useWorkspaceStore((s) => s.activeId);
   const workspaceProjectPath = useWorkspaceStore((s) => s.workspaces.find(item => item.id === s.activeId)?.project_path || '');
   const projectPath = useUiStore((s) => s.projectPath);
-  // The Windows backend canonicalizes slash direction, case and trailing
-  // separators. Those edits do not mean the user selected a different project.
-  const projectIdentity = projectPath.trim().replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase();
+  const projectIdentity = projectPath.trim();
   const setProjectPath = useUiStore((s) => s.setProjectPath);
 
   const [loading, setLoading] = useState(false);
@@ -147,7 +145,7 @@ export function CodeLensPage() {
         <div className="ns-codelens-grid">
         {/* 项目索引 */}
         <Surface className="ns-codelens-stage" data-codelens-stage="index" role="region" aria-labelledby="codelens-index-title">
-          <SectionTitle id="codelens-index-title" description="先选择并索引项目文件夹。" icon={<FolderOpen size={15} />} accent="text-acc-codelens">
+          <SectionTitle id="codelens-index-title" description="选择项目目录。文件变更后可再次运行增量索引。" icon={<FolderOpen size={15} />} accent="text-acc-codelens">
             项目索引
           </SectionTitle>
           <form className="ns-codelens-form-row" onSubmit={event => { event.preventDefault(); void handleIndex(); }}>
@@ -158,12 +156,12 @@ export function CodeLensPage() {
                 value={projectPath}
                 aria-label="项目目录"
                 onChange={(e) => setProjectPath(e.target.value)}
-                placeholder="项目绝对路径，如 D:\my-project"
+                placeholder="项目的绝对路径"
                 className="pl-9"
               />
             </div>
             <Button type="submit" disabled={loading || !projectPath.trim()} className="gap-1.5">
-              <Sparkles size={14} /> {loading ? "索引中…" : "开始索引"}
+              <Sparkles size={14} /> {loading ? "索引中…" : indexResult && !indexResult.error ? "更新索引" : "开始索引"}
             </Button>
           </form>
           <div className="ns-codelens-quick-fill"><Button type="button" size="sm" variant="ghost" disabled={loading || !workspaceProjectPath} onClick={() => { setProjectPath(workspaceProjectPath); document.getElementById('codelens-project-path')?.focus(); }}><FolderOpen size={13} aria-hidden="true" />使用工作区目录</Button>{!workspaceProjectPath && <span>当前工作区尚未绑定目录</span>}</div>
@@ -171,7 +169,7 @@ export function CodeLensPage() {
           {loading && <p role="status" className="mt-3 text-xs leading-6 text-text-2">索引任务在后台执行。可在项目侧栏的“任务”中查看进度或取消。</p>}
           {ingested && (
             <p className="mt-3 flex items-center gap-2 text-[13px] text-ok">
-              <Sparkles size={13} /> 索引完成并已写入记忆引擎 — AI 助手现在可以回答代码相关问题。
+              <Sparkles size={13} /> 已更新项目索引，可用于对话检索。
             </p>
           )}
           {indexResult?.error && (

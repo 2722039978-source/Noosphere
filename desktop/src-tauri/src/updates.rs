@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
+#[cfg(any(windows, test))]
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const REPOSITORY: &str = "2722039978-source/Noosphere";
 const MAX_PACKAGE_BYTES: u64 = 1024 * 1024 * 1024;
@@ -63,21 +65,37 @@ fn release_version(tag: &str) -> Option<Version> {
     None
 }
 
+#[cfg(any(windows, test))]
+fn windows_package_type(executable: &Path) -> Option<&'static str> {
+    let filename = executable.file_name()?.to_str()?;
+    if filename.eq_ignore_ascii_case("Noosphere.exe") {
+        return Some("zip");
+    }
+    let directory = executable.parent()?;
+    (filename.eq_ignore_ascii_case("noosphere-desktop.exe") && directory.join("uninstall.exe").is_file())
+        .then_some("nsis")
+}
+
 fn package_type() -> Option<&'static str> {
-    if cfg!(windows) {
-        return Some("nsis");
-    }
-    if cfg!(target_os = "macos") {
-        return Some("dmg");
-    }
-    let executable = std::env::current_exe().ok()?;
-    if std::env::var_os("APPIMAGE").map(PathBuf::from).is_some_and(|path| path.is_absolute() && path.is_file())
-        && std::env::var_os("APPDIR").map(PathBuf::from)
-            .is_some_and(|root| root.is_absolute() && executable.starts_with(root))
+    #[cfg(windows)]
     {
-        return Some("appimage");
+        windows_package_type(&std::env::current_exe().ok()?)
     }
-    executable.starts_with("/usr/bin").then_some("deb")
+    #[cfg(target_os = "macos")]
+    {
+        Some("dmg")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let executable = std::env::current_exe().ok()?;
+        if std::env::var_os("APPIMAGE").map(PathBuf::from).is_some_and(|path| path.is_absolute() && path.is_file())
+            && std::env::var_os("APPDIR").map(PathBuf::from)
+                .is_some_and(|root| root.is_absolute() && executable.starts_with(root))
+        {
+            return Some("appimage");
+        }
+        executable.starts_with("/usr/bin").then_some("deb")
+    }
 }
 
 fn package_name(version: &Version, kind: &str) -> Result<String, String> {
@@ -174,13 +192,11 @@ fn checksum(contents: &str, name: &str) -> Result<String, String> {
 }
 
 fn app_update_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Some(path) = std::env::var_os("NOOSPHERE_DATA_DIR").map(PathBuf::from) {
-        if !path.is_absolute() {
-            return Err("NOOSPHERE_DATA_DIR 必须是绝对路径".into());
-        }
-        return Ok(path.join("updates"));
-    }
-    Ok(app.path().app_local_data_dir().map_err(|err| err.to_string())?.join("updates"))
+    let executable = std::env::current_exe().map_err(io_error)?;
+    let directory = executable.parent().ok_or("应用程序路径没有父目录")?;
+    let default = crate::runtime::default_data_dir(app)?;
+    let override_dir = std::env::var_os("NOOSPHERE_DATA_DIR").map(PathBuf::from);
+    Ok(crate::runtime::choose_data_dir(directory, &default, override_dir.as_deref())?.join("updates"))
 }
 
 fn io_error(error: io::Error) -> String {
@@ -198,7 +214,7 @@ pub(crate) async fn update_check(app: AppHandle) -> Result<UpdateInfo, String> {
         let name = package_type.map(|kind| package_name(&version, kind)).transpose()?;
         let installer_available = version > current
             && name.as_ref().is_some_and(|name| release_asset(&release, name).is_some())
-            && release.assets.iter().any(|entry| entry.name == "SHA256SUMS.txt");
+            && release_asset(&release, "SHA256SUMS.txt").is_some();
         Ok(UpdateInfo {
             current_version: current.to_string(),
             available_version: (version > current).then(|| version.to_string()),
@@ -256,7 +272,7 @@ pub(crate) async fn update_download(app: AppHandle, expected_version: String, ch
         let name = package_name(&version, package_type)?;
         let installer = release_asset(&release, &name)
             .ok_or("官方版本尚未提供与当前系统、架构及安装方式匹配的更新包")?;
-        if !release.assets.iter().any(|entry| entry.name == "SHA256SUMS.txt") {
+        if release_asset(&release, "SHA256SUMS.txt").is_none() {
             return Err("官方版本未发布 SHA-256 清单".into());
         }
         let sums_url = download_url(&release.tag_name, "SHA256SUMS.txt")?;
@@ -314,11 +330,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn windows_updates_keep_the_installation_format() {
+        let root = std::env::temp_dir().join(format!("noosphere-update-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let installed = root.join("noosphere-desktop.exe");
+        let portable = root.join("Noosphere.exe");
+        assert_eq!(windows_package_type(&installed), None);
+        fs::write(root.join("uninstall.exe"), b"").unwrap();
+        assert_eq!(windows_package_type(&installed), Some("nsis"));
+        assert_eq!(windows_package_type(&portable), Some("zip"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn accepts_formal_tags_and_legacy_date_tags() {
-        let version = env!("CARGO_PKG_VERSION");
+        let version = "1.0.0";
         assert_eq!(release_version(&format!("v{version}")).unwrap(), Version::parse(version).unwrap());
         assert_eq!(release_version("v0.6.0-20261114").unwrap(), Version::new(0, 6, 0));
         assert!(release_version(&format!("v{version}-beta.1")).is_none());
+        assert!(release_version("v1.0.0-rc.1").is_none());
         assert!(release_version(version).is_none());
     }
 

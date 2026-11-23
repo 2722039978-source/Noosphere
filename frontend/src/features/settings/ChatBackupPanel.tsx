@@ -13,7 +13,7 @@ export function ChatBackupPanel() {
   const disabled = !ready || generating || busy;
   return <Surface id="chat-backup" className="px-6 py-5">
     <h2 className="text-[15px] font-semibold text-text-1">会话备份</h2>
-    <p className="mt-2 text-[13px] text-text-2">导入会合并会话。跨系统导入后，请重新绑定项目和模型。附件原件、系统凭证、待审批操作与派生索引保存在各自的本机环境。</p>
+    <p className="mt-2 text-[13px] text-text-2">JSON 保存会话和引用节选。新导入的会话进入独立工作区，请重新绑定项目和模型。保留附件原件、任务和项目记忆请另备份本机应用数据。</p>
     <div className="mt-4 flex flex-wrap gap-3">
       <Button variant="outline" disabled={disabled} onClick={() => {
         try {
@@ -31,8 +31,7 @@ export function ChatBackupPanel() {
         setBusy(true);
         try {
           const result = await importChatBackup(await file.text());
-          setMessage(result.recoveredWorkspaces ? `会话已合并并保存。已恢复 ${result.recoveredWorkspaces} 个导入工作区，请重新绑定项目目录和默认模型。` :
-            result.needsRebinding ? '会话已合并并保存。请重新选择本机模型。' : '会话已合并并保存。');
+          setMessage(result.recoveredWorkspaces ? `会话已保存到 ${result.recoveredWorkspaces} 个导入工作区。请重新绑定项目目录和默认模型。` : '备份中的会话已经存在。');
         } catch (error) { setMessage(String(error)); }
         finally { setBusy(false); }
       }} />

@@ -130,10 +130,15 @@ func adjustChatOptions(detail string, opts ChatOptions) (ChatOptions, bool) {
 	return adjusted, changed
 }
 
-// postChat sends a chat-completions request and retries once with adjusted
-// parameters when the upstream rejects a newer-model field. The caller owns the
-// returned body. A body limit below zero disables the check.
-func (p *OpenAIProvider) postChat(ctx context.Context, path string, build func(ChatOptions) map[string]interface{}, opts ChatOptions, maxBody int) (*http.Response, error) {
+type acceptedChatResponse struct {
+	*http.Response
+	temperatureOmitted bool
+}
+
+// postChat applies bounded parameter adjustments when an upstream reports a
+// rejected field. The caller owns the response body. A nonpositive maxBody
+// disables the request body size check.
+func (p *OpenAIProvider) postChat(ctx context.Context, path string, build func(ChatOptions) map[string]interface{}, opts ChatOptions, maxBody int) (*acceptedChatResponse, error) {
 	attempts := 0
 	networkRetries := 0
 	for {
@@ -164,7 +169,8 @@ func (p *OpenAIProvider) postChat(ctx context.Context, path string, build func(C
 			return nil, fmt.Errorf("fetch: %w", err)
 		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return resp, nil
+			_, temperatureSent := body["temperature"]
+			return &acceptedChatResponse{Response: resp, temperatureOmitted: !temperatureSent}, nil
 		}
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		resp.Body.Close()
@@ -251,7 +257,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Mess
 	}
 	return &ChatResponse{
 		Content: content, Model: result.Model, TokensIn: result.Usage.PromptTokens,
-		TokensOut: result.Usage.CompletionTokens,
+		TokensOut: result.Usage.CompletionTokens, TemperatureOmitted: resp.temperatureOmitted,
 	}, nil
 }
 
@@ -306,7 +312,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, model string, messages 
 			}
 			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if data == "[DONE]" {
-				sendChunk(ctx, ch, StreamChunk{Done: true, Content: full.String()})
+				sendChunk(ctx, ch, StreamChunk{Done: true, Content: full.String(), TemperatureOmitted: resp.temperatureOmitted})
 				return
 			}
 			var chunk struct {
@@ -345,15 +351,5 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, model string, messages 
 }
 
 func (p *OpenAIProvider) redact(message string) string {
-	if p.apiKey != "" {
-		message = strings.ReplaceAll(message, p.apiKey, "[redacted]")
-		// A bounded upstream read can end halfway through an echoed credential.
-		// Strip a matching suffix before any later replacement/truncation exposes it.
-		for size := len(p.apiKey) - 1; size > 0; size-- {
-			if strings.HasSuffix(message, p.apiKey[:size]) {
-				return message[:len(message)-size] + "[redacted]"
-			}
-		}
-	}
-	return message
+	return RedactCredential(message, p.apiKey)
 }

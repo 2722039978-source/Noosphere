@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { ModelConfig } from "@/hooks/useBackend";
 import { agentCapability, chatCapabilityBlocker } from "@/lib/model-capabilities";
 import { LocalModelPicker } from '@/features/gateway/LocalModelPicker';
-import type { LocalModelChoice } from '@/features/gateway/local-model-match';
+import { isLocalModel, type LocalModelChoice } from '@/features/gateway/local-model-match';
 import type { ChatAttachment, ContextCitation } from '@/lib/api';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useUiStore } from '@/stores/ui-store';
@@ -106,6 +106,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
 
   const canSend = !!text.trim() && !capabilityBlocked && !streaming && !busy && !blocked && !attachmentDraft.blocked;
   const canAttach = !!attachmentSessionId && !streaming && !busy;
+  const remoteModel = selectedModel && !isLocalModel(selectedModel);
 
   return (
     <div className="ns-chat-composer shrink-0">
@@ -163,7 +164,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
                   </button>
                 </div>;
               })}
-              {attachmentDraft.attachments.length > 0 && <p className="w-full px-1 text-xs text-text-3">相关文字节选会随消息发送给所选模型。</p>}
+              {attachmentDraft.attachments.length > 0 && !remoteModel && <p className="w-full px-1 text-xs text-text-3">相关文字节选会随消息发送给所选模型。</p>}
             </div>
           ) : null}
           <textarea
@@ -184,6 +185,9 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
               }
             }}
           />
+
+          {remoteModel && (!!text.trim() || !!attachmentDraft.attachments.length || reuse || artifact) &&
+            <p className="px-4 pb-1 text-xs text-text-3">对话、检索到的项目依据和所选附件节选会随请求发送到当前 API。</p>}
 
           <input
             ref={fileRef}

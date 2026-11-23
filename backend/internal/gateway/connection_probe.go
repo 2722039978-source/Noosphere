@@ -37,22 +37,23 @@ type ProbeCheck struct {
 }
 
 type ModelDiagnostic struct {
-	Status         string       `json:"status"`
-	Provider       string       `json:"provider"`
-	Model          string       `json:"model"`
-	ReportedModel  string       `json:"reported_model,omitempty"`
-	Endpoint       string       `json:"endpoint"`
-	Service        string       `json:"service"`
-	ModelDiscovery string       `json:"model_discovery"`
-	ModelLoaded    string       `json:"model_loaded"`
-	Inference      string       `json:"inference"`
-	Stage          string       `json:"stage"`
-	Code           string       `json:"code"`
-	Error          string       `json:"error,omitempty"`
-	HTTPStatus     int          `json:"http_status,omitempty"`
-	LatencyMS      float64      `json:"latency_ms"`
-	Models         []ProbeModel `json:"models"`
-	Checks         []ProbeCheck `json:"checks"`
+	Status             string       `json:"status"`
+	Provider           string       `json:"provider"`
+	Model              string       `json:"model"`
+	ReportedModel      string       `json:"reported_model,omitempty"`
+	Endpoint           string       `json:"endpoint"`
+	Service            string       `json:"service"`
+	ModelDiscovery     string       `json:"model_discovery"`
+	ModelLoaded        string       `json:"model_loaded"`
+	Inference          string       `json:"inference"`
+	TemperatureOmitted bool         `json:"temperature_omitted,omitempty"`
+	Stage              string       `json:"stage"`
+	Code               string       `json:"code"`
+	Error              string       `json:"error,omitempty"`
+	HTTPStatus         int          `json:"http_status,omitempty"`
+	LatencyMS          float64      `json:"latency_ms"`
+	Models             []ProbeModel `json:"models"`
+	Checks             []ProbeCheck `json:"checks"`
 }
 
 type probeEndpoints struct {
@@ -62,8 +63,8 @@ type probeEndpoints struct {
 	local, authoritative                  bool
 }
 
-func connectionEndpoints(model *ModelConfig) (probeEndpoints, string) {
-	base := strings.TrimRight(model.BaseURL, "/")
+func connectionBase(model *ModelConfig) (string, *url.URL, string) {
+	base := strings.TrimRight(strings.TrimSpace(model.BaseURL), "/")
 	switch model.Provider {
 	case "claude", "anthropic":
 		if base == "" {
@@ -74,15 +75,38 @@ func connectionEndpoints(model *ModelConfig) (probeEndpoints, string) {
 			base = "https://generativelanguage.googleapis.com/v1beta"
 		}
 	}
+	u, err := url.Parse(base)
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(base, "#") {
+		return "", nil, "ADDRESS_INVALID"
+	}
+	for _, endpoint := range []string{"/chat/completions", "/responses", "/messages", "/generateContent", ":generateContent", ":streamGenerateContent"} {
+		if strings.HasSuffix(u.Path, endpoint) {
+			return "", nil, "BASE_URL_REQUIRED"
+		}
+	}
+	return base, u, ""
+}
+
+func connectionConfigurationProblem(code string) probeProblem {
+	message := "请填写有效的 HTTP 或 HTTPS API 地址，地址中不要携带凭据、查询或片段。"
+	switch code {
+	case "PROVIDER_UNSUPPORTED":
+		message = "请选择 Noosphere 支持的模型协议。"
+	case "BASE_URL_REQUIRED":
+		message = "请填写 API 基础地址，移除末尾的推理接口路径。"
+	case "LOCAL_ADDRESS_REQUIRED":
+		message = "此协议要求本机回环 API 地址。"
+	}
+	return problem("configuration", code, message)
+}
+
+func connectionEndpoints(model *ModelConfig) (probeEndpoints, string) {
 	if providers.Get(model.Provider) == nil {
 		return probeEndpoints{}, "PROVIDER_UNSUPPORTED"
 	}
-	u, err := url.Parse(base)
-	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(base, "#") {
-		return probeEndpoints{}, "ADDRESS_INVALID"
-	}
-	if strings.HasSuffix(u.Path, "/chat/completions") || strings.HasSuffix(u.Path, "/generateContent") || strings.HasSuffix(u.Path, "/messages") {
-		return probeEndpoints{}, "BASE_URL_REQUIRED"
+	base, u, code := connectionBase(model)
+	if code != "" {
+		return probeEndpoints{}, code
 	}
 	origin := u.Scheme + "://" + u.Host
 	ip := net.ParseIP(u.Hostname())
@@ -91,7 +115,7 @@ func connectionEndpoints(model *ModelConfig) (probeEndpoints, string) {
 	switch model.Provider {
 	case "ollama":
 		apiBase := base
-		if strings.HasSuffix(u.Path, "/v1") || strings.HasSuffix(u.Path, "/api") {
+		if strings.HasSuffix(u.EscapedPath(), "/v1") || strings.HasSuffix(u.EscapedPath(), "/api") {
 			apiBase = base[:strings.LastIndex(base, "/")]
 		}
 		endpoints.health = apiBase + "/api/version"
@@ -526,16 +550,7 @@ func (g *Gateway) probeModel(parent context.Context, model *ModelConfig, infer, 
 	endpoints, code := connectionEndpoints(model)
 	result.Endpoint = sanitizeProbeField(endpoints.inference, model.APIKey)
 	if code != "" {
-		message := "请填写有效的 HTTP 或 HTTPS API 地址，地址中不要携带凭据、查询或片段。"
-		switch code {
-		case "PROVIDER_UNSUPPORTED":
-			message = "请选择 Noosphere 支持的模型协议。"
-		case "BASE_URL_REQUIRED":
-			message = "请填写 API 基础地址，移除末尾的推理接口路径。"
-		case "LOCAL_ADDRESS_REQUIRED":
-			message = "此协议要求本机回环 API 地址。"
-		}
-		result.fail(problem("configuration", code, message))
+		result.fail(connectionConfigurationProblem(code))
 		return
 	}
 	if infer && strings.TrimSpace(model.ModelName) == "" {
@@ -637,6 +652,7 @@ func (g *Gateway) probeModel(parent context.Context, model *ModelConfig, infer, 
 		return
 	}
 	result.Inference = "succeeded"
+	result.TemperatureOmitted = response.TemperatureOmitted
 	if result.ModelDiscovery == "missing" {
 		// Some APIs accept aliases that they omit from the model list.
 		result.ModelDiscovery = "unknown"
@@ -663,7 +679,8 @@ func (g *Gateway) probeInference(ctx context.Context, model *ModelConfig, local,
 	}
 	var provider providers.LLMProvider
 	if draft {
-		provider, err = providers.Get(model.Provider)(model.BaseURL, model.APIKey)
+		base, _, _ := connectionBase(model) // Validated before probe admission.
+		provider, err = providers.Get(model.Provider)(base, model.APIKey)
 	} else {
 		provider, err = g.getOrCreateProvider(model)
 	}
@@ -682,7 +699,6 @@ func (g *Gateway) probeInference(ctx context.Context, model *ModelConfig, local,
 		OmitTemperature: !model.TemperatureEnabled(),
 	}
 	messages := []providers.Message{{Role: "user", Content: "What is 2 + 2? Please answer briefly."}}
-	ctx = providers.ConnectionProbeContext(ctx)
 	finish := g.countInference(false)
 	response, err := provider.Chat(ctx, model.ModelName, messages, opts)
 	finish()
@@ -713,7 +729,7 @@ func probeStreamingInference(ctx context.Context, provider providers.LLMProvider
 			return nil, chunk.Error
 		}
 		if chunk.Done && strings.TrimSpace(chunk.Content) != "" {
-			return &providers.ChatResponse{Content: chunk.Content}, nil
+			return &providers.ChatResponse{Content: chunk.Content, TemperatureOmitted: chunk.TemperatureOmitted}, nil
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -746,6 +762,11 @@ func reuseModelCredential(previous *ModelConfig, next *ModelConfig, legacyLocalE
 	return next.Provider == previous.Provider && strings.EqualFold(oldURL.Host, newURL.Host) && oldURL.Scheme == newURL.Scheme
 }
 
+func sameModelDeployment(previous *ModelConfig, provider, baseURL, modelName string) bool {
+	return previous != nil && provider == previous.Provider && modelName == previous.ModelName &&
+		strings.TrimRight(strings.TrimSpace(baseURL), "/") == strings.TrimRight(strings.TrimSpace(previous.BaseURL), "/")
+}
+
 // Reads the edited connection without changing the saved config or any binding.
 func (g *Gateway) HandleProbeModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -765,11 +786,16 @@ func (g *Gateway) HandleProbeModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	model := ModelConfig{ID: body.Model.ID, Provider: body.Model.Provider, BaseURL: body.Model.BaseURL, ModelName: body.Model.ModelName, APIKey: body.Model.APIKey}
-	if model.APIKey == "" && model.ID != "" {
+	if model.ID != "" {
 		saved := g.findModelByID(model.ID)
-		if reuseModelCredential(saved, &model, false) {
+		if model.APIKey == "" && reuseModelCredential(saved, &model, false) {
 			model.APIKey = saved.APIKey
 			model.Credential = saved.Credential
+		}
+		if sameModelDeployment(saved, model.Provider, model.BaseURL, model.ModelName) {
+			model.MaxTokensField = saved.MaxTokensField
+			model.SupportsTemperature = saved.SupportsTemperature
+			model.ContextLength = saved.ContextLength
 		}
 	}
 	selectionReply(w, http.StatusOK, g.probeModel(r.Context(), &model, body.Infer == nil || *body.Infer, true))

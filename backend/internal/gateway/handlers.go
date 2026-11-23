@@ -146,7 +146,7 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 	if logErr != nil {
 		logEntry.Error = logErr.Error()
 	}
-	g.appendLog(logEntry)
+	g.appendLog(logEntry, model.APIKey)
 
 	if completionErr != nil {
 		errors.WriteHTTP(w, r, errors.Wrap(completionErr, errors.ErrInternal, errors.CatGateway, "对话结果保存失败，请重试"))

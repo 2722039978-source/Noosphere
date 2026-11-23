@@ -388,7 +388,10 @@ func (m *Manager) PrepareAttachments(ctx context.Context, workspaceID, sessionID
 				return out, err
 			}
 			splitter := attachmentSplitter{line: 1, start: 1, yield: matches.add}
-			if err := attachmentfile.ScanTextFile(ctx, m.attachmentPath(id), index.Encoding, splitter.write); err != nil {
+			if err := attachmentfile.ScanVerifiedTextFile(ctx, m.attachmentPath(id), index.Encoding, ref.SourceHash, splitter.write); err != nil {
+				if errors.Is(err, attachmentfile.ErrSourceChanged) {
+					return out, fmt.Errorf("%w: %v", ErrConflict, err)
+				}
 				return out, attachmentExtractionError(ctx, err)
 			}
 			splitter.flush()

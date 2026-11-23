@@ -116,7 +116,9 @@ backend/python/codelens/requirements-dev.txt
 !/backend/cmd/server/server_test.go
 !/backend/internal/gateway/providers/params_test.go
 !/backend/internal/ownedprocess/process_test.go
+!/backend/internal/ownedprocess/ollama_unix_test.go
 !/backend/internal/attachmentfile/extract_test.go
+!/scripts/desktop-release-manifest.test.mjs
 
 # 本地视频和设计过程记录
 /video/

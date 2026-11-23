@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,6 +31,10 @@ func TestActionCommandHelper(t *testing.T) {
 		return
 	}
 	mode := os.Args[len(os.Args)-1]
+	if mode == "failure" {
+		fmt.Print("fixture failed")
+		os.Exit(7)
+	}
 	if mode == "output" {
 		if os.Getenv("NOOSPHERE_BACKEND_TOKEN") != "" {
 			os.Exit(2)
@@ -62,6 +67,16 @@ func TestNativeCommandsBoundOutputAndRemoveLocalCredential(t *testing.T) {
 	}
 	if len(output) > 33000 || !strings.Contains(output, "truncated") {
 		t.Fatal("output not bounded")
+	}
+}
+
+func TestNativeCommandsPreserveNonzeroExitCode(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	output, err := runTestHelper(ctx, t.TempDir(), "failure")
+	var status interface{ ExitCode() int }
+	if !errors.As(err, &status) || status.ExitCode() != 7 || output != "fixture failed" {
+		t.Fatalf("process result lost: output %q, error %v", output, err)
 	}
 }
 func TestNativeCancellationTerminatesTestChildren(t *testing.T) {

@@ -28,6 +28,15 @@ func actionFixture(t *testing.T) (*Actions, *workspaces.Manager, workspaces.Work
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, id := range []string{"run", "run-fixture"} {
+		_, execution, err := m.Start(context.Background(), workspaces.Run{ID: id, WorkspaceID: ws.ID, Kind: "agent"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := execution.Finish(nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 	store, err := OpenActions(filepath.Join(base, "actions"), m, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -48,8 +57,18 @@ func TestRequiredReplacementAndInterruptedFileRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Status = "applying"
-	s.save(a)
-	os.WriteFile(filepath.Join(ws.ProjectPath, a.Path), []byte(a.After), 0600)
+	if err := os.WriteFile(filepath.Join(ws.ProjectPath, a.Path), []byte(a.After), 0600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := inspectFile(ws.ProjectPath, a.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file.parent.Close()
+	a.AfterFileID = file.fileID
+	if err := s.save(a); err != nil {
+		t.Fatal(err)
+	}
 	recovered, err := OpenActions(filepath.Join(base, "actions"), s.manager, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -98,11 +117,17 @@ func (e *fixtureExecutor) Execute(ctx context.Context, a Action) (string, error)
 }
 func waitAction(t *testing.T, s *Actions, ws, run string) Action {
 	t.Helper()
+	return waitActionByID(t, s, ws, run, s.List(ws, run)[0].ID)
+}
+
+func waitActionByID(t *testing.T, s *Actions, ws, run, id string) Action {
+	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		a := s.List(ws, run)[0]
-		if a.Status != "running" {
-			return a
+		for _, a := range s.List(ws, run) {
+			if a.ID == id && a.Status != "running" {
+				return a
+			}
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -136,7 +161,7 @@ func TestApprovalIsSingleUseAndTestsCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := waitAction(t, s, ws.ID, "run")
-	if done.Status != "failed" || !strings.Contains(done.Error, "canceled") {
+	if done.Status != "cancelled" || !strings.Contains(done.Error, "canceled") || done.ExitCode != nil {
 		t.Fatalf("lost cancellation: %+v", done)
 	}
 	e.mu.Lock()
@@ -198,7 +223,7 @@ func TestFileCreationNeverOverwritesExistingName(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer root.Close()
-	err = replaceFile(root, "new.go", "proposed", 0600, true, func() error {
+	err = replaceFile(root, "new.go", "proposed", 0600, true, func(string) error {
 		return root.WriteFile("new.go", []byte("editor"), 0600)
 	})
 	if err == nil {
@@ -402,5 +427,207 @@ func TestProposalsRejectTraversalSecretsAndProjectChange(t *testing.T) {
 	m.SaveWorkspace(ws)
 	if _, err = s.Decide(a.ID, ws.ID, "approve"); err == nil {
 		t.Fatal("rebound project allowed")
+	}
+}
+
+func TestCancelledTaskCannotExecutePendingProposal(t *testing.T) {
+	s, m, ws, _ := actionFixture(t)
+	ctx, execution, err := m.Start(context.Background(), workspaces.Run{WorkspaceID: ws.ID, Kind: "agent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer execution.Finish(nil, nil)
+	a, err := s.Propose(ctx, ws, execution.ID, "propose_file_change", json.RawMessage(`{"path":"cancelled.go","new_text":"package example"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Cancel(execution.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Decide(a.ID, ws.ID, "approve"); err == nil {
+		t.Fatal("cancelled task's proposal could still execute")
+	}
+	if found := s.List(ws.ID, execution.ID); len(found) != 1 || found[0].BlockedReason == "" {
+		t.Fatalf("missing reason in approval review: %+v", found)
+	}
+	if _, err = os.Stat(filepath.Join(ws.ProjectPath, a.Path)); !os.IsNotExist(err) {
+		t.Fatalf("cancelled task created a file: %v", err)
+	}
+}
+
+func TestRebindingSamePathDoesNotRestoreApproval(t *testing.T) {
+	s, m, ws, _ := actionFixture(t)
+	a, err := s.Propose(context.Background(), ws, "run", "propose_file_change", json.RawMessage(`{"path":"rebound.go","new_text":"package example"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unbound := ws
+	unbound.ProjectPath = ""
+	if _, err := m.SaveWorkspace(unbound); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SaveWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(a.ID, ws.ID, "approve"); err == nil {
+		t.Fatal("rebinding a project reinstated an old approval")
+	}
+}
+
+func TestFileApprovalRefusesSameContentReplacement(t *testing.T) {
+	s, _, ws, _ := actionFixture(t)
+	a, err := s.Propose(context.Background(), ws, "run", "propose_file_change", json.RawMessage(`{"path":"main.go","old_text":"before","new_text":"after"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Join(ws.ProjectPath, "main.go")
+	if err := os.Rename(name, name+".previous"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte(a.Before), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(a.ID, ws.ID, "approve"); err == nil {
+		t.Fatal("approval applied to a different file with the same content")
+	}
+	if current := s.List(ws.ID, "run")[0]; current.Status != "obsolete" || current.Error == "" {
+		t.Fatalf("file conflict was not retained in the journal: %+v", current)
+	}
+}
+
+func TestFileApprovalRefusesCaseOnlyRename(t *testing.T) {
+	s, _, ws, _ := actionFixture(t)
+	a, err := s.Propose(context.Background(), ws, "run", "propose_file_change", json.RawMessage(`{"path":"main.go","old_text":"before","new_text":"after"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Join(ws.ProjectPath, "main.go")
+	intermediate := filepath.Join(ws.ProjectPath, "renamed.go")
+	replacement := filepath.Join(ws.ProjectPath, "MAIN.go")
+	if err := os.Rename(name, intermediate); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(intermediate, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(a.ID, ws.ID, "approve"); err == nil {
+		t.Fatal("approval applied after a case-only rename")
+	}
+}
+
+func TestTestApprovalWaitsForProposedFileChange(t *testing.T) {
+	s, _, ws, _ := actionFixture(t)
+	t.Setenv("NOOSPHERE_TEST_GO", os.Args[0])
+	s.executor = &fixtureExecutor{}
+	edit, err := s.Propose(context.Background(), ws, "run", "propose_file_change", json.RawMessage(`{"path":"main.go","old_text":"before","new_text":"after"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	test, err := s.Propose(context.Background(), ws, "run", "propose_test", json.RawMessage(`{"runner":"go"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Decide(test.ID, ws.ID, "approve"); err == nil {
+		t.Fatal("test executed before the proposed edit was approved")
+	}
+	if _, err = s.Decide(edit.ID, ws.ID, "approve"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Decide(test.ID, ws.ID, "approve"); err != nil {
+		t.Fatal(err)
+	}
+	verdict := waitActionByID(t, s, ws.ID, "run", test.ID)
+	if verdict.Status != "completed" || verdict.ExitCode == nil || *verdict.ExitCode != 0 {
+		t.Fatalf("missing successful test exit: %+v", verdict)
+	}
+}
+
+func TestRestoredActionJournalPreservesHistoryWithoutAuthority(t *testing.T) {
+	s, _, ws, base := actionFixture(t)
+	for _, status := range []string{"pending", "running", "applied"} {
+		a := Action{ID: status, WorkspaceID: ws.ID, RunID: "run", Status: "historical", RestoredHistory: true, RestoredStatus: status}
+		if err := s.save(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restored, err := OpenActions(filepath.Join(base, "actions"), s.manager, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	for _, a := range restored.List(ws.ID, "run") {
+		if !a.RestoredHistory || a.RestoredStatus != a.ID || a.Status != "historical" {
+			t.Fatalf("original record not preserved: %+v", a)
+		}
+		for _, decision := range []string{"approve", "cancel", "reject", "rollback"} {
+			if _, err := restored.Decide(a.ID, ws.ID, decision); err == nil {
+				t.Fatalf("historical action %s accepted %s", a.ID, decision)
+			}
+		}
+	}
+}
+
+func TestFileRollbackRefusesSameContentReplacement(t *testing.T) {
+	s, _, ws, _ := actionFixture(t)
+	a, err := s.Propose(context.Background(), ws, "run", "propose_file_change", json.RawMessage(`{"path":"main.go","old_text":"before","new_text":"after"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Decide(a.ID, ws.ID, "approve"); err != nil {
+		t.Fatal(err)
+	}
+	name := filepath.Join(ws.ProjectPath, "main.go")
+	if err := os.Rename(name, name+".previous"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte(a.After), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(a.ID, ws.ID, "rollback"); err == nil {
+		t.Fatal("rollback changed a replacement file with the same content")
+	}
+}
+
+func TestConcurrentFileApprovalConsumesOneProposal(t *testing.T) {
+	s, _, ws, _ := actionFixture(t)
+	a, err := s.Propose(context.Background(), ws, "run", "propose_file_change", json.RawMessage(`{"path":"approved.go","new_text":"package example"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, err := s.Decide(a.ID, ws.ID, "approve")
+			results <- err
+		}()
+	}
+	close(start)
+	approved := 0
+	for range 2 {
+		if <-results == nil {
+			approved++
+		}
+	}
+	if current := s.List(ws.ID, "run")[0]; approved != 1 || current.Status != "applied" {
+		t.Fatalf("expected one successful approval, got %d at status %s", approved, current.Status)
+	}
+}
+
+func TestRejectedFileProposalStaysInert(t *testing.T) {
+	s, _, ws, _ := actionFixture(t)
+	a, err := s.Propose(context.Background(), ws, "run", "propose_file_change", json.RawMessage(`{"path":"rejected.go","new_text":"package example"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(a.ID, ws.ID, "reject"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(a.ID, ws.ID, "approve"); err == nil {
+		t.Fatal("rejected proposal was approved")
+	}
+	if _, err := os.Stat(filepath.Join(ws.ProjectPath, a.Path)); !os.IsNotExist(err) {
+		t.Fatalf("rejected proposal created a file: %v", err)
 	}
 }

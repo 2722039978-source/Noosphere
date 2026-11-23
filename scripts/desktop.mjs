@@ -7,7 +7,7 @@ import {
 } from './desktop-platform.mjs';
 import { collectLicenses } from './desktop-licenses.mjs';
 import { buildMacArtifacts } from './desktop-macos.mjs';
-import { aggregate } from './desktop-release-manifest.mjs';
+import { aggregate, debianPackageVersion, verifyReleaseRef } from './desktop-release-manifest.mjs';
 
 const cacheRoot = join(root, 'test/cache/desktop');
 const stagedNames = ['bin', 'codelens-python', 'codelens-runtime', 'rea-runtime', 'config.defaults.yaml', 'third-party'];
@@ -161,6 +161,11 @@ async function verifyLinuxPackages(target, artifacts, names, scratch) {
   if (run('dpkg-deb', ['-f', deb, 'Architecture'], { capture: true }) !== target.go_arch) {
     throw new Error('Debian package architecture mismatch');
   }
+  const expectedVersion = debianPackageVersion(version);
+  if (run('dpkg-deb', ['-f', deb, 'Version'], { capture: true }) !== expectedVersion) {
+    throw new Error('Debian package version mismatch');
+  }
+  if (expectedVersion !== version) run('dpkg', ['--compare-versions', expectedVersion, 'lt', version.split('-')[0]]);
   const moved = join(scratch, 'Linux packages 搬迁');
   const unpackedDeb = join(moved, 'deb');
   await mkdir(unpackedDeb, { recursive: true });
@@ -173,6 +178,22 @@ async function verifyLinuxPackages(target, artifacts, names, scratch) {
     const resources = dirname(dirname(packagedBackend[0]));
     await verifyRuntimes(target, resources, moved, true);
   }
+}
+
+async function copyDebianPackage(source, destination, scratch) {
+  const debVersion = debianPackageVersion(version);
+  if (debVersion === version) {
+    await cp(source, destination);
+    return;
+  }
+  const unpacked = join(scratch, 'deb-candidate');
+  run('dpkg-deb', ['--raw-extract', source, unpacked]);
+  const control = join(unpacked, 'DEBIAN/control');
+  const text = await readFile(control, 'utf8');
+  const fields = [...text.matchAll(/^Version: (.+)$/gm)];
+  if (fields.length !== 1 || fields[0][1] !== version) throw new Error('Unexpected Tauri Debian version field');
+  await writeFile(control, text.replace(fields[0][0], 'Version: ' + debVersion));
+  run('dpkg-deb', ['--root-owner-group', '--build', unpacked, destination]);
 }
 
 async function packageTarget(target, env, toolchains, out, signed) {
@@ -226,7 +247,7 @@ async function packageTarget(target, env, toolchains, out, signed) {
       desktopHash = await sha256(join(built.finalApp, 'Contents/MacOS', executable));
       backendHash = await sha256(join(built.finalApp, 'Contents/Resources', target.components.go.entry));
     } else {
-      await cp(await bundleArtifact(join(bundleDir, 'deb'), '.deb'), join(staging, names.deb));
+      await copyDebianPackage(await bundleArtifact(join(bundleDir, 'deb'), '.deb'), join(staging, names.deb), scratch);
       await cp(await bundleArtifact(join(bundleDir, 'appimage'), '.AppImage'), join(staging, names.appimage));
       await verifyLinuxPackages(target, staging, names, scratch);
       componentHashesBeforeSigning = { desktop: desktopHash, backend: backendHash };
@@ -272,6 +293,12 @@ async function main(args) {
   }
   if (command === 'aggregate') {
     await aggregate(options);
+    return;
+  }
+  if (command === 'check-release-ref') {
+    if (options.length) throw new Error('Release ref is read from GITHUB_REF and GITHUB_REF_NAME');
+    const tag = process.env.GITHUB_REF?.startsWith('refs/tags/') ? process.env.GITHUB_REF.slice('refs/tags/'.length) : '';
+    verifyReleaseRef(version, tag, process.env.FORMAL === 'true');
     return;
   }
   if (!['doctor', 'setup', 'prepare', 'dev', 'build', 'test', 'package'].includes(command)) {

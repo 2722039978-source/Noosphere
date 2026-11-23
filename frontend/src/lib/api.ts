@@ -98,7 +98,7 @@ export interface ModelDiagnostic {
   service: 'online' | 'offline' | 'unknown'; model_discovery: 'found' | 'missing' | 'unknown';
   model_loaded: 'loaded' | 'not_loaded' | 'unknown'; inference: 'succeeded' | 'failed' | 'skipped';
   stage: string; code?: string; error?: string; http_status?: number; latency_ms?: number;
-  reported_model?: string;
+  reported_model?: string; temperature_omitted?: boolean;
   models?: DiscoveredModel[]; checks?: { stage: string; endpoint: string; status: string; http_status?: number; code?: string }[];
 }
 export type LocalEngineId = 'ollama' | 'lm_studio' | 'bonsai' | 'deepseek_local';
@@ -305,6 +305,10 @@ export interface WorkspaceRun {
 }
 export interface AgentAction {
  id:string;workspace_id:string;run_id:string;project_path:string;kind:'file'|'test'|'service';status:string;reason:string;path?:string;before?:string;after?:string;existed:boolean;before_hash?:string;after_hash?:string;runner?:string;command?:string;service?:string;target?:string;previous?:string;output?:string;error?:string;
+ blocked_reason?: string;
+ exit_code?: number;
+ restored_history?: boolean;
+ restored_status?: string;
 }
 export interface RunEvent {
   seq: number;
