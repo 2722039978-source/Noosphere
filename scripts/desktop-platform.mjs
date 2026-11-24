@@ -14,7 +14,7 @@ export const backend = join(root, 'backend');
 export const tauriRoot = join(root, 'desktop/src-tauri');
 export const tauriCli = join(root, 'desktop/node_modules/@tauri-apps/cli/tauri.js');
 export const manifest = await json(join(root, 'scripts/platform-targets.json'));
-export const version = (await readFile(join(root, 'VERSION'), 'utf8')).trim();
+export const version = (await readFile(join(root, 'scripts/build-config/VERSION'), 'utf8')).trim();
 export const node = process.execPath;
 export const npm = process.platform === 'win32'
   ? [node, [join(dirname(node), 'node_modules/npm/bin/npm-cli.js')]] : ['npm', []];
@@ -87,7 +87,7 @@ export async function sourceIdentity() {
   const dirty = Boolean(run('git', ['status', '--porcelain', '--untracked-files=normal'], { capture: true }));
   const listed = run('git', ['ls-files', '-coz', '--exclude-standard'], { capture: true });
   const names = [...new Set(listed.split('\0'))].filter(name =>
-    /^(backend\/|frontend\/|desktop\/|scripts\/|\.cargo\/|VERSION$|\.node-version$|\.python-version$|rust-toolchain\.toml$|setup\.bat$|\.gitignore$|\.gitattributes$)/.test(name));
+    /^(backend\/|frontend\/|desktop\/|scripts\/|LICENSES\/|\.cargo\/|setup\.bat$|Start-Noosphere\.cmd$|\.gitignore$)/.test(name));
   return { revision, dirty, fingerprint: await treeHash(root, names) };
 }
 

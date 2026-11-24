@@ -73,7 +73,7 @@ noosphere-backend -restore-data-from "<快照目录>" -restore-data-to "<尚不�
 
 ## 开发和构建
 
-各目标使用对应架构的宿主、Git、锁定的 Node.js、Rust 和 Go 工具链，以及系统 WebView 构建依赖。Windows 入口使用 PowerShell 7 和 Visual Studio「使用 C++ 的桌面开发」工作负载。 [Node.js](.node-version) · [CPython](.python-version) · [Rust](rust-toolchain.toml) · [Go](backend/go.mod) · [目标清单](scripts/platform-targets.json)
+各目标使用对应架构的宿主、Git、锁定的 Node.js、Rust 和 Go 工具链，以及系统 WebView 构建依赖。Windows 入口使用 PowerShell 7 和 Visual Studio「使用 C++ 的桌面开发」工作负载。 [项目版本](scripts/build-config/VERSION) · [Node.js](scripts/build-config/.node-version) · [CPython](scripts/build-config/.python-version) · [Rust](desktop/rust-toolchain.toml) · [Go](backend/go.mod) · [目标清单](scripts/platform-targets.json)
 
 ```powershell
 pwsh -NoProfile -File scripts/setup.ps1 -InstallBrowser
@@ -85,7 +85,7 @@ pwsh -NoProfile -File scripts/build.ps1
 pwsh -NoProfile -File scripts/package.ps1
 ```
 
-`build.ps1` 将桌面程序构建到 `release/`。`package.ps1` 将 NSIS 安装器、便携 ZIP、构建信息和 SHA-256 校验文件生成到 `artifacts/<版本>/`。
+新的本地 Windows 构建将程序和运行组件归入 `release/app/`，从仓库或 `release/` 内的 `Start-Noosphere.cmd` 启动。`package.ps1` 将 NSIS 安装器、便携 ZIP、构建信息和 SHA-256 校验文件生成到 `artifacts/<版本>/`。
 
 Linux 使用原生 Ubuntu 22.04 x64 构建环境，安装 GTK 3、WebKitGTK 4.1 开发包和系统打包工具。 [构建依赖与验收记录](CROSS_PLATFORM_ACCEPTANCE.md)
 
@@ -106,7 +106,7 @@ node scripts/desktop.mjs package linux-x64
 | [backend](backend) | Go 后端，负责模型调用、工作区、附件、任务和测评。 |
 | [backend/python/codelens](backend/python/codelens) | Python CodeLens 源码解析和索引。 |
 
-[桌面 CI](https://github.com/2722039978-source/Noosphere/actions) · [MIT License](LICENSE)
+[桌面 CI](https://github.com/2722039978-source/Noosphere/actions) · [MIT License](LICENSES/MIT.txt)
 
 ## 第三方资源
 

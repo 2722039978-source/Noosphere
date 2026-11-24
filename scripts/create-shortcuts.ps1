@@ -3,7 +3,7 @@ param([switch]$Desktop, [string]$ReleaseRoot, [string]$ExpectedSourceRevision, [
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 $ProjectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-if (-not $ReleaseRoot) { $ReleaseRoot = Join-Path $ProjectRoot 'release' }
+if (-not $ReleaseRoot) { $ReleaseRoot = Get-NoosphereLocalReleaseRoot $ProjectRoot }
 $ReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot)
 $Source = Get-NoosphereSourceIdentity $ProjectRoot
 if (-not $ExpectedSourceRevision) { $ExpectedSourceRevision = $Source.revision }

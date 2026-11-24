@@ -30,7 +30,7 @@ if (-not $Info.codelens_runtime -or -not $Info.rea_runtime -or $Info.installers.
 foreach ($Forbidden in @('config.yaml', 'models.yaml', 'data', 'logs', 'legacy', '.venv', 'setup.bat')) {
   if (Test-Path -LiteralPath (Join-Path $Portable $Forbidden)) { throw "Unexpected private or development resource: $Forbidden" }
 }
-Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSE') -Destination $Portable
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSES/MIT.txt') -Destination (Join-Path $Portable 'LICENSE')
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'frontend/public/assets/RhineLabUI-LICENSE.txt') -Destination $Portable
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'frontend/public/assets/Attachment-Dependencies-LICENSE.txt') -Destination $Portable
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'desktop/src-tauri/third-party') -Destination $Portable -Recurse

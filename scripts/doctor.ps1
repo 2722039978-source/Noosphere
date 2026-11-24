@@ -30,9 +30,9 @@ function Require-NoosphereVersion([string]$Name, [string[]]$Arguments, [string]$
 
 if ($Profile -ne 'Backend') {
   Check-NoosphereRequirement 'Node.js' {
-    $Version = Read-NoosphereVersion '.node-version'
+    $Version = Read-NoosphereVersion 'scripts/build-config/.node-version'
     Require-NoosphereVersion 'node' @('--version') ('^v' + [regex]::Escape($Version) + '$')
-  } 'Install the version in .node-version, then reopen PowerShell.'
+  } 'Install the version in scripts/build-config/.node-version, then reopen PowerShell.'
   Check-NoosphereRequirement 'npm' {
     Require-NoosphereVersion 'npm' @('--version') '^\d+\.\d+\.\d+'
   } 'Install npm with Node.js.'
@@ -53,18 +53,18 @@ if ($Profile -ne 'Frontend') {
 }
 if ($Profile -in 'Desktop', 'Package') {
   Check-NoosphereRequirement 'Python' {
-    $Version = Read-NoosphereVersion '.python-version'
+    $Version = Read-NoosphereVersion 'scripts/build-config/.python-version'
     Require-NoosphereVersion 'python' @('--version') ('^Python ' + [regex]::Escape($Version) + '$')
     Invoke-NoosphereCommand (Resolve-NoosphereCommand 'python') @('-c', 'import struct; assert struct.calcsize("P") == 8') $Root | Out-Null
-  } 'Install the x64 CPython version in .python-version or use the repository venv.'
+  } 'Install the x64 CPython version in scripts/build-config/.python-version or use the repository venv.'
   Check-NoosphereRequirement 'Rust MSVC' {
-    $Version = [regex]::Match((Read-NoosphereVersion 'rust-toolchain.toml'), '(?m)^channel = "([^"]+)"').Groups[1].Value
+    $Version = [regex]::Match((Read-NoosphereVersion 'desktop/rust-toolchain.toml'), '(?m)^channel = "([^"]+)"').Groups[1].Value
     $Cargo = Resolve-NoosphereCommand 'cargo'
-    $Info = Invoke-NoosphereCommand $Cargo @('-vV') $Root | Out-String
+    $Info = Invoke-NoosphereCommand $Cargo @('-vV') (Join-Path $Root 'desktop/src-tauri') | Out-String
     if ($Info -notmatch ('(?m)^release: ' + [regex]::Escape($Version) + '\s*$') -or
         $Info -notmatch '(?m)^host: x86_64-pc-windows-msvc\s*$') { throw $Info.Trim() }
     "Cargo $Version (x86_64-pc-windows-msvc)"
-  } 'Install rustup and the toolchain in rust-toolchain.toml. Use the MSVC host.'
+  } 'Install rustup and the toolchain in desktop/rust-toolchain.toml. Use the MSVC host.'
   Check-NoosphereRequirement 'MSVC and Windows SDK' {
     $VsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     if (-not (Test-Path -LiteralPath $VsWhere)) { throw 'vswhere was not found.' }
@@ -101,7 +101,7 @@ if ($Profile -in 'Desktop', 'Package') {
       Check-NoosphereRequirement 'Tauri CLI' {
         $Cargo = Resolve-NoosphereCommand 'cargo'
         $Cli = Resolve-NoosphereTauriCli $Root $Cargo
-        Invoke-NoosphereCommand $Cli.Command ($Cli.Prefix + @('--version')) $Root
+      Invoke-NoosphereCommand $Cli.Command ($Cli.Prefix + @('--version')) (Join-Path $Root 'desktop/src-tauri')
       } 'Run scripts/setup.ps1 to install desktop npm dependencies.'
     }
   }

@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version-file: .node-version
+          node-version-file: scripts/build-config/.node-version
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
@@ -41,7 +41,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version-file: .python-version
+          python-version-file: scripts/build-config/.python-version
           cache: pip
           cache-dependency-path: scripts/codelens-runtime/requirements-win-py314.lock
       - name: Restore Rust and distribution download caches
@@ -54,13 +54,14 @@ jobs:
             desktop/src-tauri/target
             test/cache/rea-runtime
             test/cache/codelens-runtime
-          key: ${{ runner.os }}-x64-rust-dist-${{ hashFiles('rust-toolchain.toml', 'desktop/src-tauri/Cargo.lock', '.python-version', 'scripts/codelens-runtime/requirements-win-py314.lock', 'scripts/rea-runtime/package-lock.json', 'scripts/platform-targets.json') }}
+          key: ${{ runner.os }}-x64-rust-dist-${{ hashFiles('desktop/rust-toolchain.toml', 'desktop/src-tauri/Cargo.lock', 'scripts/build-config/.python-version', 'scripts/codelens-runtime/requirements-win-py314.lock', 'scripts/rea-runtime/package-lock.json', 'scripts/platform-targets.json') }}
       - name: Restore browser test runtime
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/AppData/Local/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
       - name: Install pinned MSVC Rust toolchain
+        working-directory: desktop
         run: rustup show
       - name: Verify release ref and run distribution regressions
         env:
@@ -95,7 +96,7 @@ jobs:
           ./scripts/package.ps1
       - name: Verify installed app, in-place upgrade, uninstall, and reinstall
         run: |
-          $Version = (Get-Content VERSION -Raw).Trim()
+          $Version = (Get-Content -LiteralPath 'scripts/build-config/VERSION' -Raw).Trim()
           $PowerShell = (Get-Process -Id $PID).Path
           $PreviousArgs = @()
           if ($Version -match '^1\.0\.0(?:-rc\.\d+)?$') {
@@ -108,7 +109,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run Go, Python, Rust, frontend and packaged native tests
         run: |
-          $Version = (Get-Content VERSION -Raw).Trim()
+          $Version = (Get-Content -LiteralPath 'scripts/build-config/VERSION' -Raw).Trim()
           $Root = Join-Path $env:RUNNER_TEMP 'portable'
           Expand-Archive -LiteralPath "artifacts/$Version/Noosphere-$Version-windows-x64.zip" -DestinationPath $Root
           $Executable = @(Get-ChildItem -LiteralPath $Root -Recurse -Filter 'Noosphere.exe' -File)
@@ -159,7 +160,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version-file: .node-version
+          node-version-file: scripts/build-config/.node-version
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
@@ -178,8 +179,9 @@ jobs:
             test/cache/desktop/${{ matrix.target }}/*.tar.xz
             test/cache/desktop/${{ matrix.target }}/pip
             test/cache/desktop/${{ matrix.target }}/npm
-          key: ${{ matrix.target }}-${{ matrix.abi }}-${{ hashFiles('rust-toolchain.toml', 'desktop/src-tauri/Cargo.lock', 'scripts/platform-targets.json', 'scripts/codelens-runtime/*.lock', 'scripts/rea-runtime/package-lock.json') }}
+          key: ${{ matrix.target }}-${{ matrix.abi }}-${{ hashFiles('desktop/rust-toolchain.toml', 'desktop/src-tauri/Cargo.lock', 'scripts/platform-targets.json', 'scripts/codelens-runtime/*.lock', 'scripts/rea-runtime/package-lock.json') }}
       - name: Check runner, toolchain and tag
+        working-directory: desktop
         env:
           EXPECTED_OS: ${{ matrix.os }}
           EXPECTED_ARCH: ${{ matrix.arch }}
@@ -188,7 +190,7 @@ jobs:
           test "$RUNNER_OS" = "$EXPECTED_OS"
           test "$RUNNER_ARCH" = "$EXPECTED_ARCH"
           rustup show
-          node scripts/desktop.mjs check-release-ref
+          node ../scripts/desktop.mjs check-release-ref
       - name: Install Ubuntu 22.04 packaging dependencies
         if: runner.os == 'Linux'
         run: |
@@ -215,14 +217,14 @@ jobs:
       - name: Boot relocated Debian package offline under X11
         if: runner.os == 'Linux'
         run: |
-          version="$(cat VERSION)"
+          version="$(cat scripts/build-config/VERSION)"
           node_path="$(command -v node)"
           xvfb-run -a dbus-run-session -- sudo --preserve-env=DISPLAY,XAUTHORITY,DBUS_SESSION_BUS_ADDRESS \
             unshare --net -- "$node_path" scripts/verify-native-unix.mjs "artifacts/$version/$NOOSPHERE_BUILD_TARGET" \
             --linux-netns "$(id -u)" "$(id -g)"
       - name: Install Debian packages and verify v0.9.0 upgrade under X11
         if: runner.os == 'Linux'
-        run: bash scripts/verify-debian-upgrade.sh "artifacts/$(cat VERSION)/$NOOSPHERE_BUILD_TARGET"
+        run: bash scripts/verify-debian-upgrade.sh "artifacts/$(cat scripts/build-config/VERSION)/$NOOSPHERE_BUILD_TARGET"
       - name: Save and reload a synthetic model credential using Linux Secret Service
         if: runner.os == 'Linux'
         run: |
@@ -231,17 +233,17 @@ jobs:
           bash scripts/verify-linux-credentials.sh "${backends[0]}"
       - name: Boot packaged Linux applications in a Wayland-only session
         if: runner.os == 'Linux'
-        run: bash scripts/verify-linux-wayland.sh "artifacts/$(cat VERSION)/$NOOSPHERE_BUILD_TARGET"
+        run: bash scripts/verify-linux-wayland.sh "artifacts/$(cat scripts/build-config/VERSION)/$NOOSPHERE_BUILD_TARGET"
       - name: Boot relocated native macOS app
         if: runner.os == 'macOS'
         run: |
-          version="$(cat VERSION)"
+          version="$(cat scripts/build-config/VERSION)"
           node scripts/verify-native-unix.mjs "artifacts/$version/$NOOSPHERE_BUILD_TARGET"
       - name: Verify packaged backend in an isolated macOS Keychain
         if: runner.os == 'macOS'
         timeout-minutes: 8
         run: |
-          version="$(cat VERSION)"
+          version="$(cat scripts/build-config/VERSION)"
           bash scripts/verify-macos-credentials.sh "artifacts/$version/$NOOSPHERE_BUILD_TARGET/Noosphere-$version-$NOOSPHERE_BUILD_TARGET.app.tar.gz"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -259,7 +261,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version-file: .node-version
+          node-version-file: scripts/build-config/.node-version
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: noosphere-*

@@ -9,7 +9,7 @@ fi
 packages="$(realpath "${1:?Expected a versioned Linux package directory}")"
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo"
-version="$(cat VERSION)"
+version="$(cat scripts/build-config/VERSION)"
 deb_version="$(node --input-type=module -e '
   import { debianPackageVersion } from "./scripts/desktop-release-manifest.mjs";
   console.log(debianPackageVersion(process.argv[1]));

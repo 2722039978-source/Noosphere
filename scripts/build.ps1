@@ -21,7 +21,7 @@ $PackageSource = if ($PackageStage) { Get-NoosphereSourceIdentity $ProjectRoot }
 
 if ($SkipTauri -and $BundleNsis) { throw '-SkipTauri and -BundleNsis cannot be combined.' }
 if ($SkipTauri -and $DesktopShortcut) { throw '-DesktopShortcut requires a complete desktop build; remove -SkipTauri.' }
-if (-not $ReleaseRoot) { $ReleaseRoot = Join-Path $ProjectRoot 'release' }
+if (-not $ReleaseRoot) { $ReleaseRoot = Get-NoosphereLocalReleaseRoot $ProjectRoot }
 $ReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot)
 $GoCommand = Resolve-NoosphereCommand 'go'
 if (-not $SkipFrontend) { $NpmCommand = Resolve-NoosphereCommand 'npm' }
@@ -94,8 +94,11 @@ if ($BundleNsis) {
 }
 Publish-NoosphereRelease $ProjectRoot $DesktopArtifact $BackendArtifact $InstallerArtifacts -ReleaseRoot $ReleaseRoot `
   -ReaRuntime $ReaRuntime -CodeLensRuntime $CodeLensRuntime -CrtRuntime $CrtRuntime -Toolchains $Toolchains -PackageStage:$PackageStage
+if (-not $PackageStage -and $ReleaseRoot -eq (Join-Path $ProjectRoot 'release/app')) {
+  Copy-Item -LiteralPath (Join-Path $ProjectRoot 'Start-Noosphere.cmd') -Destination (Join-Path $ProjectRoot 'release')
+}
 if ($DesktopShortcut) { & (Join-Path $PSScriptRoot 'create-shortcuts.ps1') -Desktop -ReleaseRoot $ReleaseRoot }
 Write-Host "Portable release ready: $(Join-Path $ReleaseRoot 'Noosphere.exe')" -ForegroundColor Green
 if ($InstallerArtifacts.Count -eq 0) {
-  Write-Host 'NSIS was not requested. Older installers, if any, are retained under release/legacy/installers.'
+  Write-Host "Older installers, if any, are under $ReleaseRoot\legacy\installers."
 }

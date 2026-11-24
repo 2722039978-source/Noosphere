@@ -9,7 +9,10 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { chromium } = createRequire(path.resolve(__dirname, '../frontend/package.json'))('playwright');
 
-const exe = path.resolve(process.argv[2] || 'release', process.argv[3] || 'Noosphere.exe');
+const name = process.argv[3] || 'Noosphere.exe';
+const localRelease = path.resolve(__dirname, '../release');
+const localApp = path.join(localRelease, 'app');
+const exe = path.resolve(process.argv[2] || (existsSync(path.join(localApp, name)) ? localApp : localRelease), name);
 const root = mkdtempSync(path.join(tmpdir(), 'noosphere delivery '));
 const data = path.join(root, '用户 数据');
 const project = path.join(root, '测试 项目');

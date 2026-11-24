@@ -46,7 +46,7 @@ function Invoke-NoosphereCommand {
 
 function Get-NoosphereVersion {
   param([string]$ProjectRoot)
-  $Version = (Get-Content -LiteralPath (Join-Path $ProjectRoot 'VERSION') -Raw).Trim()
+  $Version = (Get-Content -LiteralPath (Join-Path $ProjectRoot 'scripts/build-config/VERSION') -Raw).Trim()
   if ($Version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') { throw 'VERSION must contain a semantic version.' }
   return $Version
 }
@@ -194,10 +194,10 @@ function Initialize-NoosphereResources {
   Copy-NoosphereCodeLens $ProjectRoot (Join-Path $TauriRoot 'codelens-python')
   if ($ReaRuntime) { Copy-NoosphereRea $ReaRuntime $TauriRoot }
   New-Item -ItemType Directory -Path (Join-Path $TauriRoot 'codelens-runtime'), (Join-Path $TauriRoot 'redist') -Force | Out-Null
-  if (Test-Path -LiteralPath (Join-Path $ProjectRoot 'LICENSE')) {
+  if (Test-Path -LiteralPath (Join-Path $ProjectRoot 'LICENSES/MIT.txt')) {
     $LicenseRoot = Join-Path $TauriRoot 'third-party'
     New-Item -ItemType Directory -Path $LicenseRoot -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSE') -Destination $LicenseRoot -Force
+    Copy-Item -LiteralPath (Join-Path $ProjectRoot 'LICENSES/MIT.txt') -Destination (Join-Path $LicenseRoot 'LICENSE') -Force
   }
   if ($CodeLensRuntime) { Copy-NoosphereCodeLensRuntime $CodeLensRuntime $TauriRoot }
   if ($CrtRuntime) { Copy-NoosphereCrt $CrtRuntime (Join-Path $TauriRoot 'redist') }
@@ -309,7 +309,7 @@ function Get-NoosphereSourceIdentity {
   $Listed = @(& $Git.Source -C $ProjectRoot ls-files -co --exclude-standard -z 2>$null)
   if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate production source for the build manifest.' }
   [string[]]$Entries = @((($Listed -join "`n") -split "`0") | Where-Object {
-    $_ -match '^(backend/|frontend/|desktop/|scripts/|\.cargo/|VERSION$|\.node-version$|\.python-version$|rust-toolchain\.toml$|setup\.bat$|\.gitignore$|\.gitattributes$)'
+    $_ -match '^(backend/|frontend/|desktop/|scripts/|LICENSES/|\.cargo/|setup\.bat$|Start-Noosphere\.cmd$|\.gitignore$)'
   } | Select-Object -Unique | ForEach-Object {
     $Path = Join-Path $ProjectRoot $_
     $Hash = if (Test-Path -LiteralPath $Path -PathType Leaf) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash } else { 'MISSING' }
@@ -334,6 +334,20 @@ function Get-NoosphereFrontendHash {
   $Hasher = [Security.Cryptography.SHA256]::Create()
   try { return [BitConverter]::ToString($Hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes(($Entries -join "`n")))).Replace('-', '') }
   finally { $Hasher.Dispose() }
+}
+
+function Get-NoosphereLocalReleaseRoot {
+  param([string]$ProjectRoot)
+  $Release = Join-Path $ProjectRoot 'release'
+  $Application = Join-Path $Release 'app'
+  # Keep the data directory of an existing flat portable build on rebuild.
+  if (-not (Test-Path -LiteralPath (Join-Path $Application 'Noosphere.exe') -PathType Leaf) -and
+      -not (Test-Path -LiteralPath (Join-Path $Application 'config.yaml') -PathType Leaf) -and
+      ((Test-Path -LiteralPath (Join-Path $Release 'Noosphere.exe') -PathType Leaf) -or
+       (Test-Path -LiteralPath (Join-Path $Release 'config.yaml') -PathType Leaf))) {
+    return $Release
+  }
+  return $Application
 }
 
 function Get-NoosphereReleaseInfo {
@@ -379,7 +393,10 @@ function New-NoosphereShortcut {
   $Executable = Join-Path $ReleaseRoot 'Noosphere.exe'
   $Shell = New-Object -ComObject WScript.Shell
   if (Test-Path -LiteralPath $LinkPath) {
-    $Backup = $LinkPath + '.' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.bak'
+    $BackupRoot = Join-Path (Split-Path -Parent $PSScriptRoot) '.local/shortcut-backups'
+    New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
+    $BackupName = (Split-Path -Leaf $LinkPath) + '.' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.bak'
+    $Backup = Join-Path $BackupRoot $BackupName
     Copy-Item -LiteralPath $LinkPath -Destination $Backup
   }
   $Link = $Shell.CreateShortcut($LinkPath)
@@ -402,7 +419,7 @@ function Publish-NoosphereRelease {
     [string]$CodeLensRuntime, [string]$CrtRuntime, [hashtable]$Toolchains, [switch]$PackageStage
   )
   $ProjectRoot = [IO.Path]::GetFullPath($ProjectRoot)
-  if (-not $ReleaseRoot) { $ReleaseRoot = Join-Path $ProjectRoot 'release' }
+  if (-not $ReleaseRoot) { $ReleaseRoot = Get-NoosphereLocalReleaseRoot $ProjectRoot }
   $ReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot)
   if ($ReleaseRoot.TrimEnd('\', '/') -eq [IO.Path]::GetPathRoot($ReleaseRoot).TrimEnd('\', '/') -or $ReleaseRoot -eq $ProjectRoot) { throw 'ReleaseRoot must be a dedicated portable application directory.' }
   foreach ($Artifact in (@($DesktopArtifact, $BackendArtifact) + $InstallerArtifacts)) {
@@ -467,7 +484,7 @@ function Publish-NoosphereRelease {
     source_revision = $Source.revision
     source_dirty = $Source.dirty
     source_fingerprint = $Source.fingerprint
-    source_fingerprint_scope = 'production-v2:backend/,frontend/,desktop/,scripts/,.cargo/,VERSION,.node-version,.python-version,rust-toolchain.toml,setup.bat,.gitignore,.gitattributes;git-nonignored'
+    source_fingerprint_scope = 'production-v3:backend/,frontend/,desktop/,scripts/,LICENSES/,.cargo/,setup.bat,Start-Noosphere.cmd,.gitignore;git-nonignored'
     build_profile = $BuildProfile
     frontend_sha256 = $FrontendHash
     desktop_sha256 = (Get-FileHash -LiteralPath (Join-Path $ReleaseRoot 'Noosphere.exe') -Algorithm SHA256).Hash

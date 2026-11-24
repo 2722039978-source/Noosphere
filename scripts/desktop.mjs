@@ -22,9 +22,9 @@ function requiredText(text, pattern, label) {
 async function pinnedVersions() {
   return {
     go: requiredText(await readFile(join(backend, 'go.mod'), 'utf8'), /^go (\d+\.\d+(?:\.\d+)?)$/m, 'Go version'),
-    node: (await readFile(join(root, '.node-version'), 'utf8')).trim(),
-    python: (await readFile(join(root, '.python-version'), 'utf8')).trim(),
-    rust: requiredText(await readFile(join(root, 'rust-toolchain.toml'), 'utf8'), /^channel = "([^"]+)"$/m, 'Rust version'),
+    node: (await readFile(join(root, 'scripts/build-config/.node-version'), 'utf8')).trim(),
+    python: (await readFile(join(root, 'scripts/build-config/.python-version'), 'utf8')).trim(),
+    rust: requiredText(await readFile(join(root, 'desktop/rust-toolchain.toml'), 'utf8'), /^channel = "([^"]+)"$/m, 'Rust version'),
   };
 }
 
@@ -45,7 +45,7 @@ async function doctor(target, env) {
   if (!goVersion.endsWith('go' + pinned.go + ' ' + target.go_os + '/' + target.go_arch)) {
     throw new Error('Go version or host mismatch ' + goVersion);
   }
-  const cargoVersion = run(cargo, ['-vV'], { capture: true, env });
+  const cargoVersion = run(cargo, ['-vV'], { capture: true, cwd: tauriRoot, env });
   if (!cargoVersion.includes('release: ' + pinned.rust) || !cargoVersion.includes('host: ' + target.rust_triple)) {
     throw new Error('Cargo version or host mismatch\n' + cargoVersion);
   }
@@ -91,7 +91,7 @@ async function prepare(target, env) {
     run('go', ['build', '-mod=readonly', '-trimpath', '-ldflags', '-X main.Version=' + version + ' -s -w',
       '-o', binary, './cmd/server'], { cwd: backend, env });
     await mkdir(join(stage, 'third-party'));
-    await cp(join(root, 'LICENSE'), join(stage, 'third-party/LICENSE'));
+    await cp(join(root, 'LICENSES/MIT.txt'), join(stage, 'third-party/LICENSE'));
 
     // Replace generated resources only, never configuration or user data.
     for (const name of stagedNames) {
@@ -265,7 +265,7 @@ async function packageTarget(target, env, toolchains, out, signed) {
       version, target: target.id, os: target.os, arch: target.arch, minimum_os: target.minimum_os, abi: target.abi,
       built_at_utc: new Date().toISOString(), runtime_revision: 2, source_revision: source.revision,
       source_dirty: source.dirty || after.dirty, source_fingerprint: source.fingerprint,
-      source_fingerprint_scope: 'production-v2:backend/,frontend/,desktop/,scripts/,.cargo/,VERSION,.node-version,.python-version,rust-toolchain.toml,setup.bat,.gitignore,.gitattributes;git-nonignored',
+      source_fingerprint_scope: 'production-v3:backend/,frontend/,desktop/,scripts/,LICENSES/,.cargo/,setup.bat,Start-Noosphere.cmd,.gitignore;git-nonignored',
       build_profile: 'release', frontend_sha256: await frontendHash(), desktop_sha256: desktopHash,
       backend_sha256: backendHash, component_hashes_before_signing: componentHashesBeforeSigning,
       codelens_runtime: await json(join(tauriRoot, 'codelens-runtime/distribution.json')),

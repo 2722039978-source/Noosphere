@@ -47,10 +47,10 @@ async function npmLicenses(dir, output) {
 export async function collectLicenses(target, output, reaRuntime, env, go = 'go', cargo = 'cargo') {
   await mkdir(output, { recursive: true });
   const base = [
-    'LICENSE',
     'frontend/public/assets/RhineLabUI-LICENSE.txt',
     'frontend/public/assets/Attachment-Dependencies-LICENSE.txt',
   ];
+  await copyLegalText(join(root, 'LICENSES/MIT.txt'), join(output, 'LICENSE'));
   for (const file of base) await copyLegalText(join(root, file), join(output, basename(file)));
 
   const goRoot = run(go, ['env', 'GOROOT'], { cwd: backend, env, capture: true });
@@ -84,7 +84,7 @@ export async function collectLicenses(target, output, reaRuntime, env, go = 'go'
 
   const index = {
     target: target.id,
-    source_licenses: base.map(file => basename(file)),
+    source_licenses: ['LICENSE', ...base.map(file => basename(file))],
     bundled_runtimes: {
       node: 'rea-runtime/NODE-LICENSE.txt',
       python: 'codelens-runtime upstream archive licenses and wheel .dist-info/licenses directories',

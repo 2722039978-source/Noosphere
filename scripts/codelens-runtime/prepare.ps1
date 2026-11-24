@@ -1,7 +1,7 @@
 function Initialize-NoosphereCodeLensRuntime {
   param([string]$ProjectRoot, [string]$PythonCommand)
 
-  $Version = (Get-Content -LiteralPath (Join-Path $ProjectRoot '.python-version') -Raw).Trim()
+  $Version = (Get-Content -LiteralPath (Join-Path $ProjectRoot 'scripts/build-config/.python-version') -Raw).Trim()
   $PythonSpec = (Get-NoosphereWindowsTarget $ProjectRoot).components.python
   if ($PythonSpec.version -ne $Version) { throw "No verified Windows x64 CPython archive is pinned for $Version." }
   $HostVersion = (Invoke-NoosphereCommand $PythonCommand @('-c', 'import platform; print(platform.python_version(), platform.machine())') $ProjectRoot | Out-String).Trim()

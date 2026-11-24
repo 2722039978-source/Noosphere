@@ -20,13 +20,13 @@
         "go": {
           "entry": "bin/noosphere-backend.exe",
           "source": "backend/cmd/server",
-          "version_file": "VERSION",
+          "version_file": "scripts/build-config/VERSION",
           "lock": "backend/go.sum"
         },
         "codelens": {
           "entry": "codelens-python/main.py",
           "source": "backend/python/codelens",
-          "version_file": "VERSION"
+          "version_file": "scripts/build-config/VERSION"
         },
         "python": {
           "entry": "codelens-runtime/python.exe",
@@ -70,13 +70,13 @@
         "go": {
           "entry": "bin/noosphere-backend",
           "source": "backend/cmd/server",
-          "version_file": "VERSION",
+          "version_file": "scripts/build-config/VERSION",
           "lock": "backend/go.sum"
         },
         "codelens": {
           "entry": "codelens-python/main.py",
           "source": "backend/python/codelens",
-          "version_file": "VERSION"
+          "version_file": "scripts/build-config/VERSION"
         },
         "python": {
           "entry": "codelens-runtime/bin/python3",
@@ -120,13 +120,13 @@
         "go": {
           "entry": "bin/noosphere-backend",
           "source": "backend/cmd/server",
-          "version_file": "VERSION",
+          "version_file": "scripts/build-config/VERSION",
           "lock": "backend/go.sum"
         },
         "codelens": {
           "entry": "codelens-python/main.py",
           "source": "backend/python/codelens",
-          "version_file": "VERSION"
+          "version_file": "scripts/build-config/VERSION"
         },
         "python": {
           "entry": "codelens-runtime/bin/python3",
@@ -171,13 +171,13 @@
         "go": {
           "entry": "bin/noosphere-backend",
           "source": "backend/cmd/server",
-          "version_file": "VERSION",
+          "version_file": "scripts/build-config/VERSION",
           "lock": "backend/go.sum"
         },
         "codelens": {
           "entry": "codelens-python/main.py",
           "source": "backend/python/codelens",
-          "version_file": "VERSION"
+          "version_file": "scripts/build-config/VERSION"
         },
         "python": {
           "entry": "codelens-runtime/bin/python3",
