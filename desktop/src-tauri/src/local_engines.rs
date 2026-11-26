@@ -6,7 +6,7 @@ mod windows;
 
 use crate::commands::types::ApiError;
 use crate::runtime::{local_agent, BackendService, RuntimePaths};
-use portable::{canonical_local, PortableInstall, PortableProfile, BONSAI, DEEPSEEK};
+use portable::{canonical_local, PortableInstall, PortableProfile, BONSAI, CUSTOM, DEEPSEEK};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -29,14 +29,16 @@ pub enum EngineId {
     LmStudio,
     Bonsai,
     DeepseekLocal,
+    CustomLlama,
 }
 
 impl EngineId {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::Ollama,
         Self::LmStudio,
         Self::Bonsai,
         Self::DeepseekLocal,
+        Self::CustomLlama,
     ];
 
     fn id(self) -> &'static str {
@@ -45,6 +47,7 @@ impl EngineId {
             Self::LmStudio => "lm_studio",
             Self::Bonsai => "bonsai",
             Self::DeepseekLocal => "deepseek_local",
+            Self::CustomLlama => "custom_llama",
         }
     }
 
@@ -54,6 +57,7 @@ impl EngineId {
             Self::LmStudio => "LM Studio",
             Self::Bonsai => BONSAI.name,
             Self::DeepseekLocal => DEEPSEEK.name,
+            Self::CustomLlama => CUSTOM.name,
         }
     }
 
@@ -64,6 +68,7 @@ impl EngineId {
         match self {
             Self::Bonsai => Some(BONSAI),
             Self::DeepseekLocal => Some(DEEPSEEK),
+            Self::CustomLlama => Some(CUSTOM),
             _ => None,
         }
     }
@@ -86,6 +91,7 @@ impl EngineId {
             Self::LmStudio => 1234,
             Self::Bonsai => 18787,
             Self::DeepseekLocal => 18788,
+            Self::CustomLlama => 18789,
         }
     }
 
@@ -392,10 +398,22 @@ fn inspect(id: EngineId) -> Observation {
         };
         if health {
             if let Ok(value) = loopback_json(id, "/v1/models") {
-                if let Some(mut model) = model_list(&value, "data")
-                    .and_then(|models| models.into_iter().find(|model| model.id == profile.alias))
-                {
-                    model.name = profile.name.into();
+                // The pinned bundles always report their compiled-in alias, but a
+                // custom directory serves whichever weight the user picked, so any
+                // reported model counts as online there.
+                let found = model_list(&value, "data").and_then(|models| {
+                    if profile.custom {
+                        models.into_iter().next()
+                    } else {
+                        models
+                            .into_iter()
+                            .find(|model| model.id == profile.alias)
+                    }
+                });
+                if let Some(mut model) = found {
+                    if !profile.custom {
+                        model.name = profile.name.into();
+                    }
                     model.loaded = Some(true);
                     model.vision = Some(false);
                     let mut result = Observation::online(vec![model]);
@@ -636,13 +654,25 @@ impl LocalEngines {
             return engine;
         }
         if engine.state != "online" {
-            if let Some(profile) = id.portable().filter(|_| install.portable.is_some()) {
-                engine.models.extend(LocalModel::new(
-                    profile.alias,
-                    profile.name,
-                    Some(false),
-                    Some(false),
-                ));
+            if let Some(portable) = install.portable.as_ref().filter(|_| id.portable().is_some()) {
+                if portable.models.is_empty() {
+                    if let Some(profile) = id.portable() {
+                        engine.models.extend(LocalModel::new(
+                            profile.alias,
+                            profile.name,
+                            Some(false),
+                            Some(false),
+                        ));
+                    }
+                } else {
+                    for model in &portable.models {
+                        if let Some(entry) =
+                            LocalModel::new(&model.alias, &model.name, Some(false), None)
+                        {
+                            engine.models.push(entry);
+                        }
+                    }
+                }
             }
             if id == EngineId::Ollama && install.detected && matches!(engine.state, "stopped" | "starting") {
                 engine.models = ollama_disk_models();
@@ -678,6 +708,7 @@ impl LocalEngines {
         action: EngineAction,
         data: &Path,
         directory: Option<&Path>,
+        model: Option<&str>,
         supervisor: Option<&Path>,
     ) -> Result<LocalEngine, ApiError> {
         if !id.supported() {
@@ -699,13 +730,13 @@ impl LocalEngines {
                 .map(|_| windows::PortableLock::acquire())
                 .transpose()?;
             if action == EngineAction::Switch {
-                return self.switch_portable(id, data, directory);
+                return self.switch_portable(id, data, directory, model);
             }
             if matches!(action, EngineAction::Stop | EngineAction::Restart) {
                 self.stop(id, data)?;
             }
             if matches!(action, EngineAction::Start | EngineAction::Restart) {
-                self.start(id, data, directory, supervisor)?;
+                self.start(id, data, directory, model, supervisor)?;
             }
             Ok::<(), String>(())
         })();
@@ -719,11 +750,12 @@ impl LocalEngines {
         id: EngineId,
         data: &Path,
         directory: Option<&Path>,
+        model: Option<&str>,
     ) -> Result<(), String> {
         let other = id.other_portable().ok_or("此运行环境不支持便携模型切换。")?;
         let target = inspect(id);
         if target.state != "stopped" || !socket_online(other.address()) {
-            return self.start(id, data, directory, None);
+            return self.start(id, data, directory, model, None);
         }
         self.recent_exit(other);
         if !self.owns_listener(other) {
@@ -737,8 +769,8 @@ impl LocalEngines {
             .map_err(|error| error.message)?
             .ok_or("另一个模型正在切换，请稍后重试。")?;
         self.stop(other, data)?;
-        if let Err(error) = self.start(id, data, directory, None) {
-            return match self.start(other, data, None, None) {
+        if let Err(error) = self.start(id, data, directory, model, None) {
+            return match self.start(other, data, None, None, None) {
                 Ok(()) => Err(format!("{error} 已恢复原模型服务。")),
                 Err(_) => Err(format!("{error} 原模型服务也未能恢复，可重新启动。")),
             };
@@ -746,7 +778,7 @@ impl LocalEngines {
         Ok(())
     }
 
-    fn start(&self, id: EngineId, data: &Path, directory: Option<&Path>, supervisor: Option<&Path>) -> Result<(), String> {
+    fn start(&self, id: EngineId, data: &Path, directory: Option<&Path>, model: Option<&str>, supervisor: Option<&Path>) -> Result<(), String> {
         #[cfg(windows)]
         let _ = supervisor;
         let status = inspect(id);
@@ -786,6 +818,12 @@ impl LocalEngines {
                 .portable
                 .take()
                 .ok_or("未发现完成校验的本地权重和 SYCL 引擎，请选择完整的便携模型目录。")?;
+            let portable = match model {
+                Some(alias) if !alias.is_empty() => portable.with_model(alias).ok_or(
+                    "所选模型不在该目录中，请重新扫描后选择列表里的模型。",
+                )?,
+                _ => portable,
+            };
             let command = portable.command(profile, id.port(), data)?;
             portable.remember(data, id.id())?;
             command
@@ -1129,6 +1167,7 @@ pub async fn control_local_engine(
     engine_id: EngineId,
     action: EngineAction,
     directory: Option<String>,
+    model: Option<String>,
     state: tauri::State<'_, LocalEngines>,
 ) -> Result<LocalEngine, ApiError> {
     let state = state.inner().clone();
@@ -1143,11 +1182,134 @@ pub async fn control_local_engine(
             action,
             &data,
             directory.as_deref().map(Path::new),
+            model.as_deref(),
             supervisor.as_deref(),
         )
     })
     .await
     .map_err(|_| ApiError::new("本地引擎操作失败，请重试。"))?
+}
+
+#[cfg(windows)]
+fn pick_gguf_file(parent: usize) -> ::windows::core::Result<Option<String>> {
+    use ::windows::core::{w, HRESULT};
+    use ::windows::Win32::Foundation::HWND;
+    use ::windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED,
+    };
+    use ::windows::Win32::UI::Shell::{
+        FileOpenDialog, IFileOpenDialog, FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM,
+        FOS_PATHMUSTEXIST, SIGDN_FILESYSPATH,
+    };
+
+    struct ComApartment;
+    impl Drop for ComApartment {
+        fn drop(&mut self) {
+            unsafe { CoUninitialize() }
+        }
+    }
+
+    unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
+        let _apartment = ComApartment;
+        let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
+        dialog.SetOptions(
+            dialog.GetOptions()?
+                | FOS_FORCEFILESYSTEM
+                | FOS_PATHMUSTEXIST
+                | FOS_FILEMUSTEXIST,
+        )?;
+        dialog.SetTitle(w!("选择 GGUF 模型文件"))?;
+        if let Err(error) = dialog.Show(Some(HWND(parent as _))) {
+            return if error.code() == HRESULT(0x800704C7u32 as i32) {
+                Ok(None)
+            } else {
+                Err(error)
+            };
+        }
+        let path = dialog.GetResult()?.GetDisplayName(SIGDN_FILESYSPATH)?;
+        Ok(Some(path.to_string()?))
+    }
+}
+
+#[tauri::command]
+pub async fn pick_local_model_file(window: tauri::WebviewWindow) -> Result<Option<String>, ApiError> {
+    #[cfg(windows)]
+    {
+        let parent = window
+            .hwnd()
+            .map_err(|error| ApiError::new(error.to_string()))?
+            .0 as usize;
+        tauri::async_runtime::spawn_blocking(move || pick_gguf_file(parent))
+            .await
+            .map_err(|error| ApiError::new(error.to_string()))?
+            .map_err(|error| ApiError::new(format!("无法打开文件选择器：{error}")))
+    }
+    #[cfg(unix)]
+    {
+        use tauri_plugin_dialog::DialogExt;
+        let (send, receive) = tokio::sync::oneshot::channel();
+        window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_title("选择 GGUF 模型文件")
+            .add_filter("GGUF 模型", &["gguf"])
+            .pick_file(move |file| {
+                let _ = send.send(file);
+            });
+        match receive.await.map_err(|_| ApiError::new("文件选择器未返回结果"))? {
+            Some(file) => file
+                .into_path()
+                .map_err(|error| ApiError::new(error.to_string()))?
+                .into_os_string()
+                .into_string()
+                .map(Some)
+                .map_err(|_| ApiError::new("模型路径不是有效的 UTF-8")),
+            None => Ok(None),
+        }
+    }
+}
+
+/// Remember the folder that holds the weights the user just picked, so the
+/// custom engine can offer them without asking for a directory.
+#[tauri::command]
+pub async fn register_custom_model(
+    app: tauri::AppHandle,
+    path: String,
+    state: tauri::State<'_, LocalEngines>,
+) -> Result<LocalEngine, ApiError> {
+    let state = state.inner().clone();
+    let data = data_directory(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = PathBuf::from(&path);
+        let name = file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if !name.ends_with(".gguf") {
+            return Err(ApiError::new("请选择 .gguf 模型文件。"));
+        }
+        if name.contains("mmproj") {
+            return Err(ApiError::new("这是视觉投影器，请选择主模型文件。"));
+        }
+        let directory = file
+            .parent()
+            .ok_or(ApiError::new("无法确定模型所在目录。"))?;
+        fs::create_dir_all(data.join("local-engines"))
+            .map_err(|_| ApiError::new("无法创建本地引擎目录。"))?;
+        fs::write(
+            data.join("local-engines")
+                .join("custom_llama-directory.txt"),
+            directory.to_string_lossy().as_bytes(),
+        )
+        .map_err(|_| ApiError::new("无法保存所选模型目录。"))?;
+        Ok(state.snapshot(EngineId::CustomLlama, &data, None, Some(directory)))
+    })
+    .await
+    .map_err(|_| ApiError::new("注册模型失败，请重试。"))?
 }
 
 #[tauri::command]
@@ -1250,5 +1412,38 @@ mod tests {
         );
         drop(socket);
         assert!(windows::ListenerOwner::observe(port).is_none());
+    }
+
+    #[test]
+    fn custom_engine_lists_user_weights_without_integrity_sidecars() {
+        let base = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("tmp")
+            .join("custom-engine");
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("weights");
+        let data = base.join("data");
+        fs::create_dir_all(root.join("runtime")).unwrap();
+        fs::create_dir_all(root.join("models")).unwrap();
+        fs::create_dir_all(&data).unwrap();
+        fs::write(root.join("runtime").join("llama-server.exe"), b"stub").unwrap();
+        fs::write(root.join("models").join("weight-a.gguf"), b"a").unwrap();
+        fs::write(root.join("models").join("weight-b.gguf"), b"b").unwrap();
+
+        assert_eq!(EngineId::CustomLlama.port(), 18789);
+        assert_eq!(EngineId::CustomLlama.id(), "custom_llama");
+        assert!(EngineId::CustomLlama.supported());
+
+        let install = installation(EngineId::CustomLlama, &data, Some(&root), None);
+        let portable = install.portable.expect("user weights are discovered");
+        assert_eq!(portable.models.len(), 2);
+
+        let engines = LocalEngines::default();
+        let snapshot = engines.snapshot(EngineId::CustomLlama, &data, Some(&root), None);
+        // Port 18789 may be served by a real instance on a developer machine, so
+        // only the installation state is asserted here, not the live model list.
+        assert!(snapshot.can_start);
+        assert!(snapshot.supported);
+        engines.shutdown();
     }
 }

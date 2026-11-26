@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, FolderOpen, RefreshCw } from 'lucide-react';
+import { Box, FileBox, FolderOpen, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, errMessage, type LocalEngine, type LocalEngineAction, type ModelConfig, type ModelDiagnostic } from '@/lib/api';
 import { useBackend } from '@/hooks/useBackend';
@@ -68,9 +68,9 @@ export function ModelConnectionWizard({ preferred, onUse, allowAutoStart = true,
     }
   }
 
-  async function operate(target: LocalEngine, action: LocalEngineAction) {
+  async function operate(target: LocalEngine, action: LocalEngineAction, model?: string) {
     setWorking(action === 'stop' ? '正在停止模型…' : action === 'switch' ? '正在切换并加载模型…' : '正在启动模型…');
-    const next = await discovery.operate(target, action);
+    const next = await discovery.operate(target, action, model);
     if (action === 'stop') useEnginePreferences.getState().revoke(target);
     if (action !== 'stop' && next.state !== 'online') throw new Error(next.error || '服务尚未就绪。请查看日志后重试。');
     return next;
@@ -80,7 +80,7 @@ export function ModelConnectionWizard({ preferred, onUse, allowAutoStart = true,
     if (!selection || generating || !modelsReady || selection.config?.enabled === false) return;
     await perform(async () => {
       if (engine && !online) {
-        const started = await operate(engine, switching ? 'switch' : 'start');
+        const started = await operate(engine, switching ? 'switch' : 'start', selection.target.model_name);
         const requested = modelNameKey(selection.target.provider, selection.target.model_name);
         if (!started.models.some(item => modelNameKey(started.provider, item.id) === requested)) {
           throw new Error('服务已在线，但未发现所选模型。请刷新列表。');
@@ -148,6 +148,17 @@ export function ModelConnectionWizard({ preferred, onUse, allowAutoStart = true,
           const path = await api.pickProjectFolder();
           if (path && mounted.current) { setDirectory(path); setSelectedKey(''); setLog(undefined); }
         })}><FolderOpen size={14} aria-hidden="true" />选择模型目录…</Button>
+        <Button className="justify-self-start" variant="outline" size="sm" disabled={!!working} onClick={() => void perform(async () => {
+          setWorking('正在读取模型…');
+          const file = await api.pickLocalModelFile();
+          if (!file || !mounted.current) return;
+          const updated = await api.registerCustomModel(file);
+          setDirectory(updated.directory ?? '');
+          setSelectedKey('');
+          setLog(undefined);
+          await discovery.refetch();
+          setWorking('');
+        })}><FileBox size={14} aria-hidden="true" />选择模型文件（.gguf）…</Button>
         {engine && <div className="grid gap-2">
           <p className="break-all">{engine.base_url}{engine.version ? ' · ' + engine.version : ''}</p>
           {engine.directory && <p className="break-all">{engine.directory}</p>}
