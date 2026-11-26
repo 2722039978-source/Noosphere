@@ -26,13 +26,13 @@ export function useLocalEngines(workspacePath: string, enabled: boolean) {
   const client = useQueryClient();
   const key = ['local-engines', workspacePath];
   const query = useQuery({ queryKey: key, queryFn: () => api.listLocalEngines(workspacePath), enabled, retry: false, staleTime: 4000, refetchInterval: 7000 });
-  const operate = useCallback(async (engine: LocalEngine, action: LocalEngineAction) => {
+  const operate = useCallback(async (engine: LocalEngine, action: LocalEngineAction, model?: string) => {
     const existing = pending.get(engine.id);
     if (existing) {
       if (action === 'start') return existing;
       throw new Error('本地服务正在切换状态，请稍后重试。');
     }
-    const operation = api.controlLocalEngine(engine.id, action, engine.directory);
+    const operation = api.controlLocalEngine(engine.id, action, engine.directory, model);
     pending.set(engine.id, operation);
     try { return await operation; }
     finally {

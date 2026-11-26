@@ -113,7 +113,7 @@ function ChatConversation({ taskDraft }: { taskDraft: boolean }) {
     localAttempt.current = identity;
     if (engine.state !== 'stopped') return;
     setLocalOperation({ key: identity, busy: true, error: '' });
-    void operate(engine, 'start').then(next => {
+    void operate(engine, 'start', effectiveModel?.model_name).then(next => {
       setLocalOperation({ key: identity, busy: false, error: next.state === 'online' ? '' : next.error || '本地服务未能启动。' });
     }, error => setLocalOperation({ key: identity, busy: false, error: errMessage(error) }));
   }, [engine, identity, permission, setup, generation, operate, ready, workspaceReady, session?.id, restoredSession, effectiveModel?.enabled, competingEngine]);

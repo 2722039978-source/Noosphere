@@ -36,6 +36,8 @@ pub fn run() {
             local_engines::list_local_engines,
             local_engines::control_local_engine,
             local_engines::local_engine_log,
+            local_engines::pick_local_model_file,
+            local_engines::register_custom_model,
             commands::model_selection::select_model,
             commands::model_selection::get_model_selection,
             commands::gateway::gateway_chat,

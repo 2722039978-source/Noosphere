@@ -101,7 +101,7 @@ export interface ModelDiagnostic {
   reported_model?: string; temperature_omitted?: boolean;
   models?: DiscoveredModel[]; checks?: { stage: string; endpoint: string; status: string; http_status?: number; code?: string }[];
 }
-export type LocalEngineId = 'ollama' | 'lm_studio' | 'bonsai' | 'deepseek_local';
+export type LocalEngineId = 'ollama' | 'lm_studio' | 'bonsai' | 'deepseek_local' | 'custom_llama';
 export type LocalEngineAction = 'start' | 'stop' | 'restart' | 'switch';
 export interface LocalEngine {
   id: LocalEngineId; name: string; provider: string; base_url: string;
@@ -353,8 +353,10 @@ export const api = {
   testModel: (id: string) => invoke<ModelDiagnostic>("test_model", { id }),
   probeModel: (model: ModelConfig, infer = true) => invoke<ModelDiagnostic>('probe_model', { model, infer }),
   listLocalEngines: (workspacePath = '') => invoke<{ engines: LocalEngine[] }>('list_local_engines', { workspacePath }),
-  controlLocalEngine: (engineId: LocalEngineId, action: LocalEngineAction, directory?: string) => invoke<LocalEngine>('control_local_engine', { engineId, action, directory }),
+  controlLocalEngine: (engineId: LocalEngineId, action: LocalEngineAction, directory?: string, model?: string) => invoke<LocalEngine>('control_local_engine', { engineId, action, directory, model }),
   localEngineLog: (engineId: LocalEngineId) => invoke<{ path: string; content: string }>('local_engine_log', { engineId }),
+  pickLocalModelFile: () => invoke<string | null>('pick_local_model_file'),
+  registerCustomModel: (path: string) => invoke<LocalEngine>('register_custom_model', { path }),
   addModel: (model: ModelConfig) => invoke("add_model", { model }),
   deleteModel: (id: string) => invoke("delete_model", { id }),
   chat: (
