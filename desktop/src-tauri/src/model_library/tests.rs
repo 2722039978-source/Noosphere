@@ -331,7 +331,9 @@ fn stream_real_model(data: &Path, path: &Path) {
         content.len()
     );
     if accelerator.is_some() {
-        let output = fs::read_to_string(&log).unwrap();
+        // Native backend logs may mix Windows code-page paths with ASCII metrics.
+        let bytes = fs::read(&log).unwrap();
+        let output = String::from_utf8_lossy(&bytes);
         let line = output
             .lines()
             .find(|l| {
