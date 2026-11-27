@@ -590,7 +590,7 @@ pub(super) fn install(data: &Path, backend: Option<&str>) -> Result<Runtime, Str
             ],
             Duration::from_secs(300),
         )?;
-        let archive = dest.join(name);
+        let archive = dest.join(&name);
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
@@ -611,11 +611,12 @@ pub(super) fn install(data: &Path, backend: Option<&str>) -> Result<Runtime, Str
             use std::os::windows::process::CommandExt;
             extract.creation_flags(0x08000000);
         }
+        // Windows system tar can convert command-line arguments through the ANSI
+        // code page. Set the Unicode directory natively and pass the ASCII release basename.
         let output = extract
+            .current_dir(&dest)
             .arg("-xf")
-            .arg(&archive)
-            .arg("-C")
-            .arg(&dest)
+            .arg(&name)
             .env_remove("TAR_OPTIONS")
             .output()
             .map_err(|e| format!("无法解压运行时，请使用手动选择：{e}"))?;

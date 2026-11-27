@@ -176,7 +176,9 @@ fn concurrent_imports_are_atomic_and_legacy_records_survive() {
 #[test]
 fn verify_pinned_install_live() {
     let dir = Directory::new();
-    let root = &dir.0;
+    // Exercise the installer's native Unicode working directory on every platform.
+    let root = &dir.0.join("模型 验收 🪐");
+    fs::create_dir(root).unwrap();
     let backend = std::env::var("NOOSPHERE_TEST_RUNTIME_BACKEND").ok();
     let install = json!({"action":"install_runtime","backend":backend});
     let snapshot = modify_for_test(root, install.clone()).unwrap();
