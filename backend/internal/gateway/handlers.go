@@ -85,7 +85,7 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	messages, attachments, attachmentErr := g.resolveChatAttachments(ctx, body.WorkspaceID, body.SessionID, body.AttachmentTurn, body.Messages)
+	messages, attachments, attachmentErr := g.resolveChatAttachments(ctx, model, body.WorkspaceID, body.SessionID, body.AttachmentTurn, body.Messages)
 	if attachmentErr != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, attachmentErr.Error()))
 		return
@@ -106,7 +106,7 @@ func (g *Gateway) HandleChat(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	start := time.Now()
-	content, tokensIn, tokensOut, callErr := g.callLLMContext(ctx, model, messages, body.SystemPrompt, body.Temperature, body.MaxTokens)
+	content, tokensIn, tokensOut, callErr := g.callLLMContext(ctx, model, messages, body.SystemPrompt, body.Temperature, body.MaxTokens, attachments.ImageURLs...)
 	if ctx.Err() != nil {
 		callErr = ctx.Err()
 	}

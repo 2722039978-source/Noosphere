@@ -6,7 +6,7 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 
 本地模型和云端 API 共用对话右下角的模型菜单。已经安装的本地引擎可以在应用里发现、启动和验证。配置好云端 API 后，也可以在当前会话中切过去。
 
-[下载稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [更新记录](CHANGELOG.md) · [发行验收](CROSS_PLATFORM_ACCEPTANCE.md) · [反馈问题](https://github.com/2722039978-source/Noosphere/issues)
+[下载稳定版](https://github.com/2722039978-source/Noosphere/releases/latest) · [模型使用指南](MODEL_GUIDE.md) · [更新记录](CHANGELOG.md) · [发行验收](CROSS_PLATFORM_ACCEPTANCE.md) · [反馈问题](https://github.com/2722039978-source/Noosphere/issues)
 
 ## 用 Noosphere 做什么
 
@@ -34,6 +34,10 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 4. 直接提问，或点击回形针添加附件。先从「这个项目的入口在哪里」或「总结这份文档的要求」开始。
 
 1.0 正式发行面向 Windows x64 和 Linux x64。Linux 包在 Ubuntu 22.04 桌面环境验收。AppImage 普通启动需要 FUSE 和系统图形运行库，缺少 FUSE 时可用 `./Noosphere-1.0.0-linux-x64.AppImage --appimage-extract-and-run`。 [发行与验收状态](CROSS_PLATFORM_ACCEPTANCE.md)
+
+### 开放式本地模型库（开发版）
+
+在「模型」选择「导入 GGUF」或「扫描目录」。选中模型后可授权已有 llama-server，或在应用中安装适合当前平台的运行时。可在高级设置中关联视觉投影器并选择设备，然后启动、切换或停止服务。普通对话支持向已确认视觉能力的模型发送 JPEG、PNG 图像。以上功能随本分支开发，稳定版下载对应上方的已发布版本。 [模型、运行时与兼容说明](MODEL_GUIDE.md)
 
 ## 更多工具
 
@@ -69,7 +73,7 @@ noosphere-backend -config "<原应用数据目录>/config.yaml" -backup-data
 noosphere-backend -restore-data-from "<快照目录>" -restore-data-to "<尚不存在的新目录>"
 ```
 
-快照保存配置、SQLite 及其伴随文件、附件原件和任务库。恢复先核对清单与 SHA-256，再写入新目录。可用 `NOOSPHERE_DATA_DIR` 指定恢复目录并核对数据。需要回到 v0.9.0 时使用升级前快照与对应的 WebView 资料或会话 JSON。API 凭证由 Windows Credential Manager 或 Linux Secret Service 管理。需要跨机重新授权时，可从保留的模型连接记录继续配置。
+开发版快照同时包含本地模型注册表，权重、投影器和推理运行时需要单独保留。快照保存配置、SQLite 及其伴随文件、附件原件和任务库。恢复先核对清单与 SHA-256，再写入新目录。可用 `NOOSPHERE_DATA_DIR` 指定恢复目录并核对数据。需要回到 v0.9.0 时使用升级前快照与对应的 WebView 资料或会话 JSON。API 凭证由 Windows Credential Manager 或 Linux Secret Service 管理。需要跨机重新授权时，可从保留的模型连接记录继续配置。
 
 ## 开发和构建
 

@@ -17,7 +17,7 @@ import { chatCapabilityBlocker, selectedChatModel } from '@/lib/model-capabiliti
 import { generationLabel } from './chat-progress';
 import { api, errMessage, type ModelConfig } from '@/lib/api';
 import { engineIdentity, useEnginePreferences, useLocalEngines } from '@/features/gateway/local-engine';
-import { isLocalModel, localEngineForModel, localEngineName, localModelChoices, modelConnectionKey, needsModelSetup, portableConflict, type LocalModelChoice, type ModelTarget } from '@/features/gateway/local-model-match';
+import { isLocalModel, localEngineForModel, localEngineName, localModelChoices, modelConnectionKey, modelIsOnline, needsModelSetup, portableConflict, type LocalModelChoice, type ModelTarget } from '@/features/gateway/local-model-match';
 import { ConversationMemory, memoryRevisionInstruction, type MemoryRevisionRequest } from './ConversationMemory';
 import './chat-layout.css';
 
@@ -106,14 +106,15 @@ function ChatConversation({ taskDraft }: { taskDraft: boolean }) {
   const generatingMessage = streaming ? session?.messages.find(message => message.id === generation.messageId) : undefined;
   const otherGeneration = !!generation && !streaming;
   const localStarting = localOperation?.key === identity && localOperation.busy || engine?.state === 'starting';
-  const localOffline = !!engine && engine.state !== 'online';
+  const localChoice = effectiveModel && modelChoices.find(choice => choice.key === modelConnectionKey(effectiveModel));
+  const localOffline = !!engine && !modelIsOnline(localChoice);
   useEffect(() => {
     if (!identity) { localAttempt.current = ''; return; }
     if (!ready || !workspaceReady || !session || restoredSession !== session.id || effectiveModel?.enabled === false || !engine || !(engine.can_start ?? engine.installed) || !permission || setup || generation || competingEngine || localAttempt.current === identity) return;
     localAttempt.current = identity;
     if (engine.state !== 'stopped') return;
     setLocalOperation({ key: identity, busy: true, error: '' });
-    void operate(engine, 'start').then(next => {
+    void operate(engine, 'start', effectiveModel?.model_name).then(next => {
       setLocalOperation({ key: identity, busy: false, error: next.state === 'online' ? '' : next.error || '本地服务未能启动。' });
     }, error => setLocalOperation({ key: identity, busy: false, error: errMessage(error) }));
   }, [engine, identity, permission, setup, generation, operate, ready, workspaceReady, session?.id, restoredSession, effectiveModel?.enabled, competingEngine]);

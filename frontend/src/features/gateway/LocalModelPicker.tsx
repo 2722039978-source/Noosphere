@@ -35,7 +35,7 @@ export function LocalModelPicker({ choices, current, disabled, label, className,
       <SelectGroup>
         {choices.map(choice => {
           const status = modelChoiceStatus(choice);
-          const showStatus = ['未启动', '启动中', '未找到引擎', '暂不可用', '已停用'].includes(status);
+          const showStatus = ['未启动', '需重启', '启动中', '未找到引擎', '暂不可用', '已停用'].includes(status);
           const detail = isLocalModel(choice.target) ? (showStatus ? status : '') : (showStatus ? 'API · ' + status : 'API');
           return <SelectItem key={choice.key} value={choice.key} disabled={choice.config?.enabled === false} className="whitespace-normal">
             {choice.name}

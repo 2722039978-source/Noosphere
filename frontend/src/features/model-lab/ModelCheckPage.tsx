@@ -11,7 +11,7 @@ import { chatCapabilityBlocker } from '@/lib/model-capabilities';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { LocalModelPicker } from '@/features/gateway/LocalModelPicker';
 import { useLocalEngines } from '@/features/gateway/local-engine';
-import { isLocalModel, localEngineForModel, localModelChoices, needsModelSetup, type ModelTarget } from '@/features/gateway/local-model-match';
+import { isLocalModel, localEngineForModel, localModelChoices, modelConnectionKey, modelIsOnline, needsModelSetup, type ModelTarget } from '@/features/gateway/local-model-match';
 import './model-check.css';
 
 const ConnectionWizard = lazy(() => import('@/features/gateway/ModelConnectionWizard').then(module => ({ default: module.ModelConnectionWizard })));
@@ -59,7 +59,7 @@ export function ModelCheckPage() {
   const choices = localModelChoices(available, engines, choice);
   const model = choice ? available.find(item => item.id === choice) : choices.length === 1 ? choices[0].config : undefined;
   const engine = localEngineForModel(engines, model);
-  const modelStopped = !!engine && engine.state !== 'online';
+  const modelStopped = !!engine && !modelIsOnline(choices.find(item => model && item.key === modelConnectionKey(model)));
   const identity = model ? [model.id, model.provider, model.base_url, model.model_name].join('|') : '';
   const currentTurns = turns.filter(turn => turn.identity === identity);
   const [runner] = useState(() => createStreamRunner({

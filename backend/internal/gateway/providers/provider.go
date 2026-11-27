@@ -8,15 +8,17 @@ import (
 
 // Message represents a chat message.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string   `json:"role"`
+	Content   string   `json:"content"`
+	ImageURLs []string `json:"-"`
 }
 
 // ChatOptions configures a chat completion request.
 type ChatOptions struct {
-	Temperature  float64
-	MaxTokens    int
-	SystemPrompt string
+	Temperature         float64
+	ExplicitTemperature bool
+	MaxTokens           int
+	SystemPrompt        string
 
 	// MaxTokensField selects the request key for the output budget. Accepted
 	// values are "max_tokens" and "max_completion_tokens"; an empty value lets
@@ -24,7 +26,10 @@ type ChatOptions struct {
 	MaxTokensField string
 	// OmitTemperature drops the temperature field entirely. Reasoning-style
 	// models reject any explicit value, and some providers reject the key.
-	OmitTemperature bool
+	TemperatureSupportDeclared bool
+	OmitTemperature            bool
+	TopP                       *float64
+	Reasoning                  *bool
 	// ToolTransport selects the structured-tool endpoint: "chat" (default,
 	// /chat/completions) or "responses" (/v1/responses).
 	ToolTransport string

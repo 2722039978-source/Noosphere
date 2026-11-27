@@ -113,7 +113,7 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
-	messages, attachments, err := g.resolveChatAttachments(ctx, body.WorkspaceID, body.SessionID, body.AttachmentTurn, body.Messages)
+	messages, attachments, err := g.resolveChatAttachments(ctx, model, body.WorkspaceID, body.SessionID, body.AttachmentTurn, body.Messages)
 	if err != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, err.Error()))
 		return
@@ -180,10 +180,7 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 		errors.WriteHTTP(w, r, errors.Wrap(err, errors.ErrInternal, errors.CatGateway, "provider init failed"))
 		return
 	}
-	pMsgs := make([]providers.Message, len(messages))
-	for i, m := range messages {
-		pMsgs[i] = providers.Message{Role: m["role"], Content: m["content"]}
-	}
+	pMsgs := modelMessages(messages, attachments.ImageURLs)
 	temp, maxT := body.Temperature, body.MaxTokens
 	if temp == 0 {
 		temp = 0.1
@@ -199,10 +196,20 @@ func (g *Gateway) HandleChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	finishInference := g.countInference(false)
 	streamCtx, stopStream := context.WithCancel(ctx)
-	ch, err := provider.ChatStream(streamCtx, model.ModelName, pMsgs, providers.ChatOptions{
-		SystemPrompt: body.SystemPrompt, Temperature: temp, MaxTokens: maxT,
-		MaxTokensField: model.MaxTokensKey(), OmitTemperature: !model.TemperatureEnabled(),
-	})
+	opts := model.chatOptions(temp, maxT, body.SystemPrompt)
+	var ch <-chan providers.StreamChunk
+	if model.ProtocolOptions.Streaming != nil && !*model.ProtocolOptions.Streaming {
+		var reply *providers.ChatResponse
+		reply, err = provider.Chat(streamCtx, model.ModelName, pMsgs, opts)
+		if err == nil {
+			result := make(chan providers.StreamChunk, 1)
+			result <- providers.StreamChunk{Done: true, Content: reply.Content, TemperatureOmitted: reply.TemperatureOmitted}
+			close(result)
+			ch = result
+		}
+	} else {
+		ch, err = provider.ChatStream(streamCtx, model.ModelName, pMsgs, opts)
+	}
 	if err != nil {
 		stopStream()
 		finishInference()

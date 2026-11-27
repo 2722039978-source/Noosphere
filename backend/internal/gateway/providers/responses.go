@@ -36,15 +36,18 @@ func (p *OpenAIProvider) chatToolsResponses(ctx context.Context, model string, m
 		if p.openAIEndpoint {
 			body["store"] = false
 		}
-		if !o.OmitTemperature && o.Temperature != 0 {
+		if o.TopP != nil {
+			body["top_p"] = *o.TopP
+		}
+		if !o.OmitTemperature && (o.Temperature != 0 || o.ExplicitTemperature) {
 			body["temperature"] = o.Temperature
 		}
-		if p.directResponse {
+		if p.directResponse && o.Reasoning == nil {
 			body["thinking"] = map[string]string{"type": "disabled"}
 		}
 		return body
 	}
-	resp, err := p.postChat(ctx, "/responses", build, opts, 256*1024)
+	resp, err := p.postChat(ctx, "/responses", build, opts, 256*1024, false)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {

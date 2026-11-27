@@ -7,8 +7,8 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
 };
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows_sys::Win32::System::Threading::{
-    CreateMutexW, GetProcessTimes, OpenProcess, ReleaseMutex,
-    WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+    CreateMutexW, GetProcessTimes, OpenProcess, ReleaseMutex, WaitForSingleObject,
+    PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,10 +107,19 @@ pub(super) struct PortableLock(OwnedHandle);
 impl PortableLock {
     pub(super) fn acquire() -> Result<Self, String> {
         // Coordinate with the already deployed DeepSeek and Qwen scripts.
-        let name: Vec<u16> = r"Global\NoosphereLocalModels-18787-18788-Control-v1"
-            .encode_utf16()
-            .chain([0])
-            .collect();
+        let name = r"Global\NoosphereLocalModels-18787-18788-Control-v1";
+        #[cfg(test)]
+        let name = super::lifecycle_tests::PORTS
+            .get()
+            .map(|ports| {
+                format!(
+                    "Local\\NoosphereModelTest-{}-{}",
+                    std::process::id(),
+                    ports[0]
+                )
+            })
+            .unwrap_or_else(|| name.to_owned());
+        let name: Vec<u16> = name.encode_utf16().chain([0]).collect();
         let handle = unsafe { CreateMutexW(null(), 0, name.as_ptr()) };
         if handle.is_null() {
             return Err("无法创建本地模型的启动协调锁。".to_string());
@@ -136,4 +145,21 @@ pub(super) fn low_available_memory() -> bool {
         ..Default::default()
     };
     unsafe { GlobalMemoryStatusEx(&mut memory) != 0 && memory.ullAvailPhys < 512 * 1024 * 1024 }
+}
+
+pub(super) fn confirm_runtime(executable: &std::path::Path, digest: &str) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_YESNO,
+    };
+    let title: Vec<u16> = "Noosphere · 运行时授权".encode_utf16().chain([0]).collect();
+    let message: Vec<u16> = format!("允许 Noosphere 执行下列运行时及其本地依赖吗？\n\n{}\nSHA-256: {}\n\n请确认你信任该目录和程序来源。", executable.display(), digest)
+        .encode_utf16().chain([0]).collect();
+    unsafe {
+        MessageBoxW(
+            null_mut(),
+            message.as_ptr(),
+            title.as_ptr(),
+            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2,
+        ) == IDYES
+    }
 }

@@ -36,13 +36,14 @@ libc = "0.2"
 tauri-plugin-dialog = "2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_Security"] }
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_Networking_WinHttp", "Win32_UI_WindowsAndMessaging", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_Security"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["net", "io-util"] }
 
 [features]
+live-runtime-install = []
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 

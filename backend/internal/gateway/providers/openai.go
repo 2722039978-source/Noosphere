@@ -20,18 +20,20 @@ func init() {
 	Register("deepseek", func(baseURL, apiKey string) (LLMProvider, error) {
 		provider, err := NewOpenAI(baseURL, apiKey)
 		if err == nil {
-			provider.(*OpenAIProvider).directResponse = true
+			endpoint, _ := url.Parse(baseURL)
+			provider.(*OpenAIProvider).directResponse = endpoint != nil && strings.EqualFold(endpoint.Hostname(), "api.deepseek.com")
 		}
 		return provider, err
 	})
 }
 
 type OpenAIProvider struct {
-	baseURL        string
-	apiKey         string
-	client         *http.Client
-	directResponse bool
-	openAIEndpoint bool
+	baseURL          string
+	apiKey           string
+	client           *http.Client
+	libraryDirectory string
+	directResponse   bool
+	openAIEndpoint   bool
 }
 
 func NewOpenAI(baseURL, apiKey string) (LLMProvider, error) {
@@ -74,12 +76,15 @@ func (p *OpenAIProvider) applyChatOptions(body map[string]interface{}, model str
 	if field == "" {
 		if p.openAIEndpoint && isReasoningModel(model) {
 			field = "max_completion_tokens"
-			omitTemperature = true
+			omitTemperature = omitTemperature || !opts.TemperatureSupportDeclared
 		} else {
 			field = "max_tokens"
 		}
 	}
 	body[field] = maxTokens
+	if opts.TopP != nil {
+		body["top_p"] = *opts.TopP
+	}
 	if omitTemperature {
 		return
 	}
@@ -127,6 +132,10 @@ func adjustChatOptions(detail string, opts ChatOptions) (ChatOptions, bool) {
 		adjusted.OmitTemperature = true
 		changed = true
 	}
+	if opts.TopP != nil && strings.Contains(lower, "top_p") && (strings.Contains(lower, "unsupported") || strings.Contains(lower, "not supported")) {
+		adjusted.TopP = nil
+		changed = true
+	}
 	return adjusted, changed
 }
 
@@ -138,7 +147,7 @@ type acceptedChatResponse struct {
 // postChat applies bounded parameter adjustments when an upstream reports a
 // rejected field. The caller owns the response body. A nonpositive maxBody
 // disables the request body size check.
-func (p *OpenAIProvider) postChat(ctx context.Context, path string, build func(ChatOptions) map[string]interface{}, opts ChatOptions, maxBody int) (*acceptedChatResponse, error) {
+func (p *OpenAIProvider) postChat(ctx context.Context, path string, build func(ChatOptions) map[string]interface{}, opts ChatOptions, maxBody int, needsVision bool) (*acceptedChatResponse, error) {
 	attempts := 0
 	networkRetries := 0
 	for {
@@ -158,7 +167,8 @@ func (p *OpenAIProvider) postChat(ctx context.Context, path string, build func(C
 		if p.apiKey != "" {
 			req.Header.Set("Authorization", "Bearer "+p.apiKey)
 		}
-		resp, err := sendChatRequest(p.client, req)
+		model, _ := body["model"].(string)
+		resp, err := sendChatRequest(p.completionClient(model, needsVision), req)
 		if err != nil {
 			// A dropped connection is common on public relays and the request is
 			// a read-only completion, so one retry is safe.
@@ -174,7 +184,7 @@ func (p *OpenAIProvider) postChat(ctx context.Context, path string, build func(C
 		}
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		resp.Body.Close()
-		if attempts < maxAdjustmentAttempts {
+		if (resp.StatusCode == 400 || resp.StatusCode == 422) && attempts < maxAdjustmentAttempts {
 			if adjusted, ok := adjustChatOptions(string(detail), opts); ok {
 				opts = adjusted
 				attempts++
@@ -192,17 +202,39 @@ func truncateDetail(message string) string {
 	return message
 }
 
-func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Message, opts ChatOptions) (*ChatResponse, error) {
-	msgs := make([]map[string]string, 0)
-	if opts.SystemPrompt != "" {
-		msgs = append(msgs, map[string]string{"role": "system", "content": opts.SystemPrompt})
+func containsImage(messages []Message) bool {
+	for _, m := range messages {
+		if len(m.ImageURLs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func completionMessages(messages []Message, system string) []map[string]any {
+	out := make([]map[string]any, 0, len(messages)+1)
+	if system != "" {
+		out = append(out, map[string]any{"role": "system", "content": system})
 	}
 	for _, m := range messages {
-		msgs = append(msgs, map[string]string{"role": m.Role, "content": m.Content})
+		var content any = m.Content
+		if len(m.ImageURLs) > 0 {
+			parts := make([]map[string]any, 0, len(m.ImageURLs)+1)
+			for _, url := range m.ImageURLs {
+				parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]string{"url": url}})
+			}
+			content = append(parts, map[string]any{"type": "text", "text": m.Content})
+		}
+		out = append(out, map[string]any{"role": m.Role, "content": content})
 	}
+	return out
+}
+
+func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Message, opts ChatOptions) (*ChatResponse, error) {
+	msgs := completionMessages(messages, opts.SystemPrompt)
 
 	temp := opts.Temperature
-	if temp == 0 {
+	if temp == 0 && !opts.ExplicitTemperature {
 		temp = 0.1
 	}
 	maxT := opts.MaxTokens
@@ -216,12 +248,12 @@ func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Mess
 			"stream": false,
 		}
 		p.applyChatOptions(body, model, temp, maxT, o)
-		if p.directResponse {
+		if p.directResponse && o.Reasoning == nil {
 			body["thinking"] = map[string]string{"type": "disabled"}
 		}
 		return body
 	}
-	resp, err := p.postChat(ctx, "/chat/completions", build, opts, 0)
+	resp, err := p.postChat(ctx, "/chat/completions", build, opts, 0, containsImage(messages))
 	if err != nil {
 		return nil, err
 	}
@@ -262,16 +294,10 @@ func (p *OpenAIProvider) Chat(ctx context.Context, model string, messages []Mess
 }
 
 func (p *OpenAIProvider) ChatStream(ctx context.Context, model string, messages []Message, opts ChatOptions) (<-chan StreamChunk, error) {
-	msgs := make([]map[string]string, 0)
-	if opts.SystemPrompt != "" {
-		msgs = append(msgs, map[string]string{"role": "system", "content": opts.SystemPrompt})
-	}
-	for _, m := range messages {
-		msgs = append(msgs, map[string]string{"role": m.Role, "content": m.Content})
-	}
+	msgs := completionMessages(messages, opts.SystemPrompt)
 
 	temp := opts.Temperature
-	if temp == 0 {
+	if temp == 0 && !opts.ExplicitTemperature {
 		temp = 0.1
 	}
 	maxT := opts.MaxTokens
@@ -285,12 +311,12 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, model string, messages 
 			"stream": true,
 		}
 		p.applyChatOptions(body, model, temp, maxT, o)
-		if p.directResponse {
+		if p.directResponse && o.Reasoning == nil {
 			body["thinking"] = map[string]string{"type": "disabled"}
 		}
 		return body
 	}
-	resp, err := p.postChat(ctx, "/chat/completions", build, opts, 0)
+	resp, err := p.postChat(ctx, "/chat/completions", build, opts, 0, containsImage(messages))
 	if err != nil {
 		return nil, err
 	}

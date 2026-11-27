@@ -1,5 +1,17 @@
 # 桌面发行验收
 
+## 开放模型库开发分支
+
+PR #16 的 Windows x64 作业在等待 WebView2 CDP 时耗尽 45 秒，日志显示后端启动约耗时 54 秒。该结果说明 CDP 截止时间可能早于应用初始化完成。开发分支让 WebView2 分配调试端口，从独立用户资料目录读取端口，并核对本机 WebSocket 地址、监测进程提前退出、记录耗时。启动探测有 120 秒上限，后续打包应用页面和 IPC 断言继续执行。 [Windows 原始作业](https://github.com/2722039978-source/Noosphere/actions/runs/45861263617/job/140052595162)
+
+三个 Unix 作业在本地引擎测试的 CustomLlama 平台支持断言处失败。开放模型库在这三个目标使用系统文件选择器、对应架构的运行时与 Unix 子进程管理。固定官方便携包的目标范围仍为 Windows x64。运行时是否安装、模型是否可加载及是否有可用加速设备需要分别验证。 [Linux x64](https://github.com/2722039978-source/Noosphere/actions/runs/45861263617/job/140052595018) · [macOS x64](https://github.com/2722039978-source/Noosphere/actions/runs/45861263617/job/140052594386) · [macOS ARM64](https://github.com/2722039978-source/Noosphere/actions/runs/45861263617/job/140052594974)
+
+桌面交付矩阵包含 Windows x64、Linux x64、macOS x64 和 macOS ARM64。前端浏览器检查使用模拟 IPC 验证批量导入、运行时授权、精确模型切换、流式对话、附件能力限制及移除记录。真实驱动、量化、内存压力和模型精度需用对应宿主与实际权重验证。下表为已发布 v1.0.0 的历史证据。 [交付工作流](.github/workflows/ci.yml) · [模型兼容说明](MODEL_GUIDE.md)
+
+### Windows 本机实测
+
+在 Intel Arc A580（运行时报告 8098 MiB）上，使用固定版本 b12815 和 SmolLM2-135M-Instruct Q4_K_M 分别测试了 Vulkan 与 SYCL。两次成功运行均报告 31/31 层卸载，返回实际生成内容及流式结束标记，停止后释放监听端口。SYCL 首次冷启动在预热阶段超过测试的 120 秒等待时间，重试成功。CPU 另经桌面原生导入、按需安装、端口归属校验和 Go 网关流式对话验证。SmolVLM-256M Q8_0 搭配单独登记的官方 Q8_0 投影器，通过桌面附件上传 128×128 红色 PNG 后，流式回复为 “Red.”。不同驱动、模型和加速设备仍需分别验证。
+
 ## 1.0 实施与验收
 
 `v1.0.0` 的正式发行目标为 Windows x64 和 Linux x64。下表记录实际分发文件的原生验收。 [正式发行](https://github.com/2722039978-source/Noosphere/releases/tag/v1.0.0)

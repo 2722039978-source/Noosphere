@@ -11,6 +11,9 @@ func (g *Gateway) ToolCapability(model *ModelConfig) error {
 	if model == nil {
 		return fmt.Errorf("model unavailable")
 	}
+	if model.toolsDisabled() {
+		return fmt.Errorf("此模型连接已关闭工具调用，可使用普通对话或修改模型能力设置")
+	}
 	if !toolProviderAllowed(model.Provider) {
 		return fmt.Errorf("模型提供方 %s 尚未接入结构化工具协议，请选择 DeepSeek 或 OpenAI 兼容模型", model.Provider)
 	}
@@ -48,13 +51,7 @@ func (g *Gateway) ChatTools(ctx context.Context, model *ModelConfig, workspaceID
 	}
 	start := time.Now()
 	finishInference := g.countInference(false)
-	result, err := provider.(providers.ToolProvider).ChatTools(ctx, model.ModelName, messages, tools, providers.ChatOptions{
-		MaxTokens:       2048,
-		Temperature:     model.Temperature,
-		MaxTokensField:  model.MaxTokensKey(),
-		OmitTemperature: !model.TemperatureEnabled(),
-		ToolTransport:   model.ToolTransport,
-	})
+	result, err := provider.(providers.ToolProvider).ChatTools(ctx, model.ModelName, messages, tools, model.chatOptions(0, 2048, ""))
 	finishInference()
 	entry := CallLog{ID: fmt.Sprintf("tool-%d", time.Now().UnixNano()), ModelID: model.ID, Provider: model.Provider, Project: workspaceID, RequestPreview: "Agent structured tool turn", Status: streamLogStatus(err), LatencyMs: float64(time.Since(start).Milliseconds()), Timestamp: time.Now().UTC().Format(time.RFC3339)}
 	if result != nil {

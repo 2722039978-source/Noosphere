@@ -35,3 +35,20 @@ export function chatCapabilityBlocker(model: ModelConfig | undefined, agentMode:
   const cap = capabilityFor(model, agentMode ? 'agent_tools' : 'chat');
   return cap && !cap.available ? cap.reason : '';
 }
+
+export function modelFeature(model: ModelConfig | undefined, key: 'vision' | 'tools' | 'reasoning' | 'streaming' | 'structured_output') {
+  if (key === 'vision' && model?.metadata?.source === 'llama.cpp' && model.model_name.startsWith('gguf-') && model.metadata.features?.vision === 'unsupported') {
+    return { supported: false, source: '运行中的 llama.cpp' };
+  }
+  const override = model?.protocol_options?.[key];
+  if (override != null) return { supported: override, source: '连接配置' };
+  const reported = key === 'vision' || key === 'tools' || key === 'reasoning' ? model?.metadata?.features?.[key] : undefined;
+  return { supported: reported == null ? undefined : reported === 'supported', source: reported ? '服务端声明' : '尚无声明' };
+}
+
+export function imageInputBlocker(model: ModelConfig | undefined, agentMode: boolean) {
+  if (agentMode) return '图像输入仅支持普通对话。';
+  if (!model || !['openai', 'openai_compatible', 'ollama'].includes(model.provider)) return '当前网关协议尚未接入图像输入，请更换模型或移除图像。';
+  if (modelFeature(model, 'vision').supported !== true) return '当前模型尚未确认支持图像，请更换模型、检查视觉配置或移除图像。';
+  return '';
+}

@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { ModelForm } from '@/features/gateway/ModelForm';
 import { useLocalEngines } from '@/features/gateway/local-engine';
-import { localEngineForModel } from '@/features/gateway/local-model-match';
+import { localEngineForModel, localModelChoices, modelConnectionKey, modelIsOnline, modelChoiceStatus } from '@/features/gateway/local-model-match';
 import { ConnectionDiagnostics } from '@/features/gateway/ConnectionDiagnostics';
 import { ModelCapabilities } from '@/components/ModelCapabilities';
 import { capabilityFor } from '@/lib/model-capabilities';
@@ -68,6 +68,11 @@ export function ModelHubPage() {
   const identity = model ? resolveModelIdentity(model) : null;
   const status = model ? modelStatus(model, checks[model.id],Boolean(sessionBusy && currentSession?.modelId === model.id)) : null;
   const visible = useMemo(() => filterHubModels(configs, filter, query, sort), [configs, filter, query, sort]);
+  const localChoices = useMemo(() => localModelChoices(configs, engines), [configs, engines]);
+  const discovered = localChoices.filter(item => !item.config);
+  const discoveredVisible = filter === 'api' ? [] : discovered.filter(item =>
+    [item.name, item.target.model_name, item.target.provider].join(' ').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    .sort((a, b) => (sort === 'provider' ? a.target.provider.localeCompare(b.target.provider) : 0) || a.name.localeCompare(b.name));
   const hardware = readHardware(environment?.hardware);
   const primaryGPU = hardware?.gpus.find(gpu => gpu.total_vram_bytes) ?? hardware?.gpus[0];
   const epoch = useRef(0);
@@ -91,7 +96,7 @@ export function ModelHubPage() {
   const useModel = async (item: ModelConfig) => {
     if (busy || selectionPending || item.enabled === false || sessionBusy || !chatReady) return;
     const engine = localEngineForModel(engines, item);
-    if (engine && engine.state !== 'online') {
+    if (engine && !modelIsOnline(localChoices.find(choice => choice.key === modelConnectionKey(item)))) {
       navigate(modelChatDestination(item));
       return;
     }
@@ -143,7 +148,7 @@ export function ModelHubPage() {
     setRevisions(old => [...old, ...result.models.filter(item => !old.some(existing => existing.id === item.id))]);
     setRevisionCursor(result.next_cursor);
   };
-  const counts = { all: configs.length, local: configs.filter(m => modelDeployment(m) === 'local').length, api: configs.filter(m => modelDeployment(m) === 'api').length };
+  const counts = { all: configs.length + discovered.length, local: configs.filter(m => modelDeployment(m) === 'local').length + discovered.length, api: configs.filter(m => modelDeployment(m) === 'api').length };
   const localModel = configs.find(item => canDiscoverModel(item) && modelDeployment(item) === 'local');
   const localRevision = localModel && matchingRevision(localModel, revisions);
   const formTicket=formGeneration.current, editedID=detailModel?.id;
@@ -179,7 +184,13 @@ export function ModelHubPage() {
       {modelsError && <p className="ns-hub-inline-error" role="alert">模型连接读取失败：{modelsError} <button onClick={() => void loadModels()}>重试</button></p>}
       <div className={`ns-hub-models is-${view}`}>{view === 'list' && <div className="ns-hub-table-head"><span>模型名称 / 别名</span><span>类型</span><span>部署方式</span><span>来源 / 地址</span><span>参数 / 量化</span><span>状态</span><span>操作</span></div>}
         {visible.map(item => <HubModelRow key={item.id} model={item} revision={matchingRevision(item, revisions)} defaultLabel={item.id === workspaceDefault ? "工作区默认" : item.is_default ? "全局默认" : ""} selected={currentSession?.modelId === item.id} disabled={busy || !!selectionPending || !!sessionBusy || !chatReady} running={Boolean(sessionBusy && currentSession?.modelId===item.id)} check={checks[item.id]} onUse={() => void useModel(item)} onDetails={trigger => openDetails(item,false,trigger)} onEdit={trigger => openDetails(item,true,trigger)} onTest={() => void testConnection(item)} onDefault={scope => void setDefault(item,scope)} onDelete={trigger => {returnFocus.current=trigger;deleteGeneration.current++;setDeleting(item);}} />)}
-        {!visible.length && <div className="ns-hub-empty" role="status">{!modelsReady ? '正在读取 Gateway 模型连接…' : configs.length ? '没有符合筛选条件的模型。' : '尚未配置模型连接。添加模型后即可在这里选择并开始对话。'}{configs.length > 0 && <button onClick={() => { setFilter('all'); setQuery(''); }}>清除筛选</button>}</div>}
+        {discoveredVisible.map(item => <article key={item.key} className="ns-hub-model-row">
+          <span className="ns-hub-model-name"><span className="ns-hub-model-icon"><Monitor /></span><span><strong>{item.name}</strong><small>{item.target.model_name}</small></span></span>
+          <span>{item.engine?.name}</span><span className="ns-hub-deployment" data-local="true">本地</span>
+          <span className="ns-hub-endpoint">{item.target.provider}</span><span>—</span><span>{modelChoiceStatus(item)}</span>
+          <span className="ns-hub-row-actions"><Link to={'/model-hub?target=' + encodeURIComponent(item.key)}>设置并使用</Link></span>
+        </article>)}
+        {!visible.length && !discoveredVisible.length && <div className="ns-hub-empty" role="status">{!modelsReady ? '正在读取 Gateway 模型连接…' : configs.length ? '没有符合筛选条件的模型。' : '尚未配置模型连接。添加模型后即可在这里选择并开始对话。'}{configs.length > 0 && <button onClick={() => { setFilter('all'); setQuery(''); }}>清除筛选</button>}</div>}
       </div>
     </section>
     {localModel && <details className="ns-record-detail mt-3"><summary>本地版本与测评</summary><div className="ns-detail-body flex flex-wrap gap-2"><Button variant="outline" onClick={event => openDetails(localModel, false, event.currentTarget)}>{localRevision ? '核对已注册版本' : '注册本地版本'}</Button>{localRevision && <Button asChild variant="outline"><Link to={`/model-lab?model=${encodeURIComponent(localRevision.id)}`}>开始首次测评</Link></Button>}</div></details>}

@@ -73,7 +73,11 @@ func (p *OpenVINOProvider) Chat(ctx context.Context, model string, messages []Me
 		max = int(limit)
 	}
 	think := false
-	body := map[string]any{"model": model, "messages": messages, "options": EvaluationOptions{Temperature: &opts.Temperature, MaxOutputTokens: &max, Think: &think}}
+	options := EvaluationOptions{MaxOutputTokens: &max, Think: &think, TopP: opts.TopP}
+	if !opts.OmitTemperature {
+		options.Temperature = &opts.Temperature
+	}
+	body := map[string]any{"model": model, "messages": messages, "options": options}
 	result, _, err := (&OllamaProvider{p.OpenAIProvider}).nativeJSONPath(ctx, c, origin, "/noosphere/openvino/evaluate", body)
 	if err != nil {
 		return nil, err
@@ -85,7 +89,7 @@ func (p *OpenVINOProvider) Chat(ctx context.Context, model string, messages []Me
 	if out.Output == "" {
 		return nil, evaluationError("INVALID_OUTPUT", "OpenVINO returned no final answer")
 	}
-	response := &ChatResponse{Content: p.redact(out.Output)}
+	response := &ChatResponse{Content: p.redact(out.Output), TemperatureOmitted: opts.OmitTemperature}
 	if out.PromptEvalCount != nil {
 		response.TokensIn = int(*out.PromptEvalCount)
 	}
@@ -106,6 +110,7 @@ func (p *OpenVINOProvider) ChatStream(ctx context.Context, model string, message
 			v.Error = err
 		} else {
 			v.Content = r.Content
+			v.TemperatureOmitted = r.TemperatureOmitted
 		}
 		select {
 		case ch <- v:

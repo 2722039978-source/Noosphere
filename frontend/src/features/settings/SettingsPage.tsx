@@ -4,6 +4,8 @@ import { useBackend } from "@/hooks/useBackend";
 import { Button } from "@/components/ui/button";
 import { Surface } from "@/components/ui/surface";
 import { PageHeader } from "@/components/ui/page-header";
+import { selectedChatModel } from '@/lib/model-capabilities';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useThemeStore } from "@/stores/theme-store";
 import { ChatBackupPanel } from './ChatBackupPanel';
 import { ExperienceSettings } from './ExperienceSettings';
@@ -13,6 +15,11 @@ import { version } from '../../../package.json';
 
 export function SettingsPage() {
   const backend = useBackend();
+  const workspaceModel = useWorkspaceStore(state => state.workspaces.find(item => item.id === state.activeId)?.default_model_id);
+  const defaultModel = selectedChatModel(backend.models, '', workspaceModel);
+  const modelLabel = backend.modelsError || (!backend.modelsReady ? '正在读取模型…'
+    : defaultModel ? (defaultModel.name || defaultModel.model_name) + (defaultModel.enabled === false ? '（已停用）' : '')
+    : workspaceModel ? '工作区模型不可用' : '尚未连接模型');
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
   return (
@@ -28,6 +35,14 @@ export function SettingsPage() {
             {theme === "dark" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
             {theme === "dark" ? "切换浅色" : "切换深色"}
           </Button>
+        </Surface>
+        <Surface className="flex flex-wrap items-center gap-3 px-6 py-5">
+          <div className="min-w-0 flex-1 basis-48">
+            <h2 className="text-[15px] font-semibold text-text-1">模型连接</h2>
+            <p className="mt-1 text-[13px] text-text-3">新会话默认 · {modelLabel}</p>
+          </div>
+          <Button asChild size="sm" variant="outline"><Link to="/model-hub">本地模型</Link></Button>
+          <Button asChild size="sm" variant="outline"><Link to="/model-hub/config">管理连接</Link></Button>
         </Surface>
         <ExperienceSettings />
         <ChatBackupPanel />

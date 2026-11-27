@@ -22,3 +22,9 @@
 .ns-local-model-main header { margin-bottom: 18px; }
 .ns-local-model-main h1 { font-size: clamp(24px, 3vw, 34px); font-weight: 650; line-height: 1.28; letter-spacing: -.035em; }
 .ns-local-model-main header p { margin-top: 7px; color: var(--text-2); font-size: 13px; }
+
+.ns-library-runtime { display: grid; justify-items: start; gap: .5rem; }
+.ns-library-runtime > div { width: 100%; }
+.ns-runtime-row { padding: 10px 12px; background: var(--bg-raised); border: 1px solid var(--border-soft); border-radius: 9px; font-size: 12px; overflow-wrap: anywhere; }
+.ns-runtime-row { display: flex; gap: .75rem; align-items: center; justify-content: space-between; }
+.ns-runtime-row p { color: var(--text-2); }

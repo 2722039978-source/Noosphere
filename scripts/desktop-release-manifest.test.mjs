@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { debianPackageVersion, verifyReleaseRef } from './desktop-release-manifest.mjs';
+import { aggregate, deliveryPlan, debianPackageVersion, verifyReleaseRef } from './desktop-release-manifest.mjs';
+import { checksums, manifest, packageNames, run, version } from './desktop-platform.mjs';
 import { createMacDiskImage, macBundleVersions, notarizeMacArtifact } from './desktop-macos.mjs';
 
 test('a matching RC tag can build preview packages only', () => {
@@ -137,4 +138,65 @@ test('failed or rejected notarization retains the same submission ID and suppres
     assert.ok(reports[0].includes(submissionID));
     assert.ok(reports.every(message => !message.includes('raw output')));
   }
+});
+
+test('dispatch selects native runners and reserves formal packaging for the complete platform set', () => {
+  const preview = deliveryPlan('windows-linux');
+  assert.deepEqual(preview.targets, ['windows-x64', 'linux-x64']);
+  assert.deepEqual(preview.matrix.include, [
+    { target: 'linux-x64', runner: 'ubuntu-22.04', arch: 'X64', os: 'Linux', abi: 'jammy-glibc235' },
+  ]);
+  const all = deliveryPlan();
+  assert.deepEqual(all.targets.toSorted(), ['linux-x64', 'macos-arm64', 'macos-x64', 'windows-x64']);
+  assert.deepEqual(all.matrix.include.map(row => row.target).toSorted(), ['linux-x64', 'macos-arm64', 'macos-x64']);
+  assert.deepEqual(deliveryPlan('all', true), all);
+  assert.throws(() => deliveryPlan('windows-linux', true), /Formal packaging requires all platforms/);
+  assert.throws(() => deliveryPlan('windows-only'), /Unknown/);
+});
+
+async function writeTarget(input, id) {
+  const target = manifest.targets[id];
+  const dir = join(input, 'noosphere-' + id);
+  await mkdir(dir, { recursive: true });
+  const source_revision = run('git', ['rev-parse', 'HEAD'], { capture: true });
+  const hash = '1'.repeat(64);
+  const info = { version, target: id, os: target.os, arch: target.arch, build_profile: 'release',
+    source_dirty: false, source_revision, source_fingerprint: hash, frontend_sha256: hash, desktop_sha256: hash,
+    backend_sha256: hash, runtime_revision: 2, codelens_runtime: true, rea_runtime: true };
+  const names = Object.values(packageNames(target));
+  for (const name of names) writeFileSync(join(dir, name), id + ': ' + name);
+  writeFileSync(join(dir, 'build-info.json'), JSON.stringify(info));
+  writeFileSync(join(dir, 'SHA256SUMS.txt'), await checksums(dir, [...names, 'build-info.json']));
+  return dir;
+}
+
+test('preview aggregation verifies exactly the requested target manifests and their original checksums', async t => {
+  const { stage } = await imageFixture(t);
+  const input = join(stage, 'verified'), output = join(stage, 'candidate');
+  const limited = ['--windows-linux-preview'];
+  const windows = await writeTarget(input, 'windows-x64');
+  await assert.rejects(aggregate([input, output, ...limited]), /Missing target manifests: linux-x64/);
+  await writeTarget(input, 'linux-x64');
+  await assert.rejects(aggregate([input, output]), /Missing target manifests:.*macos/);
+  await assert.rejects(aggregate([input, output, ...limited, '--formal-tag', 'v' + version]), /Usage:/);
+  await aggregate([input, output, ...limited]);
+  const info = JSON.parse(readFileSync(join(output, 'delivery-info.json'), 'utf8'));
+  assert.equal(info.mode, 'windows-linux-preview');
+  assert.deepEqual(Object.keys(info.targets).sort(), ['linux-x64', 'windows-x64']);
+  const names = (await readdir(output)).filter(name => name !== 'SHA256SUMS.txt');
+  const actual = readFileSync(join(output, 'SHA256SUMS.txt'), 'utf8').trim().split('\n').sort();
+  const expected = (await checksums(output, names)).trim().split('\n').sort();
+  assert.deepEqual(actual, expected);
+  const asset = Object.values(packageNames(manifest.targets['windows-x64']))[0];
+  writeFileSync(join(windows, asset), 'changed');
+  await assert.rejects(aggregate([input, join(stage, 'tampered'), ...limited]), /Asset hash mismatch/);
+  assert.equal(existsSync(join(stage, 'tampered')), false);
+  await writeTarget(input, 'windows-x64');
+  await writeTarget(input, 'macos-arm64');
+  await assert.rejects(aggregate([input, join(stage, 'extra'), ...limited]), /Unexpected or duplicate target/);
+  await writeTarget(input, 'macos-x64');
+  await aggregate([input, join(stage, 'full')]);
+  const full = JSON.parse(readFileSync(join(stage, 'full', 'delivery-info.json'), 'utf8'));
+  assert.equal(full.mode, 'preview');
+  assert.deepEqual(Object.keys(full.targets).sort(), Object.keys(manifest.targets).sort());
 });

@@ -122,7 +122,7 @@ function buildRust(target, env) {
 async function tests(target, env) {
   run('go', ['test', '-mod=readonly', '-p', '1', '-count=1', './...'], { cwd: backend, env });
   run('go', ['vet', '-mod=readonly', './...'], { cwd: backend, env });
-  run(cargo, ['test', '--locked', '--lib', '--target', target.rust_triple], { cwd: tauriRoot, env });
+  run(cargo, ['test', '--locked', '--lib', ...(process.env.NOOSPHERE_TEST_RUNTIME_INSTALL === '1' ? ['--features', 'live-runtime-install'] : []), '--target', target.rust_triple], { cwd: tauriRoot, env });
   await verifyRuntimes(target, tauriRoot, root, true);
   const suite = join(frontend, 'tests');
   if (await exists(suite)) {

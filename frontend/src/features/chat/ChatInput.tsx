@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AtSign, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ModelConfig } from "@/hooks/useBackend";
-import { agentCapability, chatCapabilityBlocker } from "@/lib/model-capabilities";
+import { agentCapability, chatCapabilityBlocker, imageInputBlocker } from "@/lib/model-capabilities";
 import { LocalModelPicker } from '@/features/gateway/LocalModelPicker';
 import { isLocalModel, type LocalModelChoice } from '@/features/gateway/local-model-match';
 import type { ChatAttachment, ContextCitation } from '@/lib/api';
@@ -63,7 +63,12 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const agentSupport = agentCapability(selectedModel);
-  const capabilityBlocked = chatCapabilityBlocker(selectedModel, agentMode);
+  const selectedFiles = reuse ? previousFiles.attachments ?? [] : attachmentDraft.files.map(entry => entry.file);
+  const hasImages = selectedFiles.some(file => /\.(png|jpe?g)$/i.test(file.name));
+  const liveChoice = hasImages && selectedModel ? modelChoices.find(item => item.config?.id === selectedModel.id) : undefined;
+  const visionWarning = hasImages && (imageInputBlocker(selectedModel, agentMode) ||
+    (liveChoice?.engine?.id === 'custom_llama' && liveChoice.model?.vision !== true ? '当前运行时尚未加载可用的视觉投影器。' : ''));
+  const capabilityBlocked = chatCapabilityBlocker(selectedModel, agentMode) || visionWarning;
   const capabilityReason = capabilityBlocked || (agentMode ? agentSupport.reason : '');
 
   useEffect(() => {
@@ -133,7 +138,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
             <button type="button" className="underline underline-offset-4" aria-pressed={!!reuse} onClick={() => setReuseMessageId(reuse ? undefined : previousFiles.id)}>
               {reuse ? '移除上次附件' : '使用上次附件'}
             </button>
-            {reuse && <span className="max-w-full truncate">{previousFiles.attachments?.map(file => file.name).join('、')} · 本次发送会引用文字节选</span>}
+            {reuse && <span className="max-w-full truncate">{previousFiles.attachments?.map(file => file.name).join('、')} · 本次发送会引用所选附件</span>}
           </div>}
           {selectedModel && (capabilityBlocked || agentMode && !agentSupport.known) && <p role="status" className="px-4 pt-3 text-xs text-text-2" data-testid="chat-capability-note">{capabilityReason}</p>}
           {attachmentDraft.files.length > 0 || artifact ? (
@@ -148,7 +153,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
                   <Paperclip aria-hidden="true" className="size-3.5" />
                   <span className="max-w-48 truncate" title={file.name}>{file.name}</span>
                   {state.phase === 'reading' && <progress className="h-2 w-14" aria-label={`读取 ${file.name}`} value={state.progress} max={100} />}
-                  {state.phase === 'processing' && <span role="status">正在提取文字…</span>}
+                  {state.phase === 'processing' && <span role="status">正在处理附件…</span>}
                   {state.phase === 'ready' && <span role="status">可以发送</span>}
                   {state.phase === 'failed' && <>
                     <span role="alert" className="text-err">{state.message}</span>
@@ -164,7 +169,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
                   </button>
                 </div>;
               })}
-              {attachmentDraft.attachments.length > 0 && !remoteModel && <p className="w-full px-1 text-xs text-text-3">相关文字节选会随消息发送给所选模型。</p>}
+              {attachmentDraft.attachments.length > 0 && !remoteModel && <p className="w-full px-1 text-xs text-text-3">{hasImages ? '图像会随消息发送给所选模型。' : '相关文字节选会随消息发送给所选模型。'}</p>}
             </div>
           ) : null}
           <textarea
@@ -187,11 +192,12 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
           />
 
           {remoteModel && (!!text.trim() || !!attachmentDraft.attachments.length || reuse || artifact) &&
-            <p className="px-4 pb-1 text-xs text-text-3">对话、检索到的项目依据和所选附件节选会随请求发送到当前 API。</p>}
+            <p className="px-4 pb-1 text-xs text-text-3">对话、检索到的项目依据和所选附件内容会随请求发送到当前 API。</p>}
 
           <input
             ref={fileRef}
             type="file"
+            accept=".txt,.log,.md,.markdown,.rst,.adoc,.json,.jsonl,.yaml,.yml,.toml,.ini,.cfg,.conf,.properties,.xml,.html,.htm,.css,.scss,.csv,.tsv,.go,.mod,.sum,.py,.pyw,.rs,.js,.jsx,.mjs,.cjs,.ts,.tsx,.vue,.svelte,.astro,.java,.kt,.kts,.cs,.fs,.vb,.c,.h,.cpp,.hpp,.cc,.swift,.rb,.php,.sh,.bash,.zsh,.ps1,.psm1,.bat,.cmd,.sql,.lua,.r,.dart,.gd,.tf,.gitignore,.editorconfig,.gitattributes,.pdf,.png,.jpg,.jpeg"
             aria-label="对话附件"
             multiple
             className="sr-only"
@@ -216,7 +222,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
                 variant="ghost"
                 size="icon"
                 aria-label="选择附件"
-                title={`文本、代码或有文字层的 PDF，每份最多 ${attachmentMaxMiB} MB`}
+                title={`文本、代码、含文字的 PDF（最多 ${attachmentMaxMiB} MB），或 JPEG、PNG（最多 8 MB）`}
                 disabled={!canAttach}
                 className="ns-composer-icon"
                 onClick={() => fileRef.current?.click()}

@@ -33,6 +33,23 @@ func chatProviderFactory(name string) (providers.ProviderFactory, bool) {
 	}
 	return providers.Get("openai_compatible"), true
 }
+func (model ModelConfig) toolsDisabled() bool {
+	if model.ProtocolOptions.Tools != nil {
+		return !*model.ProtocolOptions.Tools
+	}
+	return model.Metadata != nil && model.Metadata.Features.Tools == "unsupported"
+}
+
+func (model ModelConfig) visionEnabled() bool {
+	if model.Metadata != nil && model.Metadata.Source == "llama.cpp" && strings.HasPrefix(model.ModelName, "gguf-") && model.Metadata.Features.Vision == "unsupported" {
+		return false
+	}
+	if model.ProtocolOptions.Vision != nil {
+		return *model.ProtocolOptions.Vision
+	}
+	return model.Metadata != nil && model.Metadata.Features.Vision == "supported"
+}
+
 func toolProviderAllowed(name string) bool {
 	switch name {
 	case "deepseek", "openai", "openai_compatible", "ollama":
@@ -112,6 +129,9 @@ func connectionCapabilities(model ModelConfig) ModelCapabilities {
 			}
 			out.NativeEvaluation = Capability{Supported: true, Code: "NATIVE_DISCOVERY_REQUIRED", Reason: reason, Verification: "requires_discovery"}
 		}
+	}
+	if model.toolsDisabled() {
+		out.AgentTools = unavailable("MODEL_TOOLS_DISABLED", "此模型连接已关闭工具调用。")
 	}
 	out.Chat = configuredCapability(out.Chat, model)
 	out.AgentTools = configuredCapability(out.AgentTools, model)

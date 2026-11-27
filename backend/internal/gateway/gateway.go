@@ -20,34 +20,65 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type ModelMetadata struct {
-	Vendor        string `json:"vendor,omitempty" yaml:"vendor,omitempty"`
-	Family        string `json:"family,omitempty" yaml:"family,omitempty"`
-	Architecture  string `json:"architecture,omitempty" yaml:"architecture,omitempty"`
-	ParameterSize string `json:"parameter_size,omitempty" yaml:"parameter_size,omitempty"`
-	Quantization  string `json:"quantization,omitempty" yaml:"quantization,omitempty"`
-	ContextLength int    `json:"context_length,omitempty" yaml:"context_length,omitempty"`
-	Source        string `json:"source,omitempty" yaml:"source,omitempty"`
+type ReportedFeatures struct {
+	Vision    string `json:"vision,omitempty" yaml:"vision,omitempty"`
+	Tools     string `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Reasoning string `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
 }
+type ModelMetadata struct {
+	Features      ReportedFeatures `json:"features,omitempty" yaml:"features,omitempty"`
+	Vendor        string           `json:"vendor,omitempty" yaml:"vendor,omitempty"`
+	Family        string           `json:"family,omitempty" yaml:"family,omitempty"`
+	Architecture  string           `json:"architecture,omitempty" yaml:"architecture,omitempty"`
+	ParameterSize string           `json:"parameter_size,omitempty" yaml:"parameter_size,omitempty"`
+	Quantization  string           `json:"quantization,omitempty" yaml:"quantization,omitempty"`
+	ContextLength int              `json:"context_length,omitempty" yaml:"context_length,omitempty"`
+	Source        string           `json:"source,omitempty" yaml:"source,omitempty"`
+}
+
+// ProtocolOptions applies to one deployment. Missing declarations mean unknown.
+type ProtocolOptions struct {
+	Vision           *bool    `json:"vision,omitempty" yaml:"vision,omitempty"`
+	Tools            *bool    `json:"tools,omitempty" yaml:"tools,omitempty"`
+	Streaming        *bool    `json:"streaming,omitempty" yaml:"streaming,omitempty"`
+	Reasoning        *bool    `json:"reasoning,omitempty" yaml:"reasoning,omitempty"`
+	StructuredOutput *bool    `json:"structured_output,omitempty" yaml:"structured_output,omitempty"`
+	TopP             *float64 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
+}
+
+func validProtocolSettings(temp *float64, opts *ProtocolOptions, tokenField, transport *string) bool {
+	if temp != nil && (*temp < 0 || *temp > 2) {
+		return false
+	}
+	if opts != nil && opts.TopP != nil && (*opts.TopP < 0 || *opts.TopP > 1) {
+		return false
+	}
+	if tokenField != nil && *tokenField != "" && *tokenField != "max_tokens" && *tokenField != "max_completion_tokens" {
+		return false
+	}
+	return transport == nil || *transport == "" || *transport == "chat" || *transport == "responses"
+}
+
 type ModelConfig struct {
-	ID                  string         `json:"id" yaml:"id"`
-	Name                string         `json:"name" yaml:"name"`
-	Provider            string         `json:"provider" yaml:"type"`
-	BaseURL             string         `json:"base_url" yaml:"base_url"`
-	APIKey              string         `json:"-" yaml:"-"`
-	ModelName           string         `json:"model_name" yaml:"model"`
-	Vendor              string         `json:"vendor,omitempty" yaml:"vendor,omitempty"`
-	ModelFamily         string         `json:"model_family,omitempty" yaml:"model_family,omitempty"`
-	Deployment          string         `json:"deployment,omitempty" yaml:"deployment,omitempty"`
-	ContextLength       int            `json:"context_length,omitempty" yaml:"context_length,omitempty"`
-	Metadata            *ModelMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	Enabled             bool           `json:"enabled" yaml:"enabled"`
-	IsDefault           bool           `json:"is_default" yaml:"is_default"`
-	Temperature         float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`
-	MaxTokens           int            `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
-	MaxTokensField      string         `json:"max_tokens_field,omitempty" yaml:"max_tokens_field,omitempty"`
-	SupportsTemperature *bool          `json:"supports_temperature,omitempty" yaml:"supports_temperature,omitempty"`
-	ToolTransport       string         `json:"tool_transport,omitempty" yaml:"tool_transport,omitempty"`
+	ProtocolOptions     ProtocolOptions `json:"protocol_options" yaml:"protocol_options,omitempty"`
+	ID                  string          `json:"id" yaml:"id"`
+	Name                string          `json:"name" yaml:"name"`
+	Provider            string          `json:"provider" yaml:"type"`
+	BaseURL             string          `json:"base_url" yaml:"base_url"`
+	APIKey              string          `json:"-" yaml:"-"`
+	ModelName           string          `json:"model_name" yaml:"model"`
+	Vendor              string          `json:"vendor,omitempty" yaml:"vendor,omitempty"`
+	ModelFamily         string          `json:"model_family,omitempty" yaml:"model_family,omitempty"`
+	Deployment          string          `json:"deployment,omitempty" yaml:"deployment,omitempty"`
+	ContextLength       int             `json:"context_length,omitempty" yaml:"context_length,omitempty"`
+	Metadata            *ModelMetadata  `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Enabled             bool            `json:"enabled" yaml:"enabled"`
+	IsDefault           bool            `json:"is_default" yaml:"is_default"`
+	Temperature         *float64        `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	MaxTokens           int             `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	MaxTokensField      string          `json:"max_tokens_field,omitempty" yaml:"max_tokens_field,omitempty"`
+	SupportsTemperature *bool           `json:"supports_temperature,omitempty" yaml:"supports_temperature,omitempty"`
+	ToolTransport       string          `json:"tool_transport,omitempty" yaml:"tool_transport,omitempty"`
 
 	Credential       *CredentialStatus `json:"credential,omitempty" yaml:"-"`
 	storedCredential string
@@ -55,6 +86,14 @@ type ModelConfig struct {
 
 func (m ModelConfig) TemperatureEnabled() bool {
 	return m.SupportsTemperature == nil || *m.SupportsTemperature
+}
+
+func (m ModelConfig) chatOptions(temp float64, maxTokens int, system string) providers.ChatOptions {
+	if m.Temperature != nil {
+		temp = *m.Temperature
+	}
+	return providers.ChatOptions{Temperature: temp, ExplicitTemperature: m.Temperature != nil, SystemPrompt: system, MaxTokens: maxTokens,
+		MaxTokensField: m.MaxTokensKey(), OmitTemperature: !m.TemperatureEnabled(), TemperatureSupportDeclared: m.SupportsTemperature != nil, ToolTransport: m.ToolTransport, TopP: m.ProtocolOptions.TopP, Reasoning: m.ProtocolOptions.Reasoning}
 }
 
 func (m ModelConfig) MaxTokensKey() string { return strings.TrimSpace(m.MaxTokensField) }
@@ -305,22 +344,33 @@ func (g *Gateway) HandleDeleteModel(w http.ResponseWriter, r *http.Request) {
 // (matched by ID).
 func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID                     string         `json:"id"`
-		Name                   string         `json:"name"`
-		Provider               string         `json:"provider"`
-		BaseURL                string         `json:"base_url"`
-		APIKey                 string         `json:"api_key"`
-		ModelName              string         `json:"model_name"`
-		Vendor                 string         `json:"vendor"`
-		ModelFamily            string         `json:"model_family"`
-		Deployment             string         `json:"deployment"`
-		ContextLength          int            `json:"context_length"`
-		Metadata               *ModelMetadata `json:"metadata"`
-		IsDefault              bool           `json:"is_default"`
-		StrictCredentialOrigin bool           `json:"strict_credential_origin"`
+		ID                      string           `json:"id"`
+		Name                    string           `json:"name"`
+		Provider                string           `json:"provider"`
+		BaseURL                 string           `json:"base_url"`
+		APIKey                  string           `json:"api_key"`
+		ModelName               string           `json:"model_name"`
+		Vendor                  string           `json:"vendor"`
+		ModelFamily             string           `json:"model_family"`
+		Deployment              string           `json:"deployment"`
+		ContextLength           int              `json:"context_length"`
+		Metadata                *ModelMetadata   `json:"metadata"`
+		IsDefault               bool             `json:"is_default"`
+		ProtocolOptions         *ProtocolOptions `json:"protocol_options"`
+		SupportsTemperature     *bool            `json:"supports_temperature"`
+		Temperature             *float64         `json:"temperature"`
+		MaxTokens               *int             `json:"max_tokens"`
+		ResetTemperatureSupport bool             `json:"reset_temperature_support"`
+		MaxTokensField          *string          `json:"max_tokens_field"`
+		ToolTransport           *string          `json:"tool_transport"`
+		StrictCredentialOrigin  bool             `json:"strict_credential_origin"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "invalid request body"))
+		return
+	}
+	if body.MaxTokens != nil && (*body.MaxTokens < 0 || *body.MaxTokens > 131072) || !validProtocolSettings(body.Temperature, body.ProtocolOptions, body.MaxTokensField, body.ToolTransport) {
+		errors.WriteHTTP(w, r, errors.InvalidInput(errors.CatGateway, "模型协议参数无效，请检查 top_p、令牌预算字段或工具协议"))
 		return
 	}
 	if body.ID == "" {
@@ -365,6 +415,7 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 				Temperature: m.Temperature, MaxTokens: m.MaxTokens,
 			}
 			if !identityChanged {
+				saved.ProtocolOptions = m.ProtocolOptions
 				saved.MaxTokensField = m.MaxTokensField
 				saved.SupportsTemperature = m.SupportsTemperature
 				saved.ToolTransport = m.ToolTransport
@@ -391,7 +442,28 @@ func (g *Gateway) HandleAddModel(w http.ResponseWriter, r *http.Request) {
 		g.config.DefaultModel = body.ID
 	}
 	for i := range g.config.Models {
-		g.config.Models[i].IsDefault = g.config.Models[i].ID == g.config.DefaultModel
+		record := &g.config.Models[i]
+		record.IsDefault = record.ID == g.config.DefaultModel
+		if record.ID == body.ID {
+			if body.MaxTokens != nil {
+				record.MaxTokens = *body.MaxTokens
+			}
+			if body.Temperature != nil {
+				record.Temperature = body.Temperature
+			}
+			if body.ProtocolOptions != nil {
+				record.ProtocolOptions = *body.ProtocolOptions
+			}
+			if body.ResetTemperatureSupport || body.SupportsTemperature != nil {
+				record.SupportsTemperature = body.SupportsTemperature
+			}
+			if body.MaxTokensField != nil {
+				record.MaxTokensField = *body.MaxTokensField
+			}
+			if body.ToolTransport != nil {
+				record.ToolTransport = *body.ToolTransport
+			}
+		}
 	}
 	if err := g.saveConfig(); err != nil {
 		g.config = previous
@@ -434,7 +506,7 @@ func (g *Gateway) callLLM(model *ModelConfig, messages []map[string]string, sysP
 	return g.callLLMContext(context.Background(), model, messages, sysPrompt, temp, maxTokens)
 }
 
-func (g *Gateway) callLLMContext(parent context.Context, model *ModelConfig, messages []map[string]string, sysPrompt string, temp float64, maxTokens int) (string, int, int, error) {
+func (g *Gateway) callLLMContext(parent context.Context, model *ModelConfig, messages []map[string]string, sysPrompt string, temp float64, maxTokens int, images ...string) (string, int, int, error) {
 	if err := model.credentialError(); err != nil {
 		return "", 0, 0, err
 	}
@@ -465,7 +537,7 @@ func (g *Gateway) callLLMContext(parent context.Context, model *ModelConfig, mes
 				return "", 0, 0, ctx.Err()
 			}
 		}
-		content, tokensIn, tokensOut, err := g.callLLMOnce(ctx, model, messages, sysPrompt, temp, maxTokens)
+		content, tokensIn, tokensOut, err := g.callLLMOnce(ctx, model, modelMessages(messages, images), sysPrompt, temp, maxTokens)
 		if err == nil {
 			return content, tokensIn, tokensOut, nil
 		}
@@ -480,14 +552,10 @@ func (g *Gateway) callLLMContext(parent context.Context, model *ModelConfig, mes
 	return "", 0, 0, errors.Wrap(lastErr, errors.ErrUnavailable, errors.CatGateway, "LLM call failed after retries")
 }
 
-func (g *Gateway) callLLMOnce(ctx context.Context, model *ModelConfig, messages []map[string]string, sysPrompt string, temp float64, maxTokens int) (string, int, int, error) {
+func (g *Gateway) callLLMOnce(ctx context.Context, model *ModelConfig, msgs []providers.Message, sysPrompt string, temp float64, maxTokens int) (string, int, int, error) {
 	provider, err := g.getOrCreateProvider(model)
 	if err != nil {
 		return "", 0, 0, errors.Wrap(err, errors.ErrInternal, errors.CatGateway, "provider init failed")
-	}
-	msgs := make([]providers.Message, len(messages))
-	for i, m := range messages {
-		msgs[i] = providers.Message{Role: m["role"], Content: m["content"]}
 	}
 	if maxTokens == 0 {
 		maxTokens = 4096
@@ -497,13 +565,7 @@ func (g *Gateway) callLLMOnce(ctx context.Context, model *ModelConfig, messages 
 	}
 	finishInference := g.countInference(false)
 	defer finishInference()
-	resp, err := provider.Chat(ctx, model.ModelName, msgs, providers.ChatOptions{
-		SystemPrompt:    sysPrompt,
-		Temperature:     temp,
-		MaxTokens:       maxTokens,
-		MaxTokensField:  model.MaxTokensKey(),
-		OmitTemperature: !model.TemperatureEnabled(),
-	})
+	resp, err := provider.Chat(ctx, model.ModelName, msgs, model.chatOptions(temp, maxTokens, sysPrompt))
 	if err != nil {
 		return "", 0, 0, errors.Wrap(err, errors.ErrUnavailable, errors.CatGateway, "provider chat failed")
 	}
@@ -565,6 +627,13 @@ func providerCacheKey(model *ModelConfig) string {
 	return fmt.Sprintf("%s:%x", model.ID, digest)
 }
 
+func (g *Gateway) libraryDirectory() string {
+	if dir := os.Getenv("NOOSPHERE_MODEL_LIBRARY_DIR"); filepath.IsAbs(dir) && os.Getenv("NOOSPHERE_DESKTOP_MANAGED") == "1" {
+		return dir
+	}
+	return filepath.Dir(g.configPath)
+}
+
 func (g *Gateway) getOrCreateProvider(model *ModelConfig) (providers.LLMProvider, error) {
 	if err := model.credentialError(); err != nil {
 		return nil, err
@@ -593,6 +662,9 @@ func (g *Gateway) getOrCreateProvider(model *ModelConfig) (providers.LLMProvider
 		return nil, err
 	}
 
+	if local, ok := p.(interface{ SetLibraryDirectory(string) }); ok {
+		local.SetLibraryDirectory(g.libraryDirectory())
+	}
 	for cached := range g.providers {
 		if strings.HasPrefix(cached, model.ID+":") {
 			delete(g.providers, cached)

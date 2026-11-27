@@ -22,10 +22,11 @@ const listen = server => new Promise((resolve, reject) => {
   server.listen(0, '127.0.0.1', () => resolve(server.address().port));
 });
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function waitFor(check, label, timeout = 30000) {
+async function waitFor(check, label, timeout = 30000, checkProcess) {
   const deadline = Date.now() + timeout;
   let recent;
   while (Date.now() < deadline) {
+    checkProcess?.();
     try { const value = await check(); if (value) return value; } catch (error) { recent = error; }
     await pause(200);
   }
@@ -147,6 +148,90 @@ const upstream = createServer(async (request, response) => {
   }
 });
 
+async function streamChat(page, requestId, modelId, sessionId, prompt, attachmentTurn) {
+  return page.evaluate(({requestId,modelId,sessionId,prompt,attachmentTurn}) => new Promise(async (resolve, reject) => {
+      const callback = window.__TAURI_INTERNALS__;
+      const events = [];
+      const timeout = setTimeout(() => reject(Error('No SSE terminal event')), 20000);
+      const id = callback.transformCallback(data => {
+        if (data.message) events.push(data.message);
+        if (data.message?.done) {
+          clearTimeout(timeout);
+          resolve(events);
+        }
+      });
+      try {
+        await callback.invoke('gateway_chat_stream', {
+          requestId, modelId, workspaceId: 'local', sessionId, attachmentTurn,
+          messages: [{ role: 'user', content: prompt }], onEvent: '__CHANNEL__:' + id,
+        });
+      } catch (error) { clearTimeout(timeout); reject(Error(JSON.stringify(error))); }
+    }), { requestId, modelId, sessionId, prompt, attachmentTurn });
+}
+
+async function verifyImportedWeight(ipc, page, file) {
+  const change = change => ipc('modify_model_library', { change });
+  const projector = process.env.NOOSPHERE_TEST_PROJECTOR || null;
+  const before = performance.now();
+  const catalog = await change({ action: 'import', paths: [file] });
+  const afterImport = performance.now();
+  const repeated = await change({ action: 'import', paths: [file] });
+  assert.deepEqual(repeated.models.map(entry => entry.id), catalog.models.map(entry => entry.id));
+  console.log('GGUF registration (ms): initial %d, repeat %d', Math.round(afterImport - before), Math.round(performance.now() - afterImport));
+  const [model] = catalog.models;
+  assert.equal(catalog.models.length, 1);
+  assert.equal(model.status, 'runtime_missing');
+  const installed = await change({ action: 'install_runtime' });
+  const runtime = installed.runtimes.find(item => item.status === 'ready');
+  assert.ok(runtime?.version, 'installed runtime reported its version');
+  await change({ action: 'configure', id: model.id, name: model.name, runtime_id: runtime.id,
+    projector, context: projector ? 2048 : 512, gpu_layers: 0, device: null });
+  const engine = await ipc('control_local_engine', { engineId: 'custom_llama', action: 'start', model: model.id });
+  assert.ok(engine.managed && engine.models.some(entry => entry.id === model.id && entry.loaded));
+  try {
+    const config = { id: model.id, name: model.name, model_name: model.id, provider: 'openai_compatible',
+      base_url: engine.base_url, enabled: true, max_tokens: 32, supports_temperature: false, protocol_options: { tools: false, vision: Boolean(projector) } };
+    await ipc('add_model', { model: config });
+    const reply = await ipc('gateway_chat', { modelId: model.id, messages: [{ role: 'user', content: 'Answer in one word. What color is grass?' }] });
+    assert.ok(reply.content?.trim());
+    assert.equal(reply.model, model.id);
+    const events = await streamChat(page, 'real-cpu-stream', model.id, 'real-gguf-session', 'Name one color.');
+    assert.ok(events.some(ev => ev.token) && events.at(-1).status === 'completed' && events.at(-1).content?.trim());
+
+    if (projector) {
+      assert.equal(engine.models.find(entry => entry.id === model.id).vision, true);
+      const imageId = await page.evaluate(async projectPath => {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 128;
+        const draw = canvas.getContext('2d');
+        draw.fillStyle = 'red';
+        draw.fillRect(0, 0, 128, 128);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        const bytes = await blob.arrayBuffer();
+        const id = crypto.randomUUID();
+        const metadata = { workspace_id: 'local', session_id: 'real-vision-session', project_path: projectPath,
+          id, name: 'sample.png', offset: 0, size: bytes.byteLength };
+        const reply = await window.__TAURI_INTERNALS__.invoke('stage_chat_attachment', bytes,
+          { headers: { 'x-noosphere-attachment': encodeURIComponent(JSON.stringify(metadata)) } });
+        if (reply.attachment?.id !== id) throw Error('Image upload was not acknowledged');
+        return id;
+      }, (await ipc('list_workspaces')).workspaces.find(ws => ws.id === 'local').project_path || '');
+      const prompt = 'What color fills this image? Answer in one word.';
+      const result = await streamChat(page, 'real-vision-stream', model.id, 'real-vision-session', prompt,
+        { message_id: 'vision-user', ids: [imageId], question: prompt });
+      assert.equal(result.at(-1)?.status, 'completed', JSON.stringify(result));
+      assert.ok(result.at(-1).content?.trim());
+      console.log('PASS image streamed through selected projector:', result.at(-1).content.slice(0, 120));
+    }
+    console.log('PASS real CPU inference through native import, pinned install, owned listener and Go gateway:', runtime.version, reply.content.slice(0, 80));
+  } finally {
+    await ipc('control_local_engine', { engineId: 'custom_llama', action: 'stop' });
+  }
+  await ipc('delete_model', { id: model.id });
+  assert.equal((await change({ action: 'forget', id: model.id })).models.length, 0);
+  assert.ok(existsSync(file));
+}
+
 async function main() {
   assert.ok(existsSync(exe), `Missing packaged desktop: ${exe}`);
   mkdirSync(data); mkdirSync(project);
@@ -157,26 +242,24 @@ async function main() {
     id: 'fixture', name: 'Delivery fixture', type: 'deepseek', model: 'fixture-model',
     base_url: `http://127.0.0.1:${modelPort}/v1`, enabled: true,
   }] }));
-  writeFileSync(path.join(data, 'config.yaml'), JSON.stringify({ server: { port: 8080 },
-    modules: { nebula: { embedding: { provider: 'mock' } }, codelens: { port: 18765 } },
+  const occupied = [createServer(), createServer()];
+  const [serverPort, workerPort] = await Promise.all(occupied.map(listen));
+  writeFileSync(path.join(data, 'config.yaml'), JSON.stringify({ server: { port: serverPort },
+    modules: { nebula: { embedding: { provider: 'mock' } }, codelens: { port: workerPort } },
   }));
   writeFileSync(path.join(data, 'data-version.json'), JSON.stringify({ schema_version: 1, app_version: '0.6.0' }));
-  const occupied = [createServer(), createServer()];
-  await Promise.all(occupied.map((server, i) => new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen([8080, 18765][i], '127.0.0.1', resolve);
-  })));
   const configuredPort = process.env.NOOSPHERE_TEST_WEBVIEW_PORT;
-  const probe = createServer();
-  const cdpPort = configuredPort ? Number(configuredPort) : await listen(probe);
+  const cdpPort = Number(configuredPort || 0);
   if (configuredPort) assert.ok(Number.isInteger(cdpPort) && cdpPort >= 1024 && cdpPort <= 65535);
-  else await new Promise(resolve => probe.close(resolve));
+  const profile = path.join(root, 'webview');
+  const portFile = path.join(profile, 'EBWebView', 'DevToolsActivePort');
+  const launchedAt = Date.now();
   const child = spawn(exe, [], {
     cwd: path.dirname(exe), windowsHide: true, stdio: ['ignore', 'ignore', 'inherit'],
     env: { ...process.env,
       PATH: ['System32', '.', 'System32/Wbem'].map(directory => path.resolve(process.env.SystemRoot, directory)).join(';'),
       NOOSPHERE_DATA_DIR: data, NOOSPHERE_RUNTIME_DIAGNOSTICS: '1',
-      WEBVIEW2_USER_DATA_FOLDER: path.join(root, 'webview'),
+      WEBVIEW2_USER_DATA_FOLDER: profile,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort} --remote-debugging-address=127.0.0.1`,
     },
   });
@@ -184,12 +267,28 @@ async function main() {
   child.on('error', error => { launchError = error; });
   let browser;
   try {
-    const endpoint = `http://127.0.0.1:${cdpPort}`;
-    await waitFor(async () => {
-      if (launchError || child.exitCode !== null) throw launchError || Error(`Desktop exited with ${child.exitCode}`);
-      return (await fetch(endpoint + '/json/version')).ok;
-    }, 'WebView2 CDP', 45000);
-    browser = await chromium.connectOverCDP(endpoint);
+    // On a cold runner the desktop can take over 45 s just to initialize its WebView.
+    // Chromium publishes both the allocated port and browser identity in this fresh profile.
+    const socket = await waitFor(async () => {
+      let port = cdpPort;
+      let browserPath;
+      if (!configuredPort) {
+        const [rawPort, target] = readFileSync(portFile, 'utf8').trim().split(/\r?\n/);
+        port = Number(rawPort);
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || !/^\/devtools\/browser\/[\w-]+$/.test(target)) return;
+        browserPath = target;
+      }
+      const origin = '127.0.0.1:' + port;
+      const response = await fetch('http://' + origin + '/json/version', { signal: AbortSignal.timeout(2000) });
+      if (!response.ok) return;
+      const info = await response.json();
+      const url = new URL(info.webSocketDebuggerUrl);
+      if (url.protocol === 'ws:' && url.host === origin && (!browserPath || url.pathname === browserPath)) return url.href;
+    }, 'WebView2 CDP', 120000, () => {
+      if (launchError || child.exitCode !== null || child.signalCode) throw launchError || Error('Desktop exited: ' + (child.exitCode ?? child.signalCode));
+    });
+    console.log('WebView2 CDP ready after %d ms', Date.now() - launchedAt);
+    browser = await chromium.connectOverCDP(socket);
     const page = await waitFor(() => browser.contexts().flatMap(context => context.pages())
       .find(page => /^(?:https?:\/\/tauri\.localhost|tauri:\/\/localhost)\//.test(page.url())), 'packaged WebView');
     const ipc = (command, args = {}) => page.evaluate(async ({ command, args }) => {
@@ -267,24 +366,7 @@ async function main() {
     assert.ok(!isolated.citations.some(citation => citation.memory_id === memory.id));
     console.log('PASS native Tauri IPC, dynamic ports, real Tree-sitter index and workspace-separated project memory');
 
-    const chunks = await page.evaluate(() => new Promise(async (resolve, reject) => {
-      const callback = window.__TAURI_INTERNALS__;
-      const events = [];
-      const timeout = setTimeout(() => reject(Error('No SSE terminal event')), 20000);
-      const id = callback.transformCallback(data => {
-        if (data.message) events.push(data.message);
-        if (data.message?.done) {
-          clearTimeout(timeout);
-          resolve(events);
-        }
-      });
-      try {
-        await callback.invoke('gateway_chat_stream', {
-          requestId: 'delivery-stream', modelId: 'fixture', workspaceId: 'local', sessionId: 'delivery-native',
-          messages: [{ role: 'user', content: 'Synthetic delivery chat' }], onEvent: '__CHANNEL__:' + id,
-        });
-      } catch (error) { clearTimeout(timeout); reject(Error(JSON.stringify(error))); }
-    }));
+    const chunks = await streamChat(page, 'delivery-stream', 'fixture', 'delivery-native', 'Synthetic delivery chat');
     const terminal = chunks.at(-1);
     assert.equal(terminal.status, 'completed', JSON.stringify(chunks));
     assert.equal(terminal.content, 'delivery fixture');
@@ -381,6 +463,8 @@ async function main() {
     await assert.rejects(() => ipc('prepare_chat_attachments', { workspaceId: 'local', sessionId: 'foreign-session', turn }), /找不到此附件/);
     console.log('PASS 200 MiB native text/PDF attachments, oversized rejection, drag and drop, page/line provenance, bounded model context and workspace/session isolation');
 
+    if (process.env.NOOSPHERE_TEST_GGUF) await verifyImportedWeight(ipc, page, path.resolve(process.env.NOOSPHERE_TEST_GGUF));
+
     const backend = () => children(child.pid).find(process => process.Name === 'noosphere-backend.exe')?.ProcessId;
     const oldGo = await waitFor(backend, 'desktop child');
     const oldPython = await waitFor(() => children(oldGo).find(process => /python/i.test(process.Name))?.ProcessId, 'packaged Python child');
@@ -406,7 +490,7 @@ async function main() {
     console.log('PASS crash recovery, retained task, graceful desktop close and no owned child left');
     assert.ok(existsSync(path.join(data, 'logs')));
   } catch (error) {
-    console.error('Packaged WebView2 launch', { executable: exe, cdpPort, pid: child.pid, exitCode: child.exitCode });
+    console.error('Packaged WebView2 launch', { executable: exe, cdpPort, activePortFile: existsSync(portFile), elapsedMs: Date.now() - launchedAt, pid: child.pid, exitCode: child.exitCode });
     try {
       if (child.pid && child.exitCode === null) console.error('Desktop child processes', children(child.pid));
       const services = path.join(data, 'desktop-services.log');

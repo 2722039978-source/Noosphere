@@ -1,12 +1,17 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -485,5 +490,92 @@ func TestPublicModelSelectionProviderRouting(t *testing.T) {
 	}
 	if !slices.Equal(calls, want) {
 		t.Fatalf("本地推理服务收到 %+v，预期 %+v", calls, want)
+	}
+}
+
+func TestScopedImageAndProtocolOptionsAcrossReload(t *testing.T) {
+	requests := make(chan map[string]any, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		requests <- body
+		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":"green"}}]}`)
+	}))
+	defer server.Close()
+	base, manager, ws := publicSelectionGateway(t)
+	gw := NewWithSecretStore(base.configPath, nil)
+	gw.SetWorkspaceManager(manager)
+	update := func(options map[string]any, code int) {
+		payload := map[string]any{"id": "explicit", "name": "Local", "provider": "openai_compatible", "base_url": server.URL + "/v1", "model_name": "test-model", "temperature": 0, "protocol_options": options}
+		data, _ := json.Marshal(payload)
+		rec := httptest.NewRecorder()
+		gw.HandleAddModel(rec, httptest.NewRequest("POST", "/", bytes.NewReader(data)))
+		if rec.Code != code {
+			t.Fatalf("update status %d: %s", rec.Code, rec.Body)
+		}
+	}
+	update(map[string]any{"top_p": 1.5}, 400)
+	update(map[string]any{"streaming": false, "tools": false, "top_p": 0.7}, 201)
+	gw.ReloadConfig()
+	selected := gw.findModelByID("explicit")
+	if selected.Temperature == nil || *selected.Temperature != 0 || gw.ToolCapability(selected) == nil || selected.visionEnabled() {
+		t.Fatal("explicit zero/tool block/unknown vision changed on reload")
+	}
+	if gw.config.DefaultModel != "global" {
+		t.Fatal("update changed default selection")
+	}
+	mux := http.NewServeMux()
+	manager.RegisterRoutes(mux)
+	var raw bytes.Buffer
+	if err := png.Encode(&raw, image.NewRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := json.Marshal(map[string]any{"workspace_id": ws.ID, "session_id": "test-session", "project_path": ws.ProjectPath, "size": raw.Len(), "id": "image-one", "name": "a.png"})
+	upload := httptest.NewRequest("POST", "/api/chat-attachments/stage", bytes.NewReader(raw.Bytes()))
+	upload.Header.Set("X-Noosphere-Attachment", url.PathEscape(string(meta)))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, upload)
+	if rec.Code != 200 {
+		t.Fatalf("stage %d: %s", rec.Code, rec.Body)
+	}
+	turn := workspaces.AttachmentTurn{MessageID: "user-1", IDs: []string{"image-one"}, Question: "Color?"}
+	if _, err := manager.PrepareModelAttachments(context.Background(), ws.ID, "other", turn, true); err == nil {
+		t.Fatal("cross-session image disclosure")
+	}
+	send := func() *httptest.ResponseRecorder {
+		data, _ := json.Marshal(map[string]any{"model_id": "explicit", "workspace_id": ws.ID, "session_id": "test-session", "request_id": "img-run", "attachment_turn": turn, "messages": []map[string]string{{"role": "user", "content": "Color?"}}})
+		recorder := httptest.NewRecorder()
+		gw.HandleChatStream(recorder, httptest.NewRequest("POST", "/", bytes.NewReader(data)))
+		return recorder
+	}
+	denied := send()
+	if denied.Code != 400 || len(requests) != 0 {
+		t.Fatalf("unknown vision sent data: %d %s", denied.Code, denied.Body)
+	}
+	update(map[string]any{"vision": true, "streaming": false, "tools": false, "top_p": 0.7}, 201)
+	result := send()
+	if result.Code != 200 || !strings.Contains(result.Body.String(), "green") {
+		t.Fatalf("chat %d: %s", result.Code, result.Body)
+	}
+	select {
+	case payload := <-requests:
+		if payload["temperature"] != float64(0) || payload["top_p"] != 0.7 || payload["stream"] != false {
+			t.Fatalf("bad protocol options: %v", payload)
+		}
+		data, _ := json.Marshal(payload["messages"])
+		imageURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(raw.Bytes())
+		if bytes.Contains(data, []byte("File excerpts")) {
+			t.Fatal("image-only turn received synthetic text excerpts")
+		}
+		if !bytes.Contains(data, []byte(imageURL)) {
+			t.Fatal("provider did not receive staged image")
+		}
+		if strings.Contains(result.Body.String(), imageURL) {
+			t.Fatal("image body leaked in result")
+		}
+	default:
+		t.Fatal("provider was not called")
 	}
 }

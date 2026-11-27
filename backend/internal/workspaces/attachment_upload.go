@@ -133,7 +133,7 @@ type attachmentTextIndex struct {
 }
 
 func (m *Manager) stageAttachmentFile(ctx context.Context, input attachmentUpload, path string, size int) (AttachmentRef, error) {
-	ref := AttachmentRef{ID: input.ID, Name: input.Name, Size: size}
+	ref := AttachmentRef{ID: input.ID, Name: input.Name, Size: size, ImageType: imageType(input.Name)}
 	file, err := os.Open(path)
 	if err != nil {
 		return ref, err
@@ -156,6 +156,18 @@ func (m *Manager) stageAttachmentFile(ctx context.Context, input attachmentUploa
 		return ref, err
 	}
 
+	if ref.ImageType != "" {
+		file, err := os.Open(path)
+		if err != nil {
+			return ref, err
+		}
+		err = validateImage(file, ref)
+		file.Close()
+		if err != nil {
+			return ref, err
+		}
+		return ref, m.saveAttachment(ctx, input, ws, ref, nil, nil, path)
+	}
 	pdf, err := attachmentfile.PDFFormat(input.Name)
 	if err != nil {
 		return ref, fmt.Errorf("%w: %v", ErrInvalid, err)

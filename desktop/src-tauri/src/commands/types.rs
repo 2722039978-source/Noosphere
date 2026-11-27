@@ -118,7 +118,15 @@ pub struct ModelConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supports_temperature: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_temperature_support: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_transport: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol_options: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

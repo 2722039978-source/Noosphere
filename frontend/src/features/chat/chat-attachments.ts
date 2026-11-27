@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, errMessage, type ChatAttachment } from '@/lib/api';
-import { attachmentMaxBytes, attachmentMaxMiB } from './chat-backup';
+import { attachmentMaxBytes } from './chat-backup';
 
 const maxFiles = 3;
 const chunkBytes = 4 * 1024 * 1024;
@@ -102,11 +102,12 @@ export function useChatAttachments(workspaceId: string, sessionId: string, proje
     for (const file of picked) {
       if (selected.some(entry => entry.file.name === file.name && entry.file.size === file.size && entry.file.lastModified === file.lastModified)) continue;
       if (selected.length >= maxFiles) { show('每条消息最多添加 3 份文件。'); break; }
-      const invalid = file.size === 0 || file.size > attachmentMaxBytes;
+      const maxBytes = /\.(png|jpe?g)$/i.test(file.name) ? 8 * 1024 * 1024 : attachmentMaxBytes;
+      const invalid = file.size === 0 || file.size > maxBytes;
       const entry: DraftEntry = {
         id: crypto.randomUUID(), file, scope, key, controller: null, dispatched: false,
         state: invalid
-          ? { phase: 'failed', retry: false, message: file.size === 0 ? '文件为空。' : `文件超过每份 ${attachmentMaxMiB} MB 上限。` }
+          ? { phase: 'failed', retry: false, message: file.size === 0 ? '文件为空。' : `文件超过每份 ${maxBytes / 1024 / 1024} MB 上限。` }
           : { phase: 'reading', progress: 0 },
       };
       entries.current.set(entry.id, entry);

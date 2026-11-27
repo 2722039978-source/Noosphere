@@ -73,11 +73,25 @@ async function verifyTarget(dir, id, target, revision, tree, formal) {
   return { assets: expected, sourceRevision: info.source_revision, fingerprint: info.source_fingerprint };
 }
 
+export function deliveryPlan(platforms = 'all', formal = false) {
+  if (!['all', 'windows-linux'].includes(platforms)) throw new Error('Unknown delivery platform selection');
+  if (formal && platforms !== 'all') throw new Error('Formal packaging requires all platforms');
+  const targets = platforms === 'all' ? Object.keys(manifest.targets) : ['windows-x64', 'linux-x64'];
+  const include = targets.filter(id => id !== 'windows-x64').map(id => {
+    const { runner, os, arch } = manifest.targets[id];
+    return { target: id, runner, os: os === 'linux' ? 'Linux' : 'macOS', arch: arch.toUpperCase(),
+      abi: os === 'linux' ? 'jammy-glibc235' : 'darwin-13.5' };
+  });
+  return { targets, matrix: { include } };
+}
+
 export async function aggregate([input, output, ...flags]) {
-  if (!input || !output || (flags.length && (flags.length !== 2 || flags[0] !== '--formal-tag'))) {
-    throw new Error('Usage: node scripts/desktop.mjs aggregate <artifact-root> <output> [--formal-tag vVERSION]');
+  const formal = flags.length === 2 && flags[0] === '--formal-tag';
+  const limited = flags.length === 1 && flags[0] === '--windows-linux-preview';
+  if (!input || !output || flags.length && !formal && !limited) {
+    throw new Error('Usage: node scripts/desktop.mjs aggregate <artifact-root> <output> [--formal-tag vVERSION | --windows-linux-preview]');
   }
-  const formal = flags.length === 2;
+  const { targets } = deliveryPlan(limited ? 'windows-linux' : 'all', formal);
   const tag = flags[1];
   const revision = run('git', ['rev-parse', 'HEAD'], { capture: true });
   const tree = commitTree(revision);
@@ -91,12 +105,13 @@ export async function aggregate([input, output, ...flags]) {
   for (const path of candidates) {
     if (!(await lstat(path)).isFile()) throw new Error('Unexpected manifest link ' + path);
     const info = await json(path);
-    if (!Object.hasOwn(manifest.targets, info.target) || buildDirs.has(info.target)) {
+    if (!targets.includes(info.target) || buildDirs.has(info.target)) {
       throw new Error('Unexpected or duplicate target manifest ' + path);
     }
     buildDirs.set(info.target, dirname(path));
   }
-  if (buildDirs.size !== Object.keys(manifest.targets).length) throw new Error('Each of the four targets must be present');
+  const missing = targets.filter(id => !buildDirs.has(id));
+  if (missing.length) throw new Error('Missing target manifests: ' + missing.join(', '));
   const destination = resolve(output);
   if (await exists(destination)) throw new Error('Aggregation destination already exists ' + destination);
   await mkdir(dirname(destination), { recursive: true });
@@ -104,7 +119,8 @@ export async function aggregate([input, output, ...flags]) {
   const all = [];
   const sources = {};
   try {
-    for (const [id, target] of Object.entries(manifest.targets)) {
+    for (const id of targets) {
+      const target = manifest.targets[id];
       const dir = buildDirs.get(id);
       const { assets, sourceRevision, fingerprint } = await verifyTarget(dir, id, target, revision, tree, formal);
       sources[id] = { source_revision: sourceRevision, source_fingerprint: fingerprint };
@@ -118,13 +134,13 @@ export async function aggregate([input, output, ...flags]) {
         all.push('build-info.json');
       }
     }
-    const releaseInfo = { version, mode: formal ? 'formal-packaging' : 'preview', source_revision: revision, source_tree: tree,
+    const releaseInfo = { version, mode: formal ? 'formal-packaging' : limited ? 'windows-linux-preview' : 'preview', source_revision: revision, source_tree: tree,
       ...(formal ? { source_tag: tag } : {}), targets: sources };
     await writeFile(join(stage, 'delivery-info.json'), JSON.stringify(releaseInfo, null, 2) + '\n');
     all.push('delivery-info.json');
     await writeFile(join(stage, 'SHA256SUMS.txt'), await checksums(stage, all));
     await rename(stage, destination);
-    console.log('Verified four target packages for ' + revision + ' in ' + destination);
+    console.log('Verified ' + targets.join(', ') + ' packages for ' + revision + ' in ' + destination);
   } finally {
     await rm(stage, { recursive: true, force: true });
   }

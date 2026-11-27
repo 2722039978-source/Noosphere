@@ -54,15 +54,28 @@ export interface ModelConfig {
   model_family?: string;
   deployment?: 'local'|'api'|'';
   context_length?: number;
-  metadata?: { vendor?:string;family?:string;architecture?:string;parameter_size?:string;quantization?:string;context_length?:number;source?:string };
+  metadata?: { vendor?:string;family?:string;architecture?:string;parameter_size?:string;quantization?:string;context_length?:number;source?:string;features?: Partial<Record<'vision' | 'tools' | 'reasoning', 'supported' | 'unsupported'>> };
   enabled?: boolean | null;
   is_default?: boolean | null;
   api_key?: string | null;
   capabilities?: ModelCapabilities | null;
   credential?: { provider: string; status: string; reason: string } | null;
+  max_tokens?: number;
   max_tokens_field?: string;
-  supports_temperature?: boolean;
+  temperature?: number;
+  supports_temperature?: boolean | null;
+  protocol_options?: ProtocolOptions;
+  reset_temperature_support?: boolean;
   tool_transport?: string;
+}
+
+export interface ProtocolOptions {
+  vision?: boolean;
+  tools?: boolean;
+  streaming?: boolean;
+  reasoning?: boolean;
+  structured_output?: boolean;
+  top_p?: number;
 }
 
 export interface Capability {
@@ -92,7 +105,7 @@ export interface ModelSelectionResult {
   bound: boolean;
 }
 
-export interface DiscoveredModel { id: string; name: string; loaded?: boolean; downloaded?: boolean; vision?: boolean }
+export interface DiscoveredModel { id: string; name: string; loaded?: boolean; downloaded?: boolean; vision?: boolean; launch_identity?: string; needs_restart?: boolean }
 export interface ModelDiagnostic {
   status: 'ok' | 'error'; model: string; provider: string; endpoint: string;
   service: 'online' | 'offline' | 'unknown'; model_discovery: 'found' | 'missing' | 'unknown';
@@ -101,7 +114,7 @@ export interface ModelDiagnostic {
   reported_model?: string; temperature_omitted?: boolean;
   models?: DiscoveredModel[]; checks?: { stage: string; endpoint: string; status: string; http_status?: number; code?: string }[];
 }
-export type LocalEngineId = 'ollama' | 'lm_studio' | 'bonsai' | 'deepseek_local';
+export type LocalEngineId = 'ollama' | 'lm_studio' | 'bonsai' | 'deepseek_local' | 'custom_llama';
 export type LocalEngineAction = 'start' | 'stop' | 'restart' | 'switch';
 export interface LocalEngine {
   id: LocalEngineId; name: string; provider: string; base_url: string;
@@ -109,6 +122,47 @@ export interface LocalEngine {
   models: DiscoveredModel[]; version?: string; code?: string; error?: string; log_path?: string; directory?: string;
   supported?: boolean; available?: boolean; verification?: 'service_identity' | 'not_checked';
 }
+
+export interface LibraryModel {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  architecture?: string | null;
+  trained_context?: number | null;
+  projector?: string | null;
+  runtime_id?: string | null;
+  effective_runtime_id?: string | null;
+  context?: number | null;
+  gpu_layers?: number | null;
+  device?: string | null;
+  suggested_context: number;
+  launch_identity: string;
+  fit?: 'tight' | 'likely' | 'unknown';
+  status: 'ready' | 'file_missing' | 'file_changed' | 'runtime_missing' | 'runtime_changed' | 'projector_missing';
+}
+
+export interface LibraryRuntime {
+  id: string;
+  path: string;
+  version: string;
+  devices: string[];
+  device_details?: { id: string; description: string; total_mib: number | null; free_mib: number | null }[];
+  status: 'ready' | 'missing' | 'changed';
+}
+
+export interface ModelLibrary {
+  version: number; install_options?: { backend: string; size: number }[]; available_ram_bytes?: number | null; models: LibraryModel[]; runtimes: LibraryRuntime[]; candidates: string[]; warnings: string[];
+}
+
+export type LibraryChange =
+  | { action: 'import'; paths: string[] }
+  | { action: 'scan' | 'authorize_runtime'; path: string }
+  | { action: 'forget' | 'forget_runtime' | 'diagnose_runtime'; id: string }
+  | { action: 'relocate'; id: string; path: string }
+  | { action: 'configure'; id: string; name: string; projector: string | null; runtime_id: string | null;
+      context: number | null; gpu_layers: number | null; device: string | null }
+  | { action: 'install_runtime'; backend?: string };
 
 export interface DesktopPlatform {
   os: string; arch: string; native_titlebar: boolean;
@@ -353,7 +407,11 @@ export const api = {
   testModel: (id: string) => invoke<ModelDiagnostic>("test_model", { id }),
   probeModel: (model: ModelConfig, infer = true) => invoke<ModelDiagnostic>('probe_model', { model, infer }),
   listLocalEngines: (workspacePath = '') => invoke<{ engines: LocalEngine[] }>('list_local_engines', { workspacePath }),
-  controlLocalEngine: (engineId: LocalEngineId, action: LocalEngineAction, directory?: string) => invoke<LocalEngine>('control_local_engine', { engineId, action, directory }),
+  controlLocalEngine: (engineId: LocalEngineId, action: LocalEngineAction, directory?: string, model?: string, expectedIdentity?: string) => invoke<LocalEngine>('control_local_engine', { engineId, action, directory, model, expectedIdentity }),
+  modelLibrary: () => invoke<ModelLibrary>('model_library_snapshot'),
+  changeModelLibrary: (change: LibraryChange) => invoke<ModelLibrary>('modify_model_library', { change }),
+  pickModelLibraryFiles: (kind: 'models' | 'model' | 'projector' | 'runtime' | 'directory') =>
+    invoke<string[]>('pick_model_library_files', { kind }),
   localEngineLog: (engineId: LocalEngineId) => invoke<{ path: string; content: string }>('local_engine_log', { engineId }),
   addModel: (model: ModelConfig) => invoke("add_model", { model }),
   deleteModel: (id: string) => invoke("delete_model", { id }),

@@ -1,6 +1,6 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param([switch]$Browser, [switch]$Rust, [string]$PackagedRoot)
+param([switch]$Browser, [switch]$Rust, [switch]$LiveRuntimeInstall, [string]$PackagedRoot)
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -13,7 +13,7 @@ $Node = Resolve-NoosphereCommand 'node'
 $Go = Resolve-NoosphereCommand 'go'
 $Python = Join-Path $Root '.local/venv/Scripts/python.exe'
 $Temp = New-Item -ItemType Directory -Force -Path (Join-Path $Root 'test/cache/suite')
-$Previous = @{ TEMP = $env:TEMP; TMP = $env:TMP; TMPDIR = $env:TMPDIR; GOTOOLCHAIN = $env:GOTOOLCHAIN }
+$Previous = @{ TEMP = $env:TEMP; TMP = $env:TMP; TMPDIR = $env:TMPDIR; GOTOOLCHAIN = $env:GOTOOLCHAIN; NOOSPHERE_TEST_GO = $env:NOOSPHERE_TEST_GO }
 try {
   $env:TEMP = $env:TMP = $env:TMPDIR = $Temp.FullName
   if (-not $env:GOTOOLCHAIN) { $env:GOTOOLCHAIN = 'local' }
@@ -30,8 +30,11 @@ try {
   Invoke-NoosphereCommand $Python @('-B', (Join-Path $PSScriptRoot 'verify-grammars.py')) $PythonSource
   if ($Browser) { Invoke-NoosphereCommand $Node @((Join-Path $PSScriptRoot 'verify-browser.cjs')) $Frontend }
   if ($Rust) {
+    $env:NOOSPHERE_TEST_GO = $Go
     $Cargo = Resolve-NoosphereCommand 'cargo'
-    Invoke-NoosphereCommand $Cargo @('test', '--locked', '--lib') (Join-Path $Root 'desktop/src-tauri')
+    $RustArgs = @('test', '--locked', '--lib')
+    if ($LiveRuntimeInstall) { $RustArgs += @('--features', 'live-runtime-install') }
+    Invoke-NoosphereCommand $Cargo $RustArgs (Join-Path $Root 'desktop/src-tauri')
   }
   if ($PackagedRoot) {
     Invoke-NoosphereCommand $Node @((Join-Path $PSScriptRoot 'verify-desktop.cjs'), [IO.Path]::GetFullPath($PackagedRoot)) $Root
@@ -40,5 +43,6 @@ try {
   $env:TEMP = $Previous.TEMP
   $env:TMP = $Previous.TMP
   $env:TMPDIR = $Previous.TMPDIR
+  $env:NOOSPHERE_TEST_GO = $Previous.NOOSPHERE_TEST_GO
   $env:GOTOOLCHAIN = $Previous.GOTOOLCHAIN
 }

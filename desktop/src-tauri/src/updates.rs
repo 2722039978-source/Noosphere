@@ -123,14 +123,113 @@ fn trusted_https(url: &str, allowed_hosts: &[&str]) -> bool {
         && parsed.host_str().is_some_and(|host| allowed_hosts.contains(&host))
 }
 
-fn official_get(url: &str, hosts: &[&str], timeout: Duration) -> Result<ureq::Response, String> {
-    let agent = ureq::AgentBuilder::new().redirects(0).timeout(timeout).build();
+// Honor explicit user proxy settings on remote package requests only. Engine probes
+// continue using their dedicated loopback client.
+fn bypass_proxy(host: &str, patterns: &str) -> bool {
+    patterns.split([',', ';']).any(|item| {
+        let item = item.trim().to_ascii_lowercase();
+        let pattern = item.strip_suffix(":443").unwrap_or(&item);
+        if pattern == "*" || pattern == host {
+            return true;
+        }
+        if let Some(suffix) = pattern.strip_prefix('*') {
+            return !suffix.is_empty() && host.ends_with(suffix);
+        }
+        if let Some(domain) = pattern.strip_prefix('.') {
+            return host == domain || host.ends_with(pattern);
+        }
+        false
+    })
+}
+
+#[cfg(windows)]
+fn windows_proxy(host: &str) -> Option<String> {
+    use windows_sys::Win32::Foundation::GlobalFree;
+    use windows_sys::Win32::Networking::WinHttp::{
+        WinHttpGetIEProxyConfigForCurrentUser, WINHTTP_CURRENT_USER_IE_PROXY_CONFIG,
+    };
+    let mut config = WINHTTP_CURRENT_USER_IE_PROXY_CONFIG::default();
+    if unsafe { WinHttpGetIEProxyConfigForCurrentUser(&mut config) } == 0 {
+        return None;
+    }
+    // All three optional strings are allocated by WinHTTP and owned by the caller.
+    fn take(pointer: *mut u16) -> String {
+        if pointer.is_null() {
+            return String::new();
+        }
+        unsafe {
+            let mut len = 0;
+            while *pointer.add(len) != 0 {
+                len += 1;
+            }
+            let value = String::from_utf16_lossy(std::slice::from_raw_parts(pointer, len));
+            GlobalFree(pointer.cast());
+            value
+        }
+    }
+    let _pac = take(config.lpszAutoConfigUrl);
+    let proxy = take(config.lpszProxy);
+    let bypass = take(config.lpszProxyBypass);
+    if bypass_proxy(host, &bypass) {
+        return None;
+    }
+    let selected = proxy
+        .split([';', ' '])
+        .filter_map(|v| v.trim().strip_prefix("https="))
+        .next()
+        .or_else(|| {
+            proxy
+                .split([';', ' '])
+                .map(str::trim)
+                .find(|v| !v.is_empty() && !v.contains('='))
+        })?;
+    Some(if selected.contains("://") {
+        selected.into()
+    } else {
+        format!("http://{selected}")
+    })
+}
+
+fn download_proxy(host: &str) -> Result<Option<ureq::Proxy>, String> {
+    let bypass = std::env::var("no_proxy")
+        .or_else(|_| std::env::var("NO_PROXY"))
+        .unwrap_or_default();
+    if bypass_proxy(host, &bypass) {
+        return Ok(None);
+    }
+    let proxy = ["https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"]
+        .iter()
+        .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()));
+    #[cfg(windows)]
+    let proxy = proxy.or_else(|| windows_proxy(host));
+    proxy
+        .map(ureq::Proxy::new)
+        .transpose()
+        .map_err(|_| "系统代理配置无效，请检查 HTTPS 代理".into())
+}
+
+pub(crate) fn official_get(
+    url: &str,
+    hosts: &[&str],
+    timeout: Duration,
+) -> Result<ureq::Response, String> {
     let mut target = url.to_owned();
     for _ in 0..4 {
         if !trusted_https(&target, hosts) {
             return Err("更新地址超出允许的 GitHub 域".into());
         }
-        let response = agent
+        let parsed = reqwest::Url::parse(&target).map_err(|_| "下载地址无效")?;
+        let mut builder = ureq::AgentBuilder::new()
+            .redirects(0)
+            .try_proxy_from_env(false)
+            .timeout_connect(Duration::from_secs(15))
+            .timeout(timeout);
+        if let Some(proxy) = download_proxy(parsed.host_str().ok_or("下载地址缺少主机名")?)?
+        {
+            builder = builder.proxy(proxy);
+        }
+        let response = builder
+            .build()
             .get(&target)
             .set("User-Agent", "Noosphere Desktop")
             .set("Accept-Encoding", "identity")
@@ -231,7 +330,7 @@ fn release_asset<'a>(release: &'a Release, name: &str) -> Option<&'a Asset> {
     (matches.next().is_none() && (1..=MAX_PACKAGE_BYTES).contains(&selected.size)).then_some(selected)
 }
 
-fn verify_and_copy(
+pub(crate) fn verify_and_copy(
     reader: impl Read,
     output: &mut impl Write,
     expected_size: u64,

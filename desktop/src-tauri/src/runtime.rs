@@ -465,6 +465,7 @@ impl Host for RealHost {
             .arg(&paths.config)
             .current_dir(&paths.data_dir)
             .env("NOOSPHERE_DESKTOP_MANAGED", "1")
+            .env("NOOSPHERE_MODEL_LIBRARY_DIR", &paths.data_dir)
             .env("NOOSPHERE_DESKTOP_DEVELOPMENT", if cfg!(debug_assertions) { "1" } else { "0" })
             .env_remove("NOOSPHERE_CODELENS_SCRIPT")
             .env_remove("NOOSPHERE_CODELENS_PYTHON")

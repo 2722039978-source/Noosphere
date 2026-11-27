@@ -60,7 +60,7 @@ struct IntegrityRecord {
     mtime_ns: Option<u64>,
 }
 
-pub(super) fn canonical_local(path: &Path) -> Option<PathBuf> {
+pub(crate) fn canonical_local(path: &Path) -> Option<PathBuf> {
     if !path.is_absolute() {
         return None;
     }
@@ -211,6 +211,27 @@ impl PortableInstall {
             .map_err(|_| "无法保存已选的本地模型目录。".to_string())
     }
 
+    #[cfg(windows)]
+    pub(super) fn authorize(&self, data: &Path, id: &str) -> Result<(), String> {
+        // The weights' verification record does not grant execution rights.
+        let digest = crate::model_library::execution_digest(&self.executable)?;
+        let identity =
+            serde_json::to_vec(&(&self.executable, &digest)).map_err(|err| err.to_string())?;
+        let grant = data
+            .join("local-engines")
+            .join(format!("{id}-runtime-grant.json"));
+        if fs::read(&grant).ok().as_deref() == Some(&identity) {
+            return Ok(());
+        }
+        if !super::windows::confirm_runtime(&self.executable, &digest) {
+            return Err("未获准执行此运行时。可重新启动并核对程序来源。".into());
+        }
+        if digest != crate::model_library::execution_digest(&self.executable)? {
+            return Err("确认期间运行时已更改，请重新选择。".into());
+        }
+        fs::write(grant, identity).map_err(|err| format!("无法保存运行时授权：{err}"))
+    }
+
     pub(super) fn command(
         &self,
         profile: PortableProfile,
@@ -218,7 +239,7 @@ impl PortableInstall {
         data_dir: &Path,
     ) -> Result<Command, String> {
         let mut command = Command::new(&self.executable);
-        command.current_dir(self.executable.parent().ok_or("本地运行时没有目录。")?);
+        crate::model_library::prepare_runtime_environment(&mut command, &self.executable)?;
         // Never interpret paths or portable profile files as shell code.
         // Use the validated, single-slot SYCL profile shipped by this deployment.
         command.arg("-m").arg(&self.model).args([

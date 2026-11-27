@@ -3,9 +3,13 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -401,5 +405,105 @@ func TestChatToolsContinuesResponsesWithOriginalOutputItems(t *testing.T) {
 	}
 	if got := chatCalls.Load(); got != 1 {
 		t.Fatalf("chat transport tried %d times after selecting Responses", got)
+	}
+}
+
+func TestManagedDeploymentRejectsForeignLease(t *testing.T) {
+	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	outbound, err := net.DialTCP("tcp4", nil, listener.Addr().(*net.TCPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer outbound.Close()
+	inbound, err := listener.AcceptTCP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inbound.Close()
+	serverPort := inbound.LocalAddr().(*net.TCPAddr).Port
+	clientPort := outbound.LocalAddr().(*net.TCPAddr).Port
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "local-engines"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	group := managedGroup(uint32(os.Getpid()))
+	lease := filepath.Join(dir, "local-engines", "custom-listener.json")
+	for _, data := range []string{
+		`{"desktop_pid":0,"pid":0,"model":"gguf-fixture"}`,
+		fmt.Sprintf(`{"desktop_pid":%d,"pid":%d,"group_pid":%d,"model":"gguf-other"}`, os.Getppid(), os.Getpid(), group),
+		fmt.Sprintf(`{"desktop_pid":%d,"pid":%d,"group_pid":%d,"model":"gguf-fixture"}`, os.Getppid(), os.Getppid(), group),
+		fmt.Sprintf(`{"desktop_pid":%d,"pid":%d,"group_pid":%d,"model":"gguf-fixture"}`, os.Getppid(), os.Getpid(), group+1),
+	} {
+		if err := os.WriteFile(lease, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := verifyModelListener(t.Context(), dir, "gguf-fixture", serverPort, clientPort, false); err == nil {
+			t.Fatal("accepted a lease without a matching owned listener")
+		}
+	}
+	if err := os.WriteFile(lease, []byte(fmt.Sprintf(`{"desktop_pid":%d,"pid":%d,"group_pid":%d,"model":"gguf-fixture"}`, os.Getppid(), os.Getpid(), group)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyModelListener(t.Context(), dir, "gguf-fixture", serverPort, clientPort, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyModelListener(t.Context(), dir, "gguf-fixture", serverPort, serverPort, false); err == nil {
+		t.Fatal("accepted a listening PID with no matching established peer")
+	}
+	if err := verifyModelListener(t.Context(), dir, "gguf-fixture", serverPort, clientPort, true); err == nil {
+		t.Fatal("accepted image data without verified live vision capability")
+	}
+	if err := os.WriteFile(lease, []byte(fmt.Sprintf(`{"desktop_pid":%d,"pid":%d,"group_pid":%d,"model":"gguf-fixture","vision":true}`, os.Getppid(), os.Getpid(), group)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyModelListener(t.Context(), dir, "gguf-fixture", serverPort, clientPort, true); err != nil {
+		t.Fatal(err)
+	}
+	p := &OpenAIProvider{baseURL: "http://127.0.0.1:18789/v1", client: &http.Client{}, libraryDirectory: dir}
+	if p.completionClient("gguf-fixture", false) == p.client {
+		t.Fatal("managed deployment bypassed the ownership check")
+	}
+	p.baseURL = "http://LOCALHOST.:18789/v1"
+	if p.completionClient("gguf-fixture", false) == p.client {
+		t.Fatal("localhost spelling bypassed the lease")
+	}
+	if p.completionClient("unrelated", false) != p.client {
+		t.Fatal("external configuration unexpectedly changed transport")
+	}
+}
+
+func TestRejectedTopPDoesNotRetryAuthFailure(t *testing.T) {
+	for _, code := range []int{400, 401} {
+		calls := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			calls++
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if calls == 1 {
+				if _, ok := body["top_p"]; !ok {
+					t.Error("explicit top_p missing")
+				}
+				w.WriteHeader(code)
+				fmt.Fprint(w, `{"error":"unsupported parameter top_p"}`)
+				return
+			}
+			if _, ok := body["top_p"]; ok {
+				t.Error("retried with rejected top_p")
+			}
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+		}))
+		p, _ := NewOpenAI(server.URL, "")
+		top := 0.8
+		_, err := p.Chat(t.Context(), "fixture", nil, ChatOptions{TopP: &top})
+		server.Close()
+		if code == 400 && (err != nil || calls != 2) || code == 401 && (err == nil || calls != 1) {
+			t.Fatalf("code=%d calls=%d err=%v", code, calls, err)
+		}
 	}
 }

@@ -2,6 +2,7 @@ mod commands;
 mod runtime;
 mod local_auth;
 mod local_engines;
+mod model_library;
 mod updates;
 mod platform;
 use commands::services::ServiceState;
@@ -33,6 +34,9 @@ pub fn run() {
             commands::gateway::delete_model,
             commands::gateway::test_model,
             commands::gateway::probe_model,
+            model_library::model_library_snapshot,
+            model_library::modify_model_library,
+            model_library::pick_model_library_files,
             local_engines::list_local_engines,
             local_engines::control_local_engine,
             local_engines::local_engine_log,

@@ -4,6 +4,7 @@ import { api, errMessage, type ModelConfig, type ModelDiagnostic } from '@/lib/a
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ProtocolFields } from './ProtocolFields';
 import { ConnectionDiagnostics } from './ConnectionDiagnostics';
 
 const providers = [
@@ -32,9 +33,14 @@ export function ModelForm({ onSaved, onCancel, initial }: {
   const [error, setError] = useState('');
   const inFlight = useRef(false);
   const update = (patch: Partial<ModelConfig>) => {
-    setForm(previous => ({ ...previous, ...patch }));
+    setForm(previous => {
+      const changedTarget = (['provider', 'model_name', 'base_url'] as const).some(key => patch[key] !== undefined && patch[key] !== previous[key]);
+      const reset = changedTarget ? { protocol_options: {}, supports_temperature: null, reset_temperature_support: true,
+        temperature: undefined, max_tokens: 0, max_tokens_field: '', tool_transport: '', metadata: undefined, context_length: undefined } : {};
+      return { ...previous, ...reset, ...patch };
+    });
     if (patch.provider !== undefined || patch.base_url !== undefined || patch.api_key !== undefined ||
-        patch.model_name !== undefined && result?.inference !== 'skipped') {
+        patch.protocol_options !== undefined || patch.supports_temperature !== undefined || patch.max_tokens_field !== undefined || patch.tool_transport !== undefined || patch.model_name !== undefined && result?.inference !== 'skipped') {
       setResult(undefined);
     }
     setError('');
@@ -66,7 +72,7 @@ export function ModelForm({ onSaved, onCancel, initial }: {
     <fieldset disabled={!!working} className="grid gap-3">
       <label className="ns-model-field">服务商<select className="ns-workspace-select" value={form.provider} onChange={event => {
         const provider = providers.find(item => item.id === event.target.value);
-        if (provider) update({ provider: provider.id, base_url: provider.url, model_name: '', api_key: '' });
+        if (provider) update({ provider: provider.id, base_url: provider.url, model_name: '', api_key: '', protocol_options: {}, supports_temperature: null, reset_temperature_support: true, max_tokens_field: '', tool_transport: '' });
       }}>{!choice && <option value={form.provider}>{form.provider}</option>}{providers.map(provider => <option key={provider.id} value={provider.id}>{provider.name}</option>)}</select></label>
       {!['ollama', 'openvino'].includes(form.provider) && <label className="ns-model-field">API 密钥<Input type="password" autoComplete="off" value={form.api_key ?? ''} placeholder={initial ? '留空保留已保存的密钥' : '按需填写'} onChange={event => update({ api_key: event.target.value })} /></label>}
       {initial?.credential && !form.api_key && <p role="status" className="text-xs text-text-2">{initial.credential.reason}</p>}
@@ -81,6 +87,7 @@ export function ModelForm({ onSaved, onCancel, initial }: {
           <label className="ns-model-field">接口地址<Input type="url" value={form.base_url} placeholder="https://api.example.com/v1" onChange={event => update({ base_url: event.target.value })} /></label>
           <label className="ns-model-field">显示名称<Input value={form.name} placeholder="默认使用模型 ID" onChange={event => update({ name: event.target.value })} /></label>
           <div className="grid gap-2 sm:grid-cols-2"><label className="ns-model-field">厂商<Input value={form.vendor ?? ''} placeholder="可选" onChange={event => update({ vendor: event.target.value })} /></label><label className="ns-model-field">模型系列<Input value={form.model_family ?? ''} placeholder="可选" onChange={event => update({ model_family: event.target.value })} /></label></div>
+          <ProtocolFields model={form} update={update} />
           <label className="text-xs text-text-2"><input type="checkbox" checked={makeDefault} disabled={Boolean(initial?.is_default)} onChange={event => setMakeDefault(event.target.checked)} /> 设为全局默认</label>
         </div>
       </details>

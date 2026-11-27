@@ -11,7 +11,7 @@ async function main() {
   await vite.listen();
   try {
     const { port } = vite.httpServer.address();
-    for (const script of ['tests/model-selection-ui.cjs', 'tests/local-model-switch-ui.cjs', 'tests/model-check-ui.cjs', 'tests/project-knowledge.cjs']) {
+    for (const script of ['tests/model-selection-ui.cjs', 'tests/local-model-switch-ui.cjs', 'tests/model-library-ui.cjs', 'tests/model-check-ui.cjs', 'tests/project-knowledge.cjs']) {
       const code = await new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [script], {
           env: { ...process.env, QA_URL: `http://127.0.0.1:${port}/`, QA_BROWSER: process.env.QA_BROWSER || 'chromium' },

@@ -195,6 +195,7 @@ func backupUpgrade(root, configPath string, cfg *AppConfig, previous, version st
 	}
 	for _, path := range []struct{ source, relative string }{
 		{configPath, "config.yaml"},
+		{filepath.Join(root, "model-library.v1.json"), "model-library.v1.json"},
 		{cfg.Gateway.ConfigPath, "models.yaml"},
 		{filepath.Join(dataDir, "workspace.sqlite"), "data/workspace.sqlite"},
 		{filepath.Join(dataDir, "workspace.sqlite-wal"), "data/workspace.sqlite-wal"},

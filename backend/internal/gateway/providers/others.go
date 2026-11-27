@@ -50,7 +50,7 @@ func (p *ClaudeProvider) Chat(ctx context.Context, model string, messages []Mess
 	}
 
 	temp := opts.Temperature
-	if temp == 0 {
+	if temp == 0 && !opts.ExplicitTemperature {
 		temp = 0.1
 	}
 	maxT := opts.MaxTokens
@@ -62,6 +62,9 @@ func (p *ClaudeProvider) Chat(ctx context.Context, model string, messages []Mess
 		"model":      model,
 		"messages":   anthropicMsgs,
 		"max_tokens": maxT,
+	}
+	if opts.TopP != nil {
+		body["top_p"] = *opts.TopP
 	}
 	if !opts.OmitTemperature {
 		body["temperature"] = temp
@@ -137,7 +140,7 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, model string, messages 
 	}
 
 	temp := opts.Temperature
-	if temp == 0 {
+	if temp == 0 && !opts.ExplicitTemperature {
 		temp = 0.1
 	}
 	maxT := opts.MaxTokens
@@ -150,6 +153,9 @@ func (p *ClaudeProvider) ChatStream(ctx context.Context, model string, messages 
 		"messages":   anthropicMsgs,
 		"max_tokens": maxT,
 		"stream":     true,
+	}
+	if opts.TopP != nil {
+		body["top_p"] = *opts.TopP
 	}
 	if !opts.OmitTemperature {
 		body["temperature"] = temp
@@ -285,7 +291,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, model string, messages []Mess
 	}
 
 	temp := opts.Temperature
-	if temp == 0 {
+	if temp == 0 && !opts.ExplicitTemperature {
 		temp = 0.1
 	}
 	maxT := opts.MaxTokens
@@ -294,6 +300,9 @@ func (p *GeminiProvider) Chat(ctx context.Context, model string, messages []Mess
 	}
 
 	generationConfig := map[string]interface{}{"maxOutputTokens": maxT}
+	if opts.TopP != nil {
+		generationConfig["topP"] = *opts.TopP
+	}
 	if !opts.OmitTemperature {
 		generationConfig["temperature"] = temp
 	}

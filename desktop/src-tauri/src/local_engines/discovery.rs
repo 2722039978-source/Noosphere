@@ -38,7 +38,7 @@ fn windows_path(executable: &str) -> Option<PathBuf> {
 
 #[cfg(windows)]
 fn ollama() -> Option<PathBuf> {
-    local_app("Programs/Ollama/ollama.exe").or_else(|| windows_path("ollama.exe"))
+    local_app("Programs/Ollama/ollama.exe")
 }
 
 #[cfg(target_os = "macos")]

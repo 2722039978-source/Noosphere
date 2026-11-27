@@ -34,6 +34,10 @@ func (m *Manager) registerAttachmentRoutes(mux *http.ServeMux) {
 			respond(w, http.StatusBadRequest, map[string]string{"error": "附件上传信息无效，请重新选择文件"})
 			return
 		}
+		if imageType(input.Name) != "" && input.Size > maxImageBytes {
+			respond(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "图片最大为 8 MiB"})
+			return
+		}
 		if input.Size > attachmentfile.MaxBytes {
 			respond(w, http.StatusRequestEntityTooLarge, map[string]string{"error": fmt.Sprintf("每份附件最多 %d MB，请缩小文件后重试", attachmentfile.MaxMiB)})
 			return

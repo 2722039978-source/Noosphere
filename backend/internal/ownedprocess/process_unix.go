@@ -10,13 +10,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
 
 const supervisorFlag = "--noosphere-owned-process"
+const llamaSupervisorFlag = "--noosphere-owned-llama"
 const ollamaSupervisorFlag = "--noosphere-owned-ollama"
 
 type processResult struct {
@@ -116,7 +119,7 @@ func startProcess(cmd *exec.Cmd, directory *os.File) (func() error, func(), erro
 // by the owning backend. It exits on the owner's control-pipe EOF, and never
 // sends a signal to a process group that it does not itself lead.
 func RunSupervisor() {
-	if len(os.Args) < 2 || (os.Args[1] != supervisorFlag && os.Args[1] != ollamaSupervisorFlag) {
+	if len(os.Args) < 2 || (os.Args[1] != supervisorFlag && os.Args[1] != ollamaSupervisorFlag && os.Args[1] != llamaSupervisorFlag) {
 		return
 	}
 	group, err := unix.Getpgid(0)
@@ -138,7 +141,15 @@ func RunSupervisor() {
 		_ = unix.Kill(0, unix.SIGKILL)
 	}()
 	if os.Args[1] == ollamaSupervisorFlag {
-		runOllamaSupervisor(os.Args[2:])
+		if len(os.Args) == 3 && filepath.Base(os.Args[2]) == "ollama" {
+			runEngine(os.Args[2], []string{"serve"}, false)
+		}
+		return
+	}
+	if os.Args[1] == llamaSupervisorFlag {
+		if len(os.Args) >= 4 {
+			runEngine(os.Args[2], os.Args[3:], true)
+		}
 		return
 	}
 	if len(os.Args) < 5 {
@@ -173,22 +184,31 @@ func RunSupervisor() {
 }
 
 // The desktop uses stdin for ownership and stdout for the listener PID.
-// Ollama's existing stdout and stderr logs both go to the desktop's log file.
-func runOllamaSupervisor(args []string) {
-	if len(args) != 1 || !filepath.IsAbs(args[0]) || filepath.Base(args[0]) != "ollama" {
-		fmt.Fprintln(os.Stderr, "invalid local Ollama executable")
+// Runtime output is redirected to the desktop log file.
+func runEngine(executable string, args []string, authorizedLibraries bool) {
+	if !filepath.IsAbs(executable) {
+		fmt.Fprintln(os.Stderr, "expected an absolute engine executable")
 		return
 	}
-	cmd := exec.Command(args[0], "serve")
+	cmd := exec.Command(executable, args...)
+	if authorizedLibraries && !strings.ContainsAny(filepath.Dir(executable), ":;") {
+		// The desktop verified this runtime directory. Use its companion
+		// libraries in the child, keeping the supervisor's own loader clean.
+		key := "LD_LIBRARY_PATH"
+		if runtime.GOOS == "darwin" {
+			key = "DYLD_LIBRARY_PATH"
+		}
+		cmd.Env = append(os.Environ(), key+"="+filepath.Dir(executable))
+	}
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, "start Ollama:", err)
+		fmt.Fprintln(os.Stderr, "start local engine:", err)
 		return
 	}
 	if _, err := fmt.Fprintln(os.Stdout, cmd.Process.Pid); err != nil {
 		return
 	}
 	if err := cmd.Wait(); err != nil {
-		fmt.Fprintln(os.Stderr, "Ollama exited:", err)
+		fmt.Fprintln(os.Stderr, "local engine exited:", err)
 	}
 }

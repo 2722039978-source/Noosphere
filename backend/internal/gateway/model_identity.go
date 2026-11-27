@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/noosphere/backend/internal/gateway/providers"
@@ -58,7 +59,17 @@ func (g *Gateway) syncDiscoveredModelMetadata(snapshot *ModelConfig, discovery p
 	family := strings.TrimSpace(identity.Family)
 	parameterSize := strings.TrimSpace(identity.ParameterSize)
 	quantization := strings.TrimSpace(identity.Quantization)
-	if family == "" && parameterSize == "" && quantization == "" {
+	features := ReportedFeatures{}
+	if snapshot.Provider == "ollama" && len(identity.Capabilities) > 0 {
+		state := func(name string) string {
+			if slices.Contains(identity.Capabilities, name) {
+				return "supported"
+			}
+			return "unsupported"
+		}
+		features = ReportedFeatures{Vision: state("vision"), Tools: state("tools"), Reasoning: state("thinking")}
+	}
+	if family == "" && parameterSize == "" && quantization == "" && features == (ReportedFeatures{}) && snapshot.Metadata == nil {
 		return nil
 	}
 
@@ -66,7 +77,7 @@ func (g *Gateway) syncDiscoveredModelMetadata(snapshot *ModelConfig, discovery p
 	// Replace the reported facts as one source snapshot. Retaining the old
 	// vendor/family when an alias points to a different model would misbrand it.
 	// User overrides remain in ModelConfig.Vendor and ModelFamily.
-	metadata := ModelMetadata{Family: family, ParameterSize: parameterSize, Quantization: quantization, Source: snapshot.Provider}
+	metadata := ModelMetadata{Features: features, Family: family, ParameterSize: parameterSize, Quantization: quantization, Source: snapshot.Provider}
 	if current.Metadata != nil && *current.Metadata == metadata {
 		return nil
 	}

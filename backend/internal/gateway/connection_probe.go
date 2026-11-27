@@ -142,7 +142,7 @@ func connectionEndpoints(model *ModelConfig) (probeEndpoints, string) {
 			endpoints.residency = origin + "/api/v1/models"
 			endpoints.legacyResidency = origin + "/api/v0/models"
 		}
-		if local && (u.Port() == "18787" || u.Port() == "18788") && (u.Path == "" || u.Path == "/v1") {
+		if local && (u.Port() == "18787" || u.Port() == "18788" || u.Port() == "18789") && (u.Path == "" || u.Path == "/v1") {
 			endpoints.health = origin + "/health"
 			endpoints.authoritative = true
 		}
@@ -681,6 +681,9 @@ func (g *Gateway) probeInference(ctx context.Context, model *ModelConfig, local,
 	if draft {
 		base, _, _ := connectionBase(model) // Validated before probe admission.
 		provider, err = providers.Get(model.Provider)(base, model.APIKey)
+		if local, ok := provider.(interface{ SetLibraryDirectory(string) }); ok {
+			local.SetLibraryDirectory(g.libraryDirectory())
+		}
 	} else {
 		provider, err = g.getOrCreateProvider(model)
 	}
@@ -694,15 +697,12 @@ func (g *Gateway) probeInference(ctx context.Context, model *ModelConfig, local,
 	if model.ContextLength > 0 && maxTokens > model.ContextLength/2 {
 		maxTokens = max(32, model.ContextLength/2)
 	}
-	opts := providers.ChatOptions{
-		MaxTokens: maxTokens, MaxTokensField: model.MaxTokensKey(),
-		OmitTemperature: !model.TemperatureEnabled(),
-	}
+	opts := model.chatOptions(0, maxTokens, "")
 	messages := []providers.Message{{Role: "user", Content: "What is 2 + 2? Please answer briefly."}}
 	finish := g.countInference(false)
 	response, err := provider.Chat(ctx, model.ModelName, messages, opts)
 	finish()
-	if err != nil && connectionProblem(err, false).code == "STREAM_REQUIRED" {
+	if err != nil && (model.ProtocolOptions.Streaming == nil || *model.ProtocolOptions.Streaming) && connectionProblem(err, false).code == "STREAM_REQUIRED" {
 		defer g.countInference(false)()
 		return probeStreamingInference(ctx, provider, model.ModelName, messages, opts)
 	}
@@ -771,11 +771,16 @@ func sameModelDeployment(previous *ModelConfig, provider, baseURL, modelName str
 func (g *Gateway) HandleProbeModel(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Model struct {
-			ID        string `json:"id"`
-			Provider  string `json:"provider"`
-			BaseURL   string `json:"base_url"`
-			ModelName string `json:"model_name"`
-			APIKey    string `json:"api_key"`
+			ProtocolOptions         *ProtocolOptions `json:"protocol_options"`
+			Temperature             *float64         `json:"temperature"`
+			SupportsTemperature     *bool            `json:"supports_temperature"`
+			ResetTemperatureSupport bool             `json:"reset_temperature_support"`
+			MaxTokensField          *string          `json:"max_tokens_field"`
+			ID                      string           `json:"id"`
+			Provider                string           `json:"provider"`
+			BaseURL                 string           `json:"base_url"`
+			ModelName               string           `json:"model_name"`
+			APIKey                  string           `json:"api_key"`
 		} `json:"model"`
 		Infer *bool `json:"infer"`
 	}
@@ -796,7 +801,25 @@ func (g *Gateway) HandleProbeModel(w http.ResponseWriter, r *http.Request) {
 			model.MaxTokensField = saved.MaxTokensField
 			model.SupportsTemperature = saved.SupportsTemperature
 			model.ContextLength = saved.ContextLength
+			model.ProtocolOptions = saved.ProtocolOptions
+			model.Temperature = saved.Temperature
 		}
+	}
+	if body.Model.ProtocolOptions != nil {
+		model.ProtocolOptions = *body.Model.ProtocolOptions
+	}
+	if body.Model.Temperature != nil {
+		model.Temperature = body.Model.Temperature
+	}
+	if body.Model.ResetTemperatureSupport || body.Model.SupportsTemperature != nil {
+		model.SupportsTemperature = body.Model.SupportsTemperature
+	}
+	if body.Model.MaxTokensField != nil {
+		model.MaxTokensField = *body.Model.MaxTokensField
+	}
+	if !validProtocolSettings(model.Temperature, &model.ProtocolOptions, &model.MaxTokensField, &model.ToolTransport) {
+		selectionReply(w, http.StatusBadRequest, map[string]string{"error": "模型协议参数无效"})
+		return
 	}
 	selectionReply(w, http.StatusOK, g.probeModel(r.Context(), &model, body.Infer == nil || *body.Infer, true))
 }

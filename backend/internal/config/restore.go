@@ -74,7 +74,7 @@ func RestoreData(snapshot, destination string) error {
 
 func isBackupPath(name string) bool {
 	switch name {
-	case "config.yaml", "models.yaml", "data/workspace.sqlite", "data/workspace.sqlite-wal", "data/workspace.sqlite-journal",
+	case "config.yaml", "models.yaml", "model-library.v1.json", "data/workspace.sqlite", "data/workspace.sqlite-wal", "data/workspace.sqlite-journal",
 		"data/model-engineering.sqlite", "data/model-engineering.sqlite-wal", "data/model-engineering.sqlite-journal":
 		return true
 	}

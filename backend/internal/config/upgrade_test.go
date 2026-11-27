@@ -215,8 +215,10 @@ func TestOfflineBackupRestoresCommittedWALAndAttachment(t *testing.T) {
 	cfg.Modules.Nebula.DataDir = filepath.Join(cfg.App.DataDir, "nebula")
 	cfg.Gateway.ConfigPath = filepath.Join(root, "models.yaml")
 	attachment := filepath.Join(cfg.App.DataDir, "chat-attachment-files", "original.bin")
+	const library = `{"version":1,"models":[{"id":"gguf-retained","path":"weights.gguf"}],"runtimes":[]}`
 	action := filepath.Join(cfg.App.DataDir, "agent-actions", "saved.json")
 	for path, content := range map[string]string{
+		filepath.Join(root, "model-library.v1.json"): library,
 		configPath:             "app:\n  data_dir: " + filepath.ToSlash(cfg.App.DataDir) + "\nfeature_flags: {preserve: true}\n",
 		cfg.Gateway.ConfigPath: "providers: [{id: fixture, encrypted_api_key: 'enc:v1:retained'}]",
 		attachment:             "retained attachment content",
@@ -279,6 +281,9 @@ func TestOfflineBackupRestoresCommittedWALAndAttachment(t *testing.T) {
 	}
 	if data, err := os.ReadFile(filepath.Join(destination, "models.yaml")); err != nil || !strings.Contains(string(data), "enc:v1:retained") {
 		t.Fatalf("restore lost stored credential: %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(destination, "model-library.v1.json")); err != nil || string(data) != library {
+		t.Fatalf("restored library %s: %v", data, err)
 	}
 	var history map[string]any
 	readJSON(t, filepath.Join(destination, "data", "agent-actions", "saved.json"), &history)

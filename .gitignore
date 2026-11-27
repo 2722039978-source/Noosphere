@@ -66,6 +66,7 @@ desktop/src-tauri/logs/
 !/LIMITATIONS.md
 !/CHANGELOG.md
 !/CROSS_PLATFORM_ACCEPTANCE.md
+!/MODEL_GUIDE.md
 
 # Local reference checkout and personal planning exports
 /RhineLabUI/
@@ -99,6 +100,9 @@ coverage/
 
 # 开发测试保留在本地，公开四个核心测试文件
 **/tests/
+!/frontend/tests/
+/frontend/tests/*
+!/frontend/tests/model-library-ui.cjs
 **/testdata/
 **/fixtures/
 *_test.go

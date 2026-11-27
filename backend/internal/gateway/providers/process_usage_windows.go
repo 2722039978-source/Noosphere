@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,22 @@ var (
 	pdhArray      = pdh.NewProc("PdhGetFormattedCounterArrayW")
 )
 
+func ownerTCPTable(family, class uintptr) []byte {
+	var size uint32
+	ret, _, _ := tcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, family, class, 0)
+	for attempt := 0; attempt < 3 && ret == uintptr(windows.ERROR_INSUFFICIENT_BUFFER); attempt++ {
+		if size < 4 || size > 8<<20 {
+			return nil
+		}
+		buf := make([]byte, size)
+		ret, _, _ = tcpTable.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)), 0, family, class, 0)
+		if ret == 0 && size >= 4 && int(size) <= len(buf) {
+			return buf[:size]
+		}
+	}
+	return nil
+}
+
 func listenerPID(addr *net.TCPAddr) uint32 {
 	if addr == nil || !addr.IP.IsLoopback() {
 		return 0
@@ -35,20 +52,14 @@ func listenerPID(addr *net.TCPAddr) uint32 {
 		ip = addr.IP.To16()
 		family, width, ipOffset, portOffset, pidOffset = windows.AF_INET6, 56, 0, 20, 52
 	}
-	var size uint32
 	const listeners = 3 // TCP_TABLE_OWNER_PID_LISTENER
-	ret, _, _ := tcpTable.Call(0, uintptr(unsafe.Pointer(&size)), 0, family, listeners, 0)
-	if ret != uintptr(windows.ERROR_INSUFFICIENT_BUFFER) || size < 4 || size > 8<<20 {
-		return 0
-	}
-	buf := make([]byte, size)
-	ret, _, _ = tcpTable.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)), 0, family, listeners, 0)
-	if ret != 0 || size < 4 || int(size) > len(buf) {
+	buf := ownerTCPTable(family, listeners)
+	if buf == nil {
 		return 0
 	}
 	var wildcardPID uint32
 	rows := int(binary.LittleEndian.Uint32(buf[:4]))
-	for offset, i := 4, 0; i < rows && offset+width <= int(size); offset, i = offset+width, i+1 {
+	for offset, i := 4, 0; i < rows && offset+width <= len(buf); offset, i = offset+width, i+1 {
 		row := buf[offset : offset+width]
 		if int(binary.BigEndian.Uint16(row[portOffset:])) != addr.Port {
 			continue
@@ -186,3 +197,30 @@ func observeListenerUsage(parent context.Context, addr *net.TCPAddr) func() *Pro
 	})
 	return finish
 }
+
+func managedPeerMatches(_ context.Context, pid uint32, serverPort, clientPort int) bool {
+	const connections = 4 // TCP_TABLE_OWNER_PID_CONNECTIONS, IPv4
+	const established = 5 // MIB_TCP_STATE_ESTAB
+	buf := ownerTCPTable(windows.AF_INET, connections)
+	if buf == nil {
+		return false
+	}
+	rows := int(binary.LittleEndian.Uint32(buf[:4]))
+	const width = 24 // MIB_TCPROW_OWNER_PID
+	loopback := net.IPv4(127, 0, 0, 1).To4()
+	for at, i := 4, 0; i < rows && at+width <= len(buf); at, i = at+width, i+1 {
+		row := buf[at : at+width]
+		if binary.LittleEndian.Uint32(row) == established &&
+			bytes.Equal(row[4:8], loopback) && int(binary.BigEndian.Uint16(row[8:10])) == serverPort &&
+			bytes.Equal(row[12:16], loopback) && int(binary.BigEndian.Uint16(row[16:18])) == clientPort {
+			return binary.LittleEndian.Uint32(row[20:]) == pid
+		}
+	}
+	return false
+}
+func lockManagedRequest(f *os.File) error {
+	return windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &windows.Overlapped{})
+}
+
+// Desktop retains the job and process handles while the lease is published.
+func managedGroup(pid uint32) uint32 { return pid }

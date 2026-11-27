@@ -95,7 +95,7 @@ func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowl
 		if err := validate(); err != nil {
 			return nil, err
 		}
-		attachments, err := manager.PrepareAttachments(ctx, ws.ID, args.SessionID, args.AttachmentTurn)
+		attachments, err := manager.PrepareModelAttachments(ctx, ws.ID, args.SessionID, args.AttachmentTurn, false)
 		if err != nil {
 			return nil, err
 		}

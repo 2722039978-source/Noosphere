@@ -65,7 +65,7 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 		maxTokens = 2048
 	}
 	temperature := opts.Temperature
-	if temperature == 0 {
+	if temperature == 0 && !opts.ExplicitTemperature {
 		temperature = 0.1
 	}
 	build := func(o ChatOptions) map[string]interface{} {
@@ -74,17 +74,17 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 			"tool_choice": "auto", "stream": false,
 		}
 		p.applyChatOptions(body, model, temperature, maxTokens, o)
-		if p.directResponse {
+		if p.directResponse && o.Reasoning == nil {
 			body["thinking"] = map[string]string{"type": "disabled"}
 		}
 		return body
 	}
-	resp, err := p.postChat(ctx, "/chat/completions", build, opts, 256*1024)
+	resp, err := p.postChat(ctx, "/chat/completions", build, opts, 256*1024, false)
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
 			// The upstream may only serve function tools over the Responses API.
-			if upstream.Status == 400 && prefersResponses(upstream.Detail) {
+			if opts.ToolTransport == "" && upstream.Status == 400 && prefersResponses(upstream.Detail) {
 				return p.chatToolsResponses(ctx, model, messages, tools, opts)
 			}
 			return nil, fmt.Errorf("structured tool request failed (HTTP %d); check model tool support and configuration: %s", upstream.Status, upstream.Detail)

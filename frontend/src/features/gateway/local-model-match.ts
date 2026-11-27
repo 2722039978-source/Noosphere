@@ -61,6 +61,7 @@ export function localModelChoices(configs: ModelConfig[], engines: LocalEngine[]
     const prior = choices.get(key)?.config;
     if (prior && rank(prior) >= rank(config)) continue;
     const engine = localEngineForModel(engines, config);
+    if (engine?.id === 'custom_llama' && !engine.models.some(item => item.id === config.model_name)) continue;
     const name = (config.name || config.model_name).replace(/（llama\.cpp）$/, '');
     choices.set(key, { key, name, target: config, config, engine });
   }
@@ -69,7 +70,7 @@ export function localModelChoices(configs: ModelConfig[], engines: LocalEngine[]
       const target = { provider: engine.provider, base_url: engine.base_url, model_name: model.id };
       const key = modelConnectionKey(target);
       const config = choices.get(key)?.config;
-      const name = (config?.name || model.name || model.id).replace(/（llama\.cpp）$/, '');
+      const name = ((engine.id === 'custom_llama' && model.name) || config?.name || model.name || model.id).replace(/（llama\.cpp）$/, '');
       choices.set(key, { key, name, target, config, engine, model });
     }
   }
@@ -80,23 +81,31 @@ export function localModelChoices(configs: ModelConfig[], engines: LocalEngine[]
   } : choice);
 }
 
+const managedGguf = new Set(['bonsai', 'deepseek_local', 'custom_llama']);
+
 export function portableConflict(engines: LocalEngine[], engine?: LocalEngine) {
-  const otherId = engine?.id === 'bonsai' ? 'deepseek_local' : engine?.id === 'deepseek_local' ? 'bonsai' : '';
-  return engines.find(item => item.id === otherId && (item.state === 'online' || item.state === 'starting' || item.code === 'PORT_IN_USE'));
+  if (!engine || !managedGguf.has(engine.id)) return undefined;
+  return engines.find(item => item.id !== engine.id && managedGguf.has(item.id) &&
+    (item.state === 'online' || item.state === 'starting' || item.code === 'PORT_IN_USE'));
+}
+
+export function modelIsOnline(choice?: LocalModelChoice) {
+  return choice?.engine?.state === 'online' && (choice.engine.id !== 'custom_llama' || choice.model?.loaded === true && !choice.model.needs_restart && choice.engine.managed);
 }
 
 export function needsModelSetup(choice: LocalModelChoice) {
-  return !choice.config || Boolean(choice.engine && (choice.engine.state !== 'online' || !choice.model));
+  return !choice.config || Boolean(choice.engine && (!modelIsOnline(choice) || !choice.model));
 }
 
 export function modelChoiceStatus(choice: LocalModelChoice) {
   if (choice.config?.enabled === false) return '已停用';
+  if (choice.model?.needs_restart) return '需重启';
   switch (choice.engine?.state) {
     case 'starting': return '启动中';
     case 'stopped': return '未启动';
     case 'missing': return '未找到引擎';
     case 'unavailable': return '暂不可用';
-    case 'online': return choice.model?.loaded ? '已加载' : choice.model ? '可加载' : '待验证';
+    case 'online': return choice.engine.id === 'custom_llama' && !modelIsOnline(choice) ? '未启动' : choice.model?.loaded ? '已加载' : choice.model ? '可加载' : '待验证';
     default: return '已配置';
   }
 }

@@ -1,12 +1,14 @@
 //! Discovery and ownership for external local model runtimes.
-mod portable;
 mod discovery;
+mod portable;
+mod request_lock;
 #[cfg(windows)]
 mod windows;
 
 use crate::commands::types::ApiError;
 use crate::runtime::{local_agent, BackendService, RuntimePaths};
-use portable::{canonical_local, PortableInstall, PortableProfile, BONSAI, DEEPSEEK};
+pub(crate) use portable::canonical_local;
+use portable::{PortableInstall, PortableProfile, BONSAI, DEEPSEEK};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -15,7 +17,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 
@@ -29,14 +31,16 @@ pub enum EngineId {
     LmStudio,
     Bonsai,
     DeepseekLocal,
+    CustomLlama,
 }
 
 impl EngineId {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::Ollama,
         Self::LmStudio,
         Self::Bonsai,
         Self::DeepseekLocal,
+        Self::CustomLlama,
     ];
 
     fn id(self) -> &'static str {
@@ -45,6 +49,7 @@ impl EngineId {
             Self::LmStudio => "lm_studio",
             Self::Bonsai => "bonsai",
             Self::DeepseekLocal => "deepseek_local",
+            Self::CustomLlama => "custom_llama",
         }
     }
 
@@ -54,6 +59,7 @@ impl EngineId {
             Self::LmStudio => "LM Studio",
             Self::Bonsai => BONSAI.name,
             Self::DeepseekLocal => DEEPSEEK.name,
+            Self::CustomLlama => "llama.cpp",
         }
     }
 
@@ -69,23 +75,27 @@ impl EngineId {
     }
 
     fn supported(self) -> bool {
+        if self == Self::CustomLlama {
+            return crate::platform::target().is_ok();
+        }
         matches!(self, Self::Ollama | Self::LmStudio) || self.portable().is_some()
     }
 
-    fn other_portable(self) -> Option<Self> {
-        match self {
-            Self::Bonsai => Some(Self::DeepseekLocal),
-            Self::DeepseekLocal => Some(Self::Bonsai),
-            _ => None,
-        }
+    fn loads_weights(self) -> bool {
+        self == Self::CustomLlama || self.portable().is_some()
     }
 
     fn port(self) -> u16 {
+        #[cfg(test)]
+        if let Some(ports) = lifecycle_tests::PORTS.get() {
+            return ports[self as usize];
+        }
         match self {
             Self::Ollama => 11434,
             Self::LmStudio => 1234,
             Self::Bonsai => 18787,
             Self::DeepseekLocal => 18788,
+            Self::CustomLlama => 18789,
         }
     }
 
@@ -118,6 +128,10 @@ pub struct LocalModel {
     name: String,
     downloaded: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    launch_identity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    needs_restart: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     loaded: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     vision: Option<bool>,
@@ -137,6 +151,8 @@ impl LocalModel {
             id: id.into(),
             name: name.into(),
             downloaded: true,
+            launch_identity: None,
+            needs_restart: None,
             loaded,
             vision,
         })
@@ -383,8 +399,16 @@ fn failed_observation(id: EngineId, problem: RequestFailure) -> Observation {
     }
 }
 
-fn inspect(id: EngineId) -> Observation {
-    if let Some(profile) = id.portable() {
+fn inspect(id: EngineId, alias: Option<&str>) -> Observation {
+    if !id.supported() || !socket_online(id.address()) {
+        return Observation::stopped();
+    }
+    if id.loads_weights() {
+        let profile = id.portable();
+        let expected = profile.map(|profile| profile.alias).or(alias);
+        if expected.is_none() {
+            return failed_observation(id, RequestFailure::Protocol);
+        }
         let health = match loopback_json(id, "/health") {
             Ok(value) if value["status"].as_str() == Some("ok") => true,
             Ok(_) => false,
@@ -392,14 +416,25 @@ fn inspect(id: EngineId) -> Observation {
         };
         if health {
             if let Ok(value) = loopback_json(id, "/v1/models") {
-                if let Some(mut model) = model_list(&value, "data")
-                    .and_then(|models| models.into_iter().find(|model| model.id == profile.alias))
-                {
-                    model.name = profile.name.into();
+                if let Some(mut model) = model_list(&value, "data").and_then(|models| {
+                    models
+                        .into_iter()
+                        .find(|model| Some(model.id.as_str()) == expected)
+                }) {
+                    if let Some(profile) = profile {
+                        model.name = profile.name.into();
+                    }
                     model.loaded = Some(true);
-                    model.vision = Some(false);
+                    let props = loopback_json(id, "/props").ok();
+                    model.vision = if profile.is_some() {
+                        Some(false)
+                    } else {
+                        props
+                            .as_ref()
+                            .and_then(|v| v["modalities"]["vision"].as_bool())
+                    };
                     let mut result = Observation::online(vec![model]);
-                    result.version = loopback_json(id, "/props").ok().and_then(|props| {
+                    result.version = props.and_then(|props| {
                         props["build_info"]
                             .as_str()
                             .filter(|version| version.len() <= 256)
@@ -407,6 +442,11 @@ fn inspect(id: EngineId) -> Observation {
                     });
                     return result;
                 }
+                return Observation::issue(
+                    "unavailable",
+                    "MODEL_ID_MISMATCH",
+                    "运行时未报告所选模型 ID。请确认运行时支持 --alias，然后重新启动。",
+                );
             }
         }
         return failed_observation(id, RequestFailure::Protocol);
@@ -471,14 +511,44 @@ fn inspect(id: EngineId) -> Observation {
 
 struct OwnedEngineProcess {
     child: Child,
+    listener_lease: Option<PathBuf>,
     #[cfg(unix)]
     engine_pid: u32,
     #[cfg(windows)]
     job: Option<crate::runtime::ProcessJob>,
 }
 
+impl OwnedEngineProcess {
+    fn pid(&self) -> u32 {
+        #[cfg(windows)]
+        {
+            self.child.id()
+        }
+        #[cfg(unix)]
+        {
+            self.engine_pid
+        }
+    }
+
+    fn publish_lease(&mut self, directory: &Path, alias: &str, vision: bool) -> Result<(), String> {
+        let path = directory.join("custom-listener.json");
+        let tmp = directory.join(format!(".listener-{}.tmp", crate::local_auth::new_token()?));
+        let record = json!({"desktop_pid": std::process::id(), "pid": self.pid(), "group_pid": self.child.id(), "model": alias, "vision": vision});
+        fs::write(&tmp, record.to_string()).map_err(|e| format!("无法保存监听进程身份：{e}"))?;
+        if let Err(e) = fs::rename(&tmp, &path) {
+            let _ = fs::remove_file(tmp);
+            return Err(format!("无法发布监听进程身份：{e}"));
+        }
+        self.listener_lease = Some(path);
+        Ok(())
+    }
+}
+
 impl Drop for OwnedEngineProcess {
     fn drop(&mut self) {
+        if let Some(path) = self.listener_lease.take() {
+            let _ = fs::remove_file(path);
+        }
         #[cfg(windows)]
         self.job.take();
         #[cfg(unix)]
@@ -493,16 +563,21 @@ struct Slot {
     process: Option<OwnedEngineProcess>,
     operation: Option<EngineAction>,
     error: Option<String>,
+    active_model: Option<String>,
+    active_identity: Option<String>,
+    requested_model: Option<String>,
+    cancelled: bool,
 }
 
 #[derive(Default)]
 struct EngineState {
     slots: HashMap<EngineId, Slot>,
     shutting_down: bool,
+    ollama_cache: Option<(Instant, Vec<LocalModel>)>,
 }
 
 #[derive(Clone, Default)]
-pub struct LocalEngines(Arc<Mutex<EngineState>>);
+pub struct LocalEngines(Arc<(Mutex<EngineState>, Condvar)>);
 
 struct Operation {
     manager: LocalEngines,
@@ -513,30 +588,61 @@ impl Drop for Operation {
     fn drop(&mut self) {
         if let Some(slot) = self.manager.state().slots.get_mut(&self.id) {
             slot.operation = None;
+            slot.requested_model = None;
+            self.manager.0 .1.notify_all();
         }
     }
 }
 
 impl LocalEngines {
     fn state(&self) -> MutexGuard<'_, EngineState> {
-        self.0.lock().unwrap_or_else(|error| error.into_inner())
+        self.0 .0.lock().unwrap_or_else(|error| error.into_inner())
     }
 
+    #[cfg(test)]
     fn begin(&self, id: EngineId, action: EngineAction) -> Result<Option<Operation>, ApiError> {
+        self.begin_model(id, action, None)
+    }
+
+    fn begin_model(
+        &self,
+        id: EngineId,
+        action: EngineAction,
+        model: Option<&str>,
+    ) -> Result<Option<Operation>, ApiError> {
         let mut state = self.state();
+        if action == EngineAction::Stop {
+            while let Some(slot) = state.slots.get_mut(&id).filter(|s| s.operation.is_some()) {
+                slot.cancelled = true;
+                state = self.0 .1.wait(state).unwrap_or_else(|err| err.into_inner());
+            }
+        }
         if state.shutting_down {
             return Err(ApiError::new("Noosphere 正在退出。"));
+        }
+        if id.loads_weights()
+            && state.slots.iter().any(|(other, slot)| {
+                other != &id && other.loads_weights() && slot.operation.is_some()
+            })
+        {
+            return Err(ApiError::new("另一项模型加载或切换正在进行，请稍后重试。"));
         }
         let slot = state.slots.entry(id).or_default();
         if let Some(pending) = slot.operation {
             if action == EngineAction::Start
-                && matches!(pending, EngineAction::Start | EngineAction::Restart | EngineAction::Switch)
+                && slot.requested_model.as_deref() == model
+                && matches!(
+                    pending,
+                    EngineAction::Start | EngineAction::Restart | EngineAction::Switch
+                )
             {
                 return Ok(None);
             }
             return Err(ApiError::new("本地引擎正在处理其他操作，完成后可重试。"));
         }
         slot.operation = Some(action);
+        slot.cancelled = false;
+        slot.requested_model = model.map(str::to_owned);
         Ok(Some(Operation {
             manager: self.clone(),
             id,
@@ -551,6 +657,7 @@ impl LocalEngines {
                 Ok(None) => {}
                 result => {
                     slot.process.take();
+                    slot.active_model = None;
                     slot.error = Some(match result {
                         Ok(Some(status)) => format!(
                             "{} 进程已退出（{}），可查看日志或重新启动。",
@@ -568,10 +675,7 @@ impl LocalEngines {
     fn tracked_listener_matches(&self, id: EngineId) -> Option<bool> {
         let state = self.state();
         let process = state.slots.get(&id)?.process.as_ref()?;
-        #[cfg(windows)]
-        let pid = process.child.id();
-        #[cfg(unix)]
-        let pid = process.engine_pid;
+        let pid = process.pid();
         #[cfg(unix)]
         {
             // The supervisor reports the engine PID. Require it to still
@@ -589,6 +693,45 @@ impl LocalEngines {
         self.tracked_listener_matches(id) == Some(true)
     }
 
+    fn ollama_inventory(&self) -> Vec<LocalModel> {
+        if let Some((_, rows)) = self
+            .state()
+            .ollama_cache
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < Duration::from_secs(30))
+        {
+            return rows.clone();
+        }
+        let rows = ollama_disk_models();
+        self.state().ollama_cache = Some((Instant::now(), rows.clone()));
+        rows
+    }
+
+    fn observe(&self, id: EngineId) -> Observation {
+        if id == EngineId::CustomLlama && !socket_online(id.address()) {
+            return Observation::stopped();
+        }
+        let owned = id == EngineId::CustomLlama && self.owns_listener(id);
+        self.observe_listener(id, owned)
+    }
+
+    fn observe_listener(&self, id: EngineId, owned: bool) -> Observation {
+        let alias = if id == EngineId::CustomLlama && owned {
+            self.state()
+                .slots
+                .get(&id)
+                .and_then(|s| s.active_model.clone())
+        } else {
+            None
+        };
+        inspect(id, alias.as_deref())
+    }
+
+    fn interrupted(&self, id: EngineId) -> bool {
+        let state = self.state();
+        state.shutting_down || state.slots.get(&id).is_some_and(|s| s.cancelled)
+    }
+
     fn snapshot(
         &self,
         id: EngineId,
@@ -597,8 +740,14 @@ impl LocalEngines {
         selected_directory: Option<&Path>,
     ) -> LocalEngine {
         let install = installation(id, data, selected_directory, workspace);
-        let observed = inspect(id);
         let prior_error = self.recent_exit(id);
+        let managed = self.owns_listener(id);
+        let observed = self.observe_listener(id, managed);
+        let records = if id == EngineId::CustomLlama {
+            crate::model_library::models(data)
+        } else {
+            Ok(Vec::new())
+        };
         let mut engine = LocalEngine {
             id,
             name: id.name(),
@@ -613,12 +762,17 @@ impl LocalEngines {
                 format!("{}/v1", id.origin())
             },
             installed: installed_or_online(&install, &observed),
-            can_start: (id == EngineId::Ollama && install.launcher.is_some()) || install.portable.is_some(),
-            managed: self.owns_listener(id),
+            can_start: (id == EngineId::Ollama && install.launcher.is_some())
+                || install.portable.is_some(),
+            managed,
             state: observed.state,
             supported: id.supported(),
             available: observed.state == "online",
-            verification: if observed.state == "online" { "service_identity" } else { "not_checked" },
+            verification: if observed.state == "online" {
+                "service_identity"
+            } else {
+                "not_checked"
+            },
             models: observed.models,
             version: observed.version,
             code: observed.code,
@@ -629,6 +783,41 @@ impl LocalEngines {
                 .as_ref()
                 .map(|portable| portable.directory.clone()),
         };
+        if id == EngineId::CustomLlama {
+            match records {
+                Ok(records) => {
+                    engine.installed |= !records.is_empty();
+                    engine.can_start = records.iter().any(|record| record.status == "ready");
+                    let active_identity = self
+                        .state()
+                        .slots
+                        .get(&id)
+                        .and_then(|s| s.active_identity.clone());
+                    for record in records {
+                        if let Some(row) = engine.models.iter_mut().find(|row| row.id == record.id)
+                        {
+                            row.name = record.name;
+                            row.needs_restart = Some(
+                                record.status != "ready"
+                                    || active_identity.as_deref()
+                                        != Some(record.launch_identity.as_str()),
+                            );
+                            row.launch_identity = Some(record.launch_identity);
+                        } else if let Some(mut row) =
+                            LocalModel::new(&record.id, &record.name, Some(false), None)
+                        {
+                            row.launch_identity = Some(record.launch_identity);
+                            engine.models.push(row);
+                        }
+                    }
+                }
+                Err(message) => {
+                    engine.state = "unavailable";
+                    engine.code = Some("LIBRARY_UNAVAILABLE");
+                    engine.error = Some(message);
+                }
+            }
+        }
         if !engine.supported {
             engine.state = "unavailable";
             engine.code = Some("PLATFORM_UNSUPPORTED");
@@ -644,8 +833,11 @@ impl LocalEngines {
                     Some(false),
                 ));
             }
-            if id == EngineId::Ollama && install.detected && matches!(engine.state, "stopped" | "starting") {
-                engine.models = ollama_disk_models();
+            if id == EngineId::Ollama
+                && install.detected
+                && matches!(engine.state, "stopped" | "starting")
+            {
+                engine.models = self.ollama_inventory();
             }
         }
         if engine.state == "stopped" {
@@ -665,8 +857,7 @@ impl LocalEngines {
                 engine.state = "missing";
             } else if id == EngineId::LmStudio {
                 engine.code = Some("EXTERNAL_SERVICE");
-                engine.error =
-                    Some("请在 LM Studio 中管理服务，再回到 Noosphere 连接。".into());
+                engine.error = Some("请在 LM Studio 中管理服务，再回到 Noosphere 连接。".into());
             }
         }
         engine
@@ -679,172 +870,311 @@ impl LocalEngines {
         data: &Path,
         directory: Option<&Path>,
         supervisor: Option<&Path>,
+        model: Option<&str>,
+        expected_identity: Option<&str>,
     ) -> Result<LocalEngine, ApiError> {
         if !id.supported() {
-            return Err(ApiError::new("此便携模型配置仅适用于 Windows x64。"));
+            return Err(ApiError::new("本平台不支持此运行配置。"));
         }
         if id == EngineId::LmStudio {
             return Err(ApiError::new("请在 LM Studio 中管理它的服务。"));
         }
-        let Some(operation) = self.begin(id, action)? else {
+        if id.portable().is_none() && directory.is_some() {
+            return Err(ApiError::new("请在模型库中选择独立的运行时。"));
+        }
+        if id == EngineId::CustomLlama && action != EngineAction::Stop && model.is_none() {
+            return Err(ApiError::new("请选择要启动的 GGUF 模型。"));
+        }
+        let Some(operation) = self.begin_model(id, action, model)? else {
             return Ok(self.snapshot(id, data, None, directory));
         };
         let result = (|| {
-            if id.portable().is_none() && directory.is_some() {
-                return Err("此引擎使用已安装的运行时。".into());
-            }
             #[cfg(windows)]
             let _portable_lock = id
-                .portable()
-                .map(|_| windows::PortableLock::acquire())
+                .loads_weights()
+                .then(windows::PortableLock::acquire)
                 .transpose()?;
-            if action == EngineAction::Switch {
-                return self.switch_portable(id, data, directory);
+            if action == EngineAction::Stop {
+                let _requests = if id == EngineId::CustomLlama {
+                    Some(request_lock::exclusive(data)?)
+                } else {
+                    None
+                };
+                return self.stop(id, data);
             }
-            if matches!(action, EngineAction::Stop | EngineAction::Restart) {
-                self.stop(id, data)?;
-            }
-            if matches!(action, EngineAction::Start | EngineAction::Restart) {
-                self.start(id, data, directory, supervisor)?;
-            }
-            Ok::<(), String>(())
+            self.load(
+                id,
+                action,
+                data,
+                directory,
+                supervisor,
+                model,
+                expected_identity,
+            )
         })();
+        if let Err(error) = &result {
+            self.state().slots.entry(id).or_default().error = Some(error.clone());
+        }
         drop(operation);
         result.map_err(ApiError::new)?;
         Ok(self.snapshot(id, data, None, directory))
     }
 
-    fn switch_portable(
+    fn load(
         &self,
         id: EngineId,
+        action: EngineAction,
         data: &Path,
         directory: Option<&Path>,
+        supervisor: Option<&Path>,
+        model: Option<&str>,
+        expected_identity: Option<&str>,
     ) -> Result<(), String> {
-        let other = id.other_portable().ok_or("此运行环境不支持便携模型切换。")?;
-        let target = inspect(id);
-        if target.state != "stopped" || !socket_online(other.address()) {
-            return self.start(id, data, directory, None);
+        self.recent_exit(id);
+        let observed = self.observe(id);
+        let same_model = id != EngineId::CustomLlama
+            || observed.models.iter().any(|m| Some(m.id.as_str()) == model);
+        if action != EngineAction::Restart && same_model && observed.state == "online" {
+            if id != EngineId::CustomLlama {
+                return Ok(());
+            }
+            let running = self
+                .state()
+                .slots
+                .get(&id)
+                .and_then(|s| s.active_identity.clone());
+            let unchanged = crate::model_library::models(data)?.iter().any(|record| {
+                Some(record.id.as_str()) == model
+                    && record.status == "ready"
+                    && running.as_deref() == Some(record.launch_identity.as_str())
+            });
+            if unchanged {
+                check_expected_identity(expected_identity, running.as_deref())?;
+                return Ok(());
+            }
+            if action == EngineAction::Start {
+                return Err("运行配置已更改。请切换或重新启动以应用设置。".into());
+            }
         }
-        self.recent_exit(other);
-        if !self.owns_listener(other) {
-            return Err(format!("请先在原应用中停止 {}，再切换模型。", other.name()));
+        if observed.state == "unavailable" && !self.owns_listener(id) {
+            return Err(observed
+                .error
+                .unwrap_or_else(|| "本机服务当前不可用。".into()));
         }
-        if installation(id, data, directory, None).portable.is_none() {
-            return Err("未找到所选模型的完整目录，请重新扫描。".into());
+        // Preflight the target before releasing an existing model.
+        let command = Self::prepare(id, data, directory, supervisor, model)?;
+        check_expected_identity(expected_identity, command.1.as_deref())?;
+        let mut previous = None;
+        for candidate in EngineId::ALL {
+            if candidate != id && !(id.loads_weights() && candidate.loads_weights()) {
+                continue;
+            }
+            self.recent_exit(candidate);
+            let tracked = self
+                .state()
+                .slots
+                .get(&candidate)
+                .is_some_and(|s| s.process.is_some());
+            if !tracked && !socket_online(candidate.address()) {
+                continue;
+            }
+            if !tracked || !self.owns_listener(candidate) {
+                return Err(format!(
+                    "端口 {} 的服务未由 Noosphere 管理。请从原应用停止服务。",
+                    candidate.port()
+                ));
+            }
+            if action != EngineAction::Switch
+                && !(action == EngineAction::Restart && id == candidate)
+            {
+                return Err(format!("{} 正在运行，请使用切换模型。", candidate.name()));
+            }
+            if previous.is_some() {
+                return Err("检测到多个本地引擎正在运行，请先手动停止。".into());
+            }
+            let state = self.state();
+            let slot = state
+                .slots
+                .get(&candidate)
+                .ok_or("原模型进程已退出，请刷新后重试。")?;
+            previous = Some((
+                candidate,
+                slot.active_model.clone(),
+                slot.active_identity.clone(),
+            ));
         }
-        // The caller holds the portable runtime lock across both operations.
-        let _stopping = self.begin(other, EngineAction::Stop)
-            .map_err(|error| error.message)?
-            .ok_or("另一个模型正在切换，请稍后重试。")?;
-        self.stop(other, data)?;
-        if let Err(error) = self.start(id, data, directory, None) {
-            return match self.start(other, data, None, None) {
-                Ok(()) => Err(format!("{error} 已恢复原模型服务。")),
-                Err(_) => Err(format!("{error} 原模型服务也未能恢复，可重新启动。")),
-            };
+        if self.interrupted(id) {
+            return Err("模型启动已取消。".into());
+        }
+        // This same OS lock is held shared by each live gateway connection.
+        // Retain it through rollback to prevent routing to a half-switched model.
+        let _requests = if id == EngineId::CustomLlama
+            || previous
+                .as_ref()
+                .is_some_and(|(old, _, _)| *old == EngineId::CustomLlama)
+        {
+            Some(request_lock::exclusive(data)?)
+        } else {
+            None
+        };
+        if let Some((old, _, _)) = &previous {
+            self.stop(*old, data)?;
+        }
+        if let Err(error) = self.launch(id, data, command, model, id) {
+            if let Some((old, alias, identity)) = previous.filter(|_| !self.interrupted(id)) {
+                // Reloading the prior alias on the same engine replaces the main log.
+                // Preserve the failing target's last 16 KiB before rollback.
+                if old == id {
+                    if let Ok(tail) = log_tail(&id.log(data)) {
+                        let _ = fs::write(id.log(data).with_extension("failed.log"), tail);
+                    }
+                }
+                let restored = Self::prepare(old, data, None, supervisor, alias.as_deref())
+                    .and_then(|cmd| {
+                        check_expected_identity(identity.as_deref(), cmd.1.as_deref())?;
+                        self.launch(old, data, cmd, alias.as_deref(), id)
+                    });
+                return match restored {
+                    Ok(()) => Err(format!("{error} 已恢复原模型服务。")),
+                    Err(restore_error) => Err(format!("{error} 恢复原模型失败：{restore_error}")),
+                };
+            }
+            return Err(error);
         }
         Ok(())
     }
 
-    fn start(&self, id: EngineId, data: &Path, directory: Option<&Path>, supervisor: Option<&Path>) -> Result<(), String> {
+    fn prepare(
+        id: EngineId,
+        data: &Path,
+        directory: Option<&Path>,
+        supervisor: Option<&Path>,
+        model: Option<&str>,
+    ) -> Result<(Command, Option<String>), String> {
         #[cfg(windows)]
         let _ = supervisor;
-        let status = inspect(id);
-        match status.state {
-            "online" => return Ok(()),
-            "starting" => return self.wait_ready(id),
-            "unavailable" => {
-                return Err(status
-                    .error
-                    .unwrap_or_else(|| "本机服务当前不可用。".into()))
-            }
-            _ => {}
+        fs::create_dir_all(data.join("local-engines")).map_err(|_| "无法创建本地引擎日志目录。")?;
+        #[cfg(windows)]
+        if id.loads_weights() && windows::low_available_memory() {
+            return Err("可用内存低于 512 MiB，请先释放内存再启动模型。".into());
+        }
+        if id == EngineId::CustomLlama {
+            let alias = model.ok_or("请选择要启动的模型。")?;
+            let spec = crate::model_library::resolve(data, alias)?;
+            let identity = spec.launch_identity.clone();
+            return Ok((
+                custom_command(spec, alias, id.port(), supervisor)?,
+                Some(identity),
+            ));
+        }
+        let install = installation(id, data, directory, None);
+        if let Some(profile) = id.portable() {
+            let portable = install
+                .portable
+                .ok_or("未发现已校验的本地权重和 SYCL 引擎，请选择完整的便携模型目录。")?;
+            #[cfg(windows)]
+            portable.authorize(data, id.id())?;
+            let command = portable.command(profile, id.port(), data)?;
+            portable.remember(data, id.id())?;
+            return Ok((command, None));
+        }
+        let exe = install.launcher.ok_or("未发现 Ollama，请安装后刷新。")?;
+        #[cfg(windows)]
+        let mut command = Command::new(exe);
+        #[cfg(windows)]
+        command.arg("serve");
+        #[cfg(unix)]
+        let mut command = {
+            let backend = supervisor.ok_or("应用内的本地引擎进程管理组件不可用，请检查安装包。")?;
+            let mut command = Command::new(backend);
+            command.arg("--noosphere-owned-ollama").arg(exe);
+            command
+        };
+        command
+            .current_dir(data)
+            .env("OLLAMA_HOST", "127.0.0.1:11434")
+            .env("OLLAMA_NO_CLOUD", "1")
+            .env_remove("OLLAMA_DEBUG")
+            .env_remove("OLLAMA_DEBUG_LOG_REQUESTS");
+        Ok((command, None))
+    }
+
+    fn launch(
+        &self,
+        id: EngineId,
+        data: &Path,
+        prepared: (Command, Option<String>),
+        model: Option<&str>,
+        operation_id: EngineId,
+    ) -> Result<(), String> {
+        if self.interrupted(operation_id) {
+            return Err("模型启动已取消。".into());
         }
         if TcpListener::bind(id.address()).is_err() {
             return Err(format!(
-                "本机端口 {} 已被占用，请先检查占用它的服务。",
+                "本机端口 {} 已被占用，请检查正在使用它的服务。",
                 id.port()
             ));
         }
-        let mut install = installation(id, data, directory, None);
-        fs::create_dir_all(data.join("local-engines")).map_err(|_| "无法创建本地引擎日志目录。")?;
-        if let Some(slot) = self.state().slots.get_mut(&id) {
-            slot.error = None;
+        if id == EngineId::CustomLlama {
+            if let Err(err) = fs::remove_file(data.join("local-engines/custom-listener.json")) {
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!("无法清理旧的模型进程身份：{err}"));
+                }
+            }
         }
-        let command = if let Some(profile) = id.portable() {
-            if let Some(other) = id.other_portable().filter(|other| socket_online(other.address())) {
-                return Err(format!(
-                    "另一套便携模型已占用端口 {}。请先在该模型原有入口停止服务，释放显存后再试。",
-                    other.port()
-                ));
-            }
-            #[cfg(windows)]
-            if windows::low_available_memory() {
-                return Err("可用内存低于 512 MiB，请先释放内存再启动模型。".into());
-            }
-            let portable = install
-                .portable
-                .take()
-                .ok_or("未发现完成校验的本地权重和 SYCL 引擎，请选择完整的便携模型目录。")?;
-            let command = portable.command(profile, id.port(), data)?;
-            portable.remember(data, id.id())?;
-            command
-        } else {
-            let exe = install.launcher.ok_or("未发现 Ollama，请安装后刷新。")?;
-            #[cfg(windows)]
-            let mut command = Command::new(exe);
-            #[cfg(windows)]
-            command.arg("serve");
-            #[cfg(unix)]
-            let mut command = {
-                let backend = supervisor.ok_or("应用内的本地引擎进程管理组件不可用，请检查安装包。")?;
-                let mut command = Command::new(backend);
-                command.arg("--noosphere-owned-ollama").arg(exe);
-                command
-            };
-            command
-                .current_dir(data)
-                .env("OLLAMA_HOST", "127.0.0.1:11434")
-                .env("OLLAMA_NO_CLOUD", "1")
-                .env_remove("OLLAMA_DEBUG")
-                .env_remove("OLLAMA_DEBUG_LOG_REQUESTS");
-            command
-        };
+        let (command, identity) = prepared;
         let process = spawn_owned(command, &id.log(data))?;
         {
             let mut state = self.state();
             if state.shutting_down {
                 return Err("Noosphere 正在退出。".into());
             }
-            state.slots.entry(id).or_default().process = Some(process);
+            let slot = state.slots.entry(id).or_default();
+            slot.active_model = model.map(str::to_owned);
+            slot.active_identity = identity;
+            slot.error = None;
+            slot.process = Some(process);
         }
-        if let Err(error) = self.wait_ready(id) {
-            let process = {
-                let mut state = self.state();
-                let slot = state.slots.entry(id).or_default();
-                slot.error = Some(error.clone());
-                slot.process.take()
-            };
+        let ready = self.wait_ready(id, operation_id).and_then(|observed| {
+            if id != EngineId::CustomLlama {
+                return Ok(());
+            }
+            let mut state = self.state();
+            let process = state
+                .slots
+                .get_mut(&id)
+                .and_then(|slot| slot.process.as_mut())
+                .ok_or("模型进程已结束。")?;
+            let alias = model.ok_or("缺少模型 ID。")?;
+            let vision = observed
+                .models
+                .iter()
+                .any(|m| m.id == alias && m.loaded == Some(true) && m.vision == Some(true));
+            process.publish_lease(&data.join("local-engines"), alias, vision)
+        });
+        if let Err(error) = ready {
+            let process = self.state().slots.entry(id).or_default().process.take();
             drop(process);
-            return Err(error);
+            return Err(explain_start_error(&id.log(data), error));
         }
         Ok(())
     }
 
-    fn wait_ready(&self, id: EngineId) -> Result<(), String> {
-        let timeout = if id.portable().is_some() { 300 } else { 45 };
+    fn wait_ready(&self, id: EngineId, operation_id: EngineId) -> Result<Observation, String> {
+        let timeout = if id.loads_weights() { 300 } else { 45 };
         let deadline = Instant::now() + Duration::from_secs(timeout);
         #[cfg(windows)]
         let mut low_ram_samples = 0;
         while Instant::now() < deadline {
-            if self.state().shutting_down {
-                return Err("Noosphere 正在退出。".into());
+            if self.interrupted(operation_id) {
+                return Err("模型启动已取消。".into());
             }
             if let Some(error) = self.recent_exit(id) {
                 return Err(error);
             }
             #[cfg(windows)]
-            if id.portable().is_some()
+            if id.loads_weights()
                 && self
                     .state()
                     .slots
@@ -860,14 +1190,14 @@ impl LocalEngines {
                     return Err("可用内存持续偏低，已停止本次模型加载。".into());
                 }
             }
-            let observed = inspect(id);
+            let observed = self.observe(id);
             if observed.state == "online" {
-                if self.tracked_listener_matches(id) == Some(false) {
+                if self.tracked_listener_matches(id) != Some(true) {
                     return Err("此端口的就绪响应来自其他进程，启动已中止。".into());
                 }
-                return Ok(());
+                return Ok(observed);
             }
-            if observed.code == Some("AUTH_REQUIRED") {
+            if matches!(observed.code, Some("AUTH_REQUIRED" | "MODEL_ID_MISMATCH")) {
                 return Err(observed.error.unwrap_or_default());
             }
             std::thread::sleep(POLL);
@@ -891,7 +1221,11 @@ impl LocalEngines {
             }
             std::thread::sleep(POLL);
         }
-        self.state().slots.entry(id).or_default().error = None;
+        let mut state = self.state();
+        let slot = state.slots.entry(id).or_default();
+        slot.error = None;
+        slot.active_model = None;
+        slot.active_identity = None;
         Ok(())
     }
 
@@ -901,8 +1235,99 @@ impl LocalEngines {
             state.shutting_down = true;
             std::mem::take(&mut state.slots)
         };
+        self.0 .1.notify_all();
         drop(slots); // Each retained job reclaims the process started by this app.
     }
+}
+
+fn log_tail(path: &Path) -> std::io::Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    const LIMIT: u64 = 16 * 1024;
+    file.seek(SeekFrom::Start(
+        file.metadata()?.len().saturating_sub(LIMIT),
+    ))?;
+    let mut bytes = Vec::new();
+    file.take(LIMIT).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn explain_start_error(path: &Path, error: String) -> String {
+    let Ok(bytes) = log_tail(path) else {
+        return error;
+    };
+    let log = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+    let hint = if ["out of memory", "failed to allocate", "not enough memory"]
+        .iter()
+        .any(|s| log.contains(s))
+    {
+        "内存或显存不足。请降低上下文长度或 GPU 卸载层数再试。"
+    } else if log.contains("unknown argument") || log.contains("invalid argument:") {
+        "当前运行时不支持启动参数。请检查高级设置或更换兼容版本。"
+    } else if log.contains("failed to load")
+        && (log.contains("mmproj") || log.contains("projector"))
+    {
+        "视觉投影器加载失败。请检查主模型与投影器是否配套。"
+    } else if log.contains("unknown model architecture")
+        || log.contains("unsupported model architecture")
+    {
+        "当前运行时不支持此模型架构。请更新运行时或选择其他模型。"
+    } else {
+        return error;
+    };
+    format!("{hint} {error}")
+}
+
+fn check_expected_identity(expected: Option<&str>, actual: Option<&str>) -> Result<(), String> {
+    if expected.is_some() && expected != actual {
+        return Err("模型或运行配置已更改，请刷新模型库并重新确认启动。".into());
+    }
+    Ok(())
+}
+
+fn custom_command(
+    spec: crate::model_library::LaunchSpec,
+    alias: &str,
+    port: u16,
+    supervisor: Option<&Path>,
+) -> Result<Command, String> {
+    #[cfg(windows)]
+    let mut command = {
+        let _ = supervisor;
+        Command::new(&spec.executable)
+    };
+    #[cfg(unix)]
+    let mut command = {
+        let backend = supervisor.ok_or("应用内的本地引擎进程管理组件不可用，请检查安装包。")?;
+        let mut command = Command::new(backend);
+        command.arg("--noosphere-owned-llama").arg(&spec.executable);
+        command
+    };
+    crate::model_library::prepare_runtime_environment(&mut command, &spec.executable)?;
+    command
+        .arg("-m")
+        .arg(&spec.model)
+        .arg("--alias")
+        .arg(alias)
+        .args([
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+            "-np",
+            "1",
+            "-c",
+            &spec.context.to_string(),
+        ]);
+    if let Some(layers) = spec.gpu_layers {
+        command.arg("-ngl").arg(layers.to_string());
+    }
+    if let Some(device) = spec.device {
+        command.arg("--device").arg(device);
+    }
+    if let Some(projector) = spec.projector {
+        command.arg("--mmproj").arg(projector);
+    }
+    Ok(command)
 }
 
 fn installed_or_online(install: &Installation, observed: &Observation) -> bool {
@@ -936,6 +1361,7 @@ fn spawn_owned(mut command: Command, path: &Path) -> Result<OwnedEngineProcess, 
         .map_err(|error| format!("启动本地引擎失败：{error}"))?;
     let process = OwnedEngineProcess {
         child,
+        listener_lease: None,
         #[cfg(unix)]
         engine_pid: 0,
         #[cfg(windows)]
@@ -965,16 +1391,25 @@ fn start_unix_engine(child: &mut Child) -> Result<u32, String> {
 
     let control = child.stdin.as_mut().ok_or("缺少本地引擎退出控制管道。")?;
     // Keep the write end in Child. The OS closes it even after a hard exit.
-    control.write_all(&[1]).map_err(|error| format!("无法启动本地引擎管理进程：{error}"))?;
+    control
+        .write_all(&[1])
+        .map_err(|error| format!("无法启动本地引擎管理进程：{error}"))?;
     let mut status = child.stdout.take().ok_or("缺少本地引擎状态管道。")?;
-    let mut pipe = libc::pollfd { fd: status.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+    let mut pipe = libc::pollfd {
+        fd: status.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
     // The private supervisor acknowledges the PID in one short pipe write.
     if unsafe { libc::poll(&mut pipe, 1, 5000) } <= 0 {
         return Err("本地引擎管理进程未报告状态，请查看日志。".into());
     }
     let mut reply = [0; 32];
-    let count = status.read(&mut reply).map_err(|error| format!("本地引擎启动状态读取失败：{error}"))?;
-    let pid = std::str::from_utf8(&reply[..count]).ok()
+    let count = status
+        .read(&mut reply)
+        .map_err(|error| format!("本地引擎启动状态读取失败：{error}"))?;
+    let pid = std::str::from_utf8(&reply[..count])
+        .ok()
         .and_then(|reply| reply.strip_suffix('\n'))
         .and_then(|reply| reply.parse::<libc::pid_t>().ok())
         .filter(|pid| *pid > 0)
@@ -1082,7 +1517,7 @@ fn valid_ollama_manifest(manifest: &Value, root: &Path) -> bool {
         && layers.iter().all(blob_exists)
 }
 
-fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, ApiError> {
+pub(crate) fn data_directory(app: &tauri::AppHandle) -> Result<PathBuf, ApiError> {
     if let Some(data) = app.state::<BackendService>().status().data_dir {
         return Ok(data.into());
     }
@@ -1129,6 +1564,8 @@ pub async fn control_local_engine(
     engine_id: EngineId,
     action: EngineAction,
     directory: Option<String>,
+    model: Option<String>,
+    expected_identity: Option<String>,
     state: tauri::State<'_, LocalEngines>,
 ) -> Result<LocalEngine, ApiError> {
     let state = state.inner().clone();
@@ -1144,6 +1581,8 @@ pub async fn control_local_engine(
             &data,
             directory.as_deref().map(Path::new),
             supervisor.as_deref(),
+            model.as_deref(),
+            expected_identity.as_deref(),
         )
     })
     .await
@@ -1157,24 +1596,21 @@ pub async fn local_engine_log(
 ) -> Result<Value, ApiError> {
     let path = engine_id.log(&data_directory(&app)?);
     tauri::async_runtime::spawn_blocking(move || {
-        let mut file = File::open(&path)
-            .map_err(|_| ApiError::new("本地引擎暂时没有 Noosphere 启动日志。"))?;
-        let length = file
-            .metadata()
-            .map_err(|_| ApiError::new("无法读取日志大小。"))?
-            .len();
-        let tail = 16 * 1024;
-        file.seek(SeekFrom::Start(length.saturating_sub(tail)))
-            .map_err(|_| ApiError::new("无法定位日志结尾。"))?;
-        let mut bytes = Vec::new();
-        file.take(tail)
-            .read_to_end(&mut bytes)
-            .map_err(|_| ApiError::new("无法读取引擎日志。"))?;
-        Ok(json!({"path": path, "content": String::from_utf8_lossy(&bytes)}))
+        let tail =
+            log_tail(&path).map_err(|_| ApiError::new("本地引擎暂时没有可读的启动日志。"))?;
+        let mut content = String::from_utf8_lossy(&tail).into_owned();
+        if let Ok(failure) = log_tail(&path.with_extension("failed.log")) {
+            content.push_str("\n\n上一次切换失败的日志\n");
+            content.push_str(&String::from_utf8_lossy(&failure));
+        }
+        Ok(json!({"path": path, "content": content}))
     })
     .await
     .map_err(|_| ApiError::new("读取引擎日志失败。"))?
 }
+
+#[cfg(test)]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {

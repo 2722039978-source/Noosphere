@@ -8,6 +8,7 @@ import { ModelConnectionWizard } from './ModelConnectionWizard';
 export function LocalModelsPage() {
   const navigate = useNavigate();
   const [search] = useSearchParams();
+  const target = search.get('target') ?? '';
   const requested = search.get('model');
   const { models, modelsReady, modelsError } = useBackend();
   const workspaceId = useWorkspaceStore(state => state.activeId);
@@ -19,7 +20,7 @@ export function LocalModelsPage() {
         <p>选择模型，启动后即可对话。</p>
       </header>
       {requested && !modelsReady && !modelsError ? <LoadingState label="正在查找所选模型…" /> :
-        <ModelConnectionWizard key={workspaceId + ':' + (preferred?.id ?? '')} preferred={preferred} standalone onUse={model => {
+        <ModelConnectionWizard key={workspaceId + ':' + (preferred?.id ?? target)} initialTarget={target} preferred={preferred} standalone onUse={model => {
           if (useWorkspaceStore.getState().activeId !== workspaceId) throw new Error('工作区已切换，请重新选择模型。');
           navigate(modelChatDestination(model));
         }} />}

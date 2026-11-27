@@ -3,13 +3,14 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"github.com/noosphere/backend/internal/gateway/providers"
 	"maps"
 	"slices"
 
 	"github.com/noosphere/backend/internal/workspaces"
 )
 
-func (g *Gateway) resolveChatAttachments(ctx context.Context, workspaceID, sessionID string, turn workspaces.AttachmentTurn, messages []map[string]string) ([]map[string]string, workspaces.AttachmentContext, error) {
+func (g *Gateway) resolveChatAttachments(ctx context.Context, model *ModelConfig, workspaceID, sessionID string, turn workspaces.AttachmentTurn, messages []map[string]string) ([]map[string]string, workspaces.AttachmentContext, error) {
 	var sources workspaces.AttachmentContext
 	if len(turn.IDs) == 0 {
 		return messages, sources, nil
@@ -22,7 +23,9 @@ func (g *Gateway) resolveChatAttachments(ctx context.Context, workspaceID, sessi
 		return nil, sources, fmt.Errorf("仅能将附件加入当前用户消息")
 	}
 	var err error
-	sources, err = g.workspaceManager.PrepareAttachments(ctx, workspaceID, sessionID, turn)
+	vision := model.visionEnabled() &&
+		(model.Provider == "openai_compatible" || model.Provider == "openai" || model.Provider == "ollama")
+	sources, err = g.workspaceManager.PrepareModelAttachments(ctx, workspaceID, sessionID, turn, vision)
 	if err != nil {
 		return nil, sources, err
 	}
@@ -31,4 +34,15 @@ func (g *Gateway) resolveChatAttachments(ctx context.Context, workspaceID, sessi
 	out[i] = maps.Clone(messages[i])
 	out[i]["content"] += sources.Prompt()
 	return out, sources, nil
+}
+
+func modelMessages(messages []map[string]string, imageURLs []string) []providers.Message {
+	out := make([]providers.Message, len(messages))
+	for i, m := range messages {
+		out[i] = providers.Message{Role: m["role"], Content: m["content"]}
+	}
+	if len(out) > 0 {
+		out[len(out)-1].ImageURLs = imageURLs
+	}
+	return out
 }
