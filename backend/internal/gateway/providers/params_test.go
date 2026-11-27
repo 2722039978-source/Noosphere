@@ -507,3 +507,33 @@ func TestRejectedTopPDoesNotRetryAuthFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestExplicitDeepSeekProtocolKeepsDirectAnswersOnProxyEndpoints(t *testing.T) {
+	for _, kind := range []string{"deepseek", "openai_compatible"} {
+		t.Run(kind, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if kind == "deepseek" {
+					var thinking struct{ Type string }
+					if err := json.Unmarshal(body["thinking"], &thinking); err != nil || thinking.Type != "disabled" {
+						t.Errorf("unexpected DeepSeek thinking setting: %s", body["thinking"])
+					}
+				} else if _, ok := body["thinking"]; ok {
+					t.Error("generic compatible endpoint received a DeepSeek-specific field")
+				}
+				fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+			}))
+			defer server.Close()
+			provider, err := Get(kind)(server.URL, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := provider.Chat(t.Context(), "fixture", nil, ChatOptions{}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

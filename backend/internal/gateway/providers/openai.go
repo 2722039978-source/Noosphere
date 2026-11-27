@@ -20,8 +20,8 @@ func init() {
 	Register("deepseek", func(baseURL, apiKey string) (LLMProvider, error) {
 		provider, err := NewOpenAI(baseURL, apiKey)
 		if err == nil {
-			endpoint, _ := url.Parse(baseURL)
-			provider.(*OpenAIProvider).directResponse = endpoint != nil && strings.EqualFold(endpoint.Hostname(), "api.deepseek.com")
+			// Provider type selects the DeepSeek wire protocol even behind a proxy.
+			provider.(*OpenAIProvider).directResponse = true
 		}
 		return provider, err
 	})
