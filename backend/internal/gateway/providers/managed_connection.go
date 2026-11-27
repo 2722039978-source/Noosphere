@@ -18,14 +18,35 @@ const managedAddress = "127.0.0.1:18789"
 
 func (p *OpenAIProvider) SetLibraryDirectory(directory string) { p.libraryDirectory = directory }
 
+func managedHost(baseURL, model string) string {
+	if !strings.HasPrefix(model, "gguf-") {
+		return ""
+	}
+	endpoint, err := url.Parse(baseURL)
+	if err != nil || endpoint.Port() != "18789" {
+		return ""
+	}
+	host := strings.TrimSuffix(endpoint.Hostname(), ".")
+	if strings.EqualFold(host, "localhost") || net.ParseIP(host).IsLoopback() {
+		return host
+	}
+	return ""
+}
+
+// IsManagedGGUF identifies the reserved desktop engine endpoint and catalog alias.
+func IsManagedGGUF(baseURL, model string) bool { return managedHost(baseURL, model) != "" }
+
 // Pin the newly connected socket before the HTTP transport can send headers or user data.
 // Read the current lease on each dial so a queued request cannot follow a model switch.
 func (p *OpenAIProvider) completionClient(model string, needsVision bool) *http.Client {
-	endpoint, err := url.Parse(p.baseURL)
-	if err != nil || !strings.HasPrefix(model, "gguf-") || !managedEndpoint(endpoint) {
+	host := managedHost(p.baseURL, model)
+	if host == "" {
 		return p.client
 	}
 	transport := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		if !strings.EqualFold(host, "localhost") && !net.ParseIP(host).Equal(net.IPv4(127, 0, 0, 1)) {
+			return nil, fmt.Errorf("此受管模型使用 127.0.0.1:18789，请核对连接地址")
+		}
 		if p.libraryDirectory == "" {
 			return nil, fmt.Errorf("无法验证本地模型进程，请从本地模型中心启动")
 		}
@@ -48,14 +69,6 @@ func (p *OpenAIProvider) completionClient(model string, needsVision bool) *http.
 		return &managedConn{Conn: conn, lock: lock}, nil
 	}}
 	return &http.Client{Transport: transport, Timeout: p.client.Timeout}
-}
-
-func managedEndpoint(endpoint *url.URL) bool {
-	if endpoint.Port() != "18789" {
-		return false
-	}
-	host := strings.TrimSuffix(endpoint.Hostname(), ".")
-	return strings.EqualFold(host, "localhost") || net.ParseIP(host).IsLoopback()
 }
 
 type managedConn struct {

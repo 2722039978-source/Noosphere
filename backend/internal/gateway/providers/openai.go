@@ -164,10 +164,10 @@ func (p *OpenAIProvider) postChat(ctx context.Context, path string, build func(C
 			return nil, fmt.Errorf("request: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		if p.apiKey != "" {
+		model, _ := body["model"].(string)
+		if p.apiKey != "" && !IsManagedGGUF(p.baseURL, model) {
 			req.Header.Set("Authorization", "Bearer "+p.apiKey)
 		}
-		model, _ := body["model"].(string)
 		resp, err := sendChatRequest(p.completionClient(model, needsVision), req)
 		if err != nil {
 			// A dropped connection is common on public relays and the request is

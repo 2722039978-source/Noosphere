@@ -579,3 +579,30 @@ func TestScopedImageAndProtocolOptionsAcrossReload(t *testing.T) {
 		t.Fatal("provider was not called")
 	}
 }
+
+func TestManagedGGUFDiagnosticsDoNotForwardSavedCredentials(t *testing.T) {
+	const key = "diagnostic-fixture-secret"
+	for _, tc := range []struct {
+		base  string
+		model string
+		want  string
+	}{
+		{"http://LOCALHOST.:18789/v1", "gguf-fixture", ""},
+		{"http://127.0.0.1:1234/v1", "gguf-fixture", "Bearer " + key},
+		{"http://127.0.0.1:18789/v1", "external-model", "Bearer " + key},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("Authorization"); got != tc.want {
+				t.Errorf("%s: unexpected probe credential forwarding", tc.base)
+			}
+			fmt.Fprint(w, `{"data":[]}`)
+		}))
+		m := &ModelConfig{Provider: "openai_compatible", ModelName: tc.model, BaseURL: tc.base, APIKey: key}
+		for _, path := range []string{"/health", "/v1/models"} {
+			if _, _, err := probeJSON(t.Context(), server.URL+path, m, true, nil); err != nil {
+				t.Error(err)
+			}
+		}
+		server.Close()
+	}
+}

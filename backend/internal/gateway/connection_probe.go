@@ -181,15 +181,19 @@ func probeJSON(ctx context.Context, endpoint string, model *ModelConfig, local b
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	switch model.Provider {
-	case "claude", "anthropic":
-		req.Header.Set("anthropic-version", "2023-06-01")
-		req.Header.Set("x-api-key", model.APIKey)
-	case "gemini", "google":
-		req.Header.Set("x-goog-api-key", model.APIKey)
-	default:
-		if model.APIKey != "" {
-			req.Header.Set("Authorization", "Bearer "+model.APIKey)
+	// GGUF managed by the desktop is keyless. Metadata probes run before
+	// ownership is established, including when an old record retains a key.
+	if !providers.IsManagedGGUF(model.BaseURL, model.ModelName) {
+		switch model.Provider {
+		case "claude", "anthropic":
+			req.Header.Set("anthropic-version", "2023-06-01")
+			req.Header.Set("x-api-key", model.APIKey)
+		case "gemini", "google":
+			req.Header.Set("x-goog-api-key", model.APIKey)
+		default:
+			if model.APIKey != "" {
+				req.Header.Set("Authorization", "Bearer "+model.APIKey)
+			}
 		}
 	}
 	resp, err := client.Do(req)
