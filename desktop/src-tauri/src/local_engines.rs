@@ -1612,6 +1612,9 @@ pub async fn local_engine_log(
 #[cfg(test)]
 mod lifecycle_tests;
 
+#[cfg(all(test, feature = "live-runtime-install", any(windows, all(target_os = "linux", target_arch = "x86_64"))))]
+pub(crate) mod live_gateway_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;

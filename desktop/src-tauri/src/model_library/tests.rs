@@ -342,6 +342,12 @@ fn stream_real_model(data: &Path, path: &Path) {
     }
     drop(server);
     assert!(std::net::TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_err());
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    crate::local_engines::live_gateway_tests::stream_managed_model(data, id);
+    #[cfg(windows)]
+    if std::env::var("NOOSPHERE_TEST_MANAGED_GATEWAY").as_deref() == Ok("1") {
+        crate::local_engines::live_gateway_tests::stream_managed_model(data, id);
+    }
 }
 
 #[test]
