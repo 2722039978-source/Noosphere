@@ -17,9 +17,9 @@ deb_version="$(node --input-type=module -e '
 package=noosphere-desktop
 desktop=/usr/bin/noosphere-desktop
 candidate="$packages/Noosphere-$version-linux-x64.deb"
-previous_version=0.9.0
+previous_version=1.0.0
 previous_name="Noosphere-$previous_version-linux-x64.deb"
-previous_sha256=bff82b339b17835c4bfb0a483ff23f76df255a868ef406cd648883ef1802fe59
+previous_sha256=371faa5a62eb0ba84f3796a93e5f6d30c82c40efd8267f1d5d4d24aaace70deb
 dpkg --compare-versions "$previous_version" lt "$deb_version"
 if dpkg-query -W "$package" &>/dev/null; then
   echo 'Debian upgrade verification requires a runner without an existing Noosphere package registration.' >&2

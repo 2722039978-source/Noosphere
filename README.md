@@ -28,14 +28,14 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 
 ## 开始使用
 
-1. 打开 [GitHub Releases](https://github.com/2722039978-source/Noosphere/releases/latest)，下载适用的软件包。Windows 可运行安装器，或完整解压 ZIP 后启动 `Noosphere.exe`，便携版使用系统 WebView2 Runtime。Linux 可用 `sudo apt install ./Noosphere-1.0.0-linux-x64.deb` 安装 deb，或给 AppImage 添加执行权限后启动。
+1. 打开 [GitHub Releases](https://github.com/2722039978-source/Noosphere/releases/latest)，下载适用的软件包。Windows 可运行安装器，或完整解压 ZIP 后启动 `Noosphere.exe`，便携版使用系统 WebView2 Runtime。Linux 可用 `sudo apt install ./Noosphere-1.0.1-linux-x64.deb` 安装 deb，或给 AppImage 添加执行权限后启动。
 2. 点击左侧文件夹图标打开项目。可以直接选择检测到的启动目录，也可以浏览到另一个本地目录。
 3. 从对话右下角选择模型。选中还没启动的本地模型时，可在弹窗中启动并验证。接入云端服务时，在「模型 → 高级管理 → 手动配置」填写连接信息，配置完成后从同一个模型菜单选择带「API」标识的模型。
 4. 直接提问，或点击回形针添加附件。先从「这个项目的入口在哪里」或「总结这份文档的要求」开始。
 
-1.0 正式发行面向 Windows x64 和 Linux x64。Linux 包在 Ubuntu 22.04 桌面环境验收。AppImage 普通启动需要 FUSE 和系统图形运行库，缺少 FUSE 时可用 `./Noosphere-1.0.0-linux-x64.AppImage --appimage-extract-and-run`。 [发行与验收状态](CROSS_PLATFORM_ACCEPTANCE.md)
+1.0 正式发行面向 Windows x64 和 Linux x64。Linux 包在 Ubuntu 22.04 桌面环境验收。AppImage 普通启动需要 FUSE 和系统图形运行库，缺少 FUSE 时可用 `./Noosphere-1.0.1-linux-x64.AppImage --appimage-extract-and-run`。 [发行与验收状态](CROSS_PLATFORM_ACCEPTANCE.md)
 
-### 开放式本地模型库（开发版）
+### 开放式本地模型库
 
 在「模型」选择「导入 GGUF」或「扫描目录」。选中模型后可授权已有 llama-server，或在应用中安装适合当前平台的运行时。可在高级设置中关联视觉投影器并选择设备，然后启动、切换或停止服务。普通对话支持向已确认视觉能力的模型发送 JPEG、PNG 图像。以上功能随本分支开发，稳定版下载对应上方的已发布版本。 [模型、运行时与兼容说明](MODEL_GUIDE.md)
 
@@ -73,7 +73,7 @@ noosphere-backend -config "<原应用数据目录>/config.yaml" -backup-data
 noosphere-backend -restore-data-from "<快照目录>" -restore-data-to "<尚不存在的新目录>"
 ```
 
-开发版快照同时包含本地模型注册表，权重、投影器和推理运行时需要单独保留。快照保存配置、SQLite 及其伴随文件、附件原件和任务库。恢复先核对清单与 SHA-256，再写入新目录。可用 `NOOSPHERE_DATA_DIR` 指定恢复目录并核对数据。需要回到 v0.9.0 时使用升级前快照与对应的 WebView 资料或会话 JSON。API 凭证由 Windows Credential Manager 或 Linux Secret Service 管理。需要跨机重新授权时，可从保留的模型连接记录继续配置。
+v1.0.1 快照同时包含本地模型注册表，权重、投影器和推理运行时需要单独保留。快照保存配置、SQLite 及其伴随文件、附件原件和任务库。恢复先核对清单与 SHA-256，再写入新目录。可用 `NOOSPHERE_DATA_DIR` 指定恢复目录并核对数据。需要回到 v0.9.0 时使用升级前快照与对应的 WebView 资料或会话 JSON。API 凭证由 Windows Credential Manager 或 Linux Secret Service 管理。需要跨机重新授权时，可从保留的模型连接记录继续配置。
 
 ## 开发和构建
 

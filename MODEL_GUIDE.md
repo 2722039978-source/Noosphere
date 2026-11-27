@@ -1,6 +1,6 @@
 # 模型使用指南
 
-本文对应开放模型库开发版。已发布的 v1.0.0 安装包及其验收范围见 [桌面发行验收](CROSS_PLATFORM_ACCEPTANCE.md)。
+本文适用于 v1.0.1。各平台验收范围见 [桌面发行验收](CROSS_PLATFORM_ACCEPTANCE.md)。
 
 ## 第一次使用 GGUF
 
