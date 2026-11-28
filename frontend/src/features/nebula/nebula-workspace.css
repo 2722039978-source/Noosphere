@@ -7,12 +7,13 @@
 .ns-nebula-page .ns-memory-editor-fields { min-width: 0; }
 .ns-nebula-page .ns-memory-editor-fields label { min-width: 150px; max-width: 100%; grid-template-columns: minmax(0, 1fr); }
 .ns-nebula-page .ns-memory-editor-fields select,
-.ns-nebula-page .ns-memory-editor-fields input { min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 38px; border-radius: 0; }
-.ns-nebula-page .ns-memory-editor textarea { min-height: 112px; border-radius: 0; background: var(--bg-input); }
+.ns-nebula-page .ns-memory-editor-fields input { min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 38px; border-radius: 8px; }
+.ns-nebula-page .ns-memory-editor textarea { min-height: 112px; border-radius: 8px; background: var(--bg-input); }
 .ns-memory-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ns-memory-filters > input { flex: 1; min-width: 200px; }
 .ns-memory-result-count { padding: 12px 0 0; font-size: 12px; color: var(--text-3); }
-.ns-knowledge-record { background: var(--bg-input); }
+.ns-knowledge-record { background: var(--bg-app); border-radius: 10px; transition: border-color 160ms var(--ns-ease-out), background-color 160ms var(--ns-ease-out); }
+.ns-knowledge-record:hover { border-color: color-mix(in srgb, var(--acc-nebula) 38%, var(--border-soft)); background: var(--bg-elevated); }
 .ns-nebula-history { margin-top: 16px; padding: 12px 0; border-top: 1px solid var(--border-soft); }
 .ns-nebula-history > summary, .ns-memory-advanced > summary { cursor: pointer; color: var(--text-2); }
 .ns-nebula-history > summary { font-size: 13px; }

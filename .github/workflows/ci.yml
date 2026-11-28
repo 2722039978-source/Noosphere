@@ -134,11 +134,11 @@ jobs:
           $Version = (Get-Content -LiteralPath 'scripts/build-config/VERSION' -Raw).Trim()
           $PowerShell = (Get-Process -Id $PID).Path
           $PreviousArgs = @()
-          if ($Version -eq '1.0.1') {
-            $Prior = Join-Path $env:RUNNER_TEMP 'Noosphere-1.0.0-windows-x64-setup.exe'
-            curl.exe --fail --location --retry 3 --silent --show-error --connect-timeout 30 --output $Prior 'https://github.com/2722039978-source/Noosphere/releases/download/v1.0.0/Noosphere-1.0.0-windows-x64-setup.exe'
+          if ($Version -eq '1.0.2') {
+            $Prior = Join-Path $env:RUNNER_TEMP 'Noosphere-1.0.1-windows-x64-setup.exe'
+            curl.exe --fail --location --retry 3 --silent --show-error --connect-timeout 30 --output $Prior 'https://github.com/2722039978-source/Noosphere/releases/download/v1.0.1/Noosphere-1.0.1-windows-x64-setup.exe'
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            $PreviousArgs = @('-PreviousInstaller', $Prior, '-PreviousVersion', '1.0.0', '-PreviousSHA256', '31f4c7ca6eaf1241f8b61b8406ab7abaa0553a676896f912846fdddefa400c09')
+            $PreviousArgs = @('-PreviousInstaller', $Prior, '-PreviousVersion', '1.0.1', '-PreviousSHA256', '827ae4ccd307bf75762b17b4c5afa7fe7ea8e4868db4663dd33b6a8ee9caeebe')
           }
           & $env:NOOSPHERE_CI_GSUDO --direct --integrity Medium $PowerShell -NoProfile -File ./scripts/verify-installer.ps1 -Installer "artifacts/$Version/Noosphere-$Version-windows-x64-setup.exe" @PreviousArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -246,7 +246,7 @@ jobs:
           xvfb-run -a dbus-run-session -- sudo --preserve-env=DISPLAY,XAUTHORITY,DBUS_SESSION_BUS_ADDRESS \
             unshare --net -- "$node_path" scripts/verify-native-unix.mjs "artifacts/$version/$NOOSPHERE_BUILD_TARGET" \
             --linux-netns "$(id -u)" "$(id -g)"
-      - name: Install Debian packages and verify v1.0.0 upgrade under X11
+      - name: Install Debian packages and verify v1.0.1 upgrade under X11
         if: runner.os == 'Linux'
         run: bash scripts/verify-debian-upgrade.sh "artifacts/$(cat scripts/build-config/VERSION)/$NOOSPHERE_BUILD_TARGET"
       - name: Save and reload a synthetic model credential using Linux Secret Service

@@ -2,11 +2,15 @@
   display: grid;
   gap: 10px;
   min-width: 0;
-  margin: 12px 0;
-  padding: 14px 16px;
+  margin: 14px 0;
+  padding: 15px 17px;
   border: 1px solid var(--border-soft);
+  border-left: 2.5px solid var(--acc-nebula, var(--brand));
+  border-radius: 12px;
   background: var(--bg-elevated);
+  box-shadow: var(--ns-shadow-soft);
   color: var(--text-1);
+  animation: ns-panel-enter 220ms var(--ns-ease-out) both;
 }
 .ns-conversation-memory:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .ns-conversation-memory-heading { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }

@@ -11,7 +11,13 @@
   min-width: 0;
   padding: 22px;
   border: 1px solid var(--border-soft);
-  background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: var(--ns-shadow-soft);
+  transition: border-color 180ms var(--ns-ease-out), box-shadow 200ms var(--ns-ease-out);
+}
+.ns-codelens-workspace .ns-codelens-stage:hover {
+  border-color: color-mix(in srgb, var(--acc-codelens) 38%, var(--border-soft));
 }
 
 .ns-codelens-evidence-grid {

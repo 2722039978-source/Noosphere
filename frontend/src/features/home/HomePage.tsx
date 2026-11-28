@@ -1,7 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, ArrowUpRight, BookOpen, Code2, Focus, Layers, MessageSquare, Search, Settings2, X, Activity, type LucideIcon } from 'lucide-react';
 import { WORKSPACE_MODULES, nextModuleIndex, searchModules, type WorkspaceModule } from '@/app/modules';
+import { describeRouteHandoff } from '@/app/handoff-meta';
 import { useBackend } from '@/hooks/useBackend';
 import { useExperienceStore } from '@/stores/experience-store';
 import { Button } from '@/components/ui/button';
@@ -74,8 +75,12 @@ export function HomePage() {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { navigate(path); return; }
     const index = WORKSPACE_MODULES.findIndex(item => item.to === path);
     if (index >= 0) setSelected(index);
+    const handoff = describeRouteHandoff(path);
     setSearchOpen(false); setInspecting(true); setDeparting(path);
-    departure.current = setTimeout(() => navigate(path, { state: { archiveHandoff: true } }), 760);
+    departure.current = setTimeout(() => {
+      departure.current = undefined;
+      navigate(path, { state: { archiveHandoff: handoff } });
+    }, 450);
   }, [navigate]);
   const followLink = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -104,10 +109,18 @@ export function HomePage() {
     return () => window.removeEventListener('keydown', keyboard);
   }, [searchOpen, module.to, enter, bootVisible, finishBoot, archiveReturn.phase]);
   const renderScene = sceneAllowed && graphics !== 'off' && !sceneFailed;
+  const departingHandoff = departing ? describeRouteHandoff(departing) : null;
   return <>
     <div onClickCapture={followLink} {...(bootVisible || departing ? { inert: '' } : {})}
+      style={{ '--module-accent': departingHandoff?.accent ?? module.accent } as CSSProperties}
       className={`ns-archive-app ${renderScene ? 'has-scene' : 'is-static'} ${inspecting ? 'is-inspecting' : ''} ${departing ? 'is-departing' : ''}`}>
-      {departing && <div className="ns-dossier-handoff is-departing" aria-hidden="true"><strong>{departing === '/settings' ? '设置' : feature.title}</strong></div>}
+      {departingHandoff && (
+        <div className="ns-dossier-handoff is-departing" style={{ '--module-accent': departingHandoff.accent } as CSSProperties} aria-hidden="true">
+          <span className="ns-handoff-kicker"><b>{departingHandoff.number}</b><span>{departingHandoff.english}</span></span>
+          <strong>{departingHandoff.title}</strong>
+          <i className="ns-handoff-rule" />
+        </div>
+      )}
       <a className="ns-skip-link" href="#archive-content" onClick={event => { event.preventDefault(); document.getElementById('archive-content')?.focus(); }}>跳到主要内容</a>
       <div className="ns-archive-visual" aria-hidden="true">
         {renderScene ? <Suspense fallback={<span className="ns-scene-loading">正在载入三维场景…</span>}>
@@ -130,7 +143,10 @@ export function HomePage() {
         <section className="ns-file-callout" aria-labelledby="intro-feature-title">
           <div className="ns-file-title" aria-live="polite" aria-atomic="true">
             <div className="ns-feature-copy" key={module.id}>
-              <span className="ns-feature-icon"><feature.Icon size={23} aria-hidden="true" /></span>
+              <div className="ns-feature-top-row">
+                <span className="ns-feature-icon"><feature.Icon size={21} aria-hidden="true" /></span>
+                <span className="ns-feature-kicker"><b>{module.number}</b><span>{module.english}</span></span>
+              </div>
               <h2 id="intro-feature-title">{feature.title}</h2>
               <p>{feature.description}</p>
             </div>

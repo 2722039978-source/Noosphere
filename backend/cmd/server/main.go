@@ -17,7 +17,7 @@ import (
 )
 
 // Version is the canonical build version. Overridden by -ldflags at build time.
-var Version = "1.0.1" // canonical source: scripts/build-config/VERSION
+var Version = "1.0.2" // canonical source: scripts/build-config/VERSION
 
 func main() {
 	ownedprocess.RunSupervisor()

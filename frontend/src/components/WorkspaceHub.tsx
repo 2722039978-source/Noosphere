@@ -45,7 +45,7 @@ function ProjectPanel({ onOpen }: { onOpen: (id: string) => void }) {
   const inFlight = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    void api.projectLaunchCandidate().then(path => { if (mounted.current) setCandidate(path ?? ''); }, () => {});
+    void api.projectLaunchCandidate().then(path => { if (mounted.current) setCandidate(typeof path === 'string' ? path : ''); }, () => {});
     return () => { mounted.current = false; };
   }, []);
 

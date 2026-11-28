@@ -23,6 +23,8 @@ interface Props {
   modelBusy?: boolean;
   initialAgentMode?: boolean;
   initialText?: string;
+  lifecycleState?: 'starting' | 'offline' | 'preparing' | 'waiting' | 'streaming' | 'settled' | 'idle';
+  lifecycleLabel?: string;
   streaming: boolean;
   busy?: boolean;
   blocked?: boolean;
@@ -38,7 +40,7 @@ export interface ChatSubmitOptions {
 }
 
 /** 概念稿输入框: 紧凑移动布局、宽阔桌面布局，底部附件/模式 + 右侧发送 */
-export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '', onModelChange, onConfigureModel, modelBusy, initialAgentMode = false, initialText = '', streaming, busy, blocked, onSend, onStop }: Props) {
+export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '', onModelChange, onConfigureModel, modelBusy, initialAgentMode = false, initialText = '', lifecycleState = 'idle', lifecycleLabel = '', streaming, busy, blocked, onSend, onStop }: Props) {
   const [text, setText] = useState(initialText);
   const [agentMode, setAgentMode] = useState(initialAgentMode);
   const [reviewedActions, setReviewedActions] = useState(false);
@@ -114,9 +116,11 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
   const remoteModel = selectedModel && !isLocalModel(selectedModel);
 
   return (
-    <div className="ns-chat-composer shrink-0">
+    <div className="ns-chat-composer shrink-0" data-lifecycle={lifecycleState}>
       <div className="ns-chat-rail">
-        <div className={`ns-chat-input-frame border bg-bg-elevated transition-colors focus-within:border-brand/55 ${dragging ? 'border-brand' : 'border-border-strong'}`}
+        <div
+          className={`ns-chat-input-frame ${dragging ? 'is-dragging' : ''} ${agentMode ? 'is-agent' : ''}`}
+          data-lifecycle={lifecycleState}
           onDragOver={event => {
             if (!event.dataTransfer.types.includes('Files')) return;
             event.preventDefault();
@@ -132,29 +136,36 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
             setDragging(false);
             if (canAttach) attachmentDraft.add(Array.from(event.dataTransfer.files));
           }}>
-          {dragging && <p className="px-4 pt-3 text-xs text-brand-bright">拖放到此处添加附件</p>}
+          <div className="ns-composer-signal-line" data-lifecycle={lifecycleState} aria-hidden="true"><i /></div>
+          {(streaming || lifecycleState === 'settled') && lifecycleLabel && (
+            <div role="status" className="ns-composer-telemetry" data-lifecycle={lifecycleState}>
+              <span className="ns-mini-orbit" data-mode={lifecycleState === 'streaming' ? 'streaming' : lifecycleState === 'settled' ? 'idle' : 'active'} aria-hidden="true"><i /><b /></span>
+              <span className="truncate">{lifecycleLabel}</span>
+            </div>
+          )}
+          {dragging && <p className="ns-composer-drop-hint">拖放到此处添加附件</p>}
           {attachmentDraft.error && <p role="alert" className="px-4 pt-3 text-xs text-err">{attachmentDraft.error}</p>}
-          {previousFiles && !attachmentDraft.files.length && !streaming && <div className="flex flex-wrap items-center gap-x-2 px-4 pt-2 text-xs text-text-3">
-            <button type="button" className="underline underline-offset-4" aria-pressed={!!reuse} onClick={() => setReuseMessageId(reuse ? undefined : previousFiles.id)}>
+          {previousFiles && !attachmentDraft.files.length && !streaming && <div className="ns-composer-reuse flex flex-wrap items-center gap-x-2 px-4 pt-2.5 text-xs text-text-3">
+            <button type="button" className="underline underline-offset-4 hover:text-text-1" aria-pressed={!!reuse} onClick={() => setReuseMessageId(reuse ? undefined : previousFiles.id)}>
               {reuse ? '移除上次附件' : '使用上次附件'}
             </button>
             {reuse && <span className="max-w-full truncate">{previousFiles.attachments?.map(file => file.name).join('、')} · 本次发送会引用所选附件</span>}
           </div>}
           {selectedModel && (capabilityBlocked || agentMode && !agentSupport.known) && <p role="status" className="px-4 pt-3 text-xs text-text-2" data-testid="chat-capability-note">{capabilityReason}</p>}
           {attachmentDraft.files.length > 0 || artifact ? (
-            <div className="flex flex-wrap gap-2 border-b border-border-subtle px-3 py-2.5" data-testid="chat-attachments">
-              {artifact && <span className="flex max-w-full items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-xs text-text-2">
+            <div className="ns-composer-attachments flex flex-wrap gap-2 border-b border-border-subtle px-4 py-2.5" data-testid="chat-attachments">
+              {artifact && <span className="ns-attachment-chip">
                 <span className="max-w-52 truncate">REA · {artifact.citation.title}</span>
                 <button type="button" aria-label="移除 REA 记录" onClick={() => useEvidenceDraft.getState().remove(artifact)}><X aria-hidden="true" className="size-3" /></button>
               </span>}
               {attachmentDraft.files.map(({ file, id, state }) => {
                 const processing = state.phase === 'reading' || state.phase === 'processing';
-                return <div key={id} className="flex max-w-full flex-wrap items-center gap-1.5 rounded-md bg-secondary px-2 py-1 text-xs text-text-2">
-                  <Paperclip aria-hidden="true" className="size-3.5" />
+                return <div key={id} className="ns-attachment-chip" data-phase={state.phase}>
+                  <Paperclip aria-hidden="true" className="size-3.5 text-brand" />
                   <span className="max-w-48 truncate" title={file.name}>{file.name}</span>
-                  {state.phase === 'reading' && <progress className="h-2 w-14" aria-label={`读取 ${file.name}`} value={state.progress} max={100} />}
-                  {state.phase === 'processing' && <span role="status">正在处理附件…</span>}
-                  {state.phase === 'ready' && <span role="status">可以发送</span>}
+                  {state.phase === 'reading' && <progress className="ns-attachment-progress" aria-label={`读取 ${file.name}`} value={state.progress} max={100} />}
+                  {state.phase === 'processing' && <span role="status" className="text-text-3">正在处理附件…</span>}
+                  {state.phase === 'ready' && <span role="status" className="text-ok">可以发送</span>}
                   {state.phase === 'failed' && <>
                     <span role="alert" className="text-err">{state.message}</span>
                     {state.retry && <button type="button" onClick={() => attachmentDraft.retry(id)} className="underline underline-offset-4" aria-label={`重试附件 ${file.name}`}>重试</button>}
@@ -162,14 +173,14 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
                   <button
                     type="button"
                     aria-label={`${processing ? '取消' : '移除'}附件 ${file.name}`}
-                    className="text-text-3 hover:text-text-1"
+                    className="ns-attachment-remove"
                     onClick={() => attachmentDraft.remove(id)}
                   >
                     <X aria-hidden="true" className="size-3" />
                   </button>
                 </div>;
               })}
-              {attachmentDraft.attachments.length > 0 && !remoteModel && <p className="w-full px-1 text-xs text-text-3">{hasImages ? '图像会随消息发送给所选模型。' : '相关文字节选会随消息发送给所选模型。'}</p>}
+              {attachmentDraft.attachments.length > 0 && !remoteModel && <p className="w-full px-0.5 text-[11.5px] text-text-3">{hasImages ? '图像会随消息发送给所选模型。' : '相关文字节选会随消息发送给所选模型。'}</p>}
             </div>
           ) : null}
           <textarea

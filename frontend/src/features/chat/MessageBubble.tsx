@@ -35,20 +35,20 @@ function CodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>)
   const lang = String(codeEl?.props?.className || "").match(/language-([\w-]+)/)?.[1] || "";
 
   return (
-    <div className="group/code my-3 overflow-hidden border border-border-subtle">
-      <div className="flex items-center justify-between border-b border-border-subtle bg-bg-app/70 px-3 py-1.5">
-        <span className="font-mono text-xs tracking-wide text-text-3 uppercase">
+    <div className="group/code my-3.5 overflow-hidden rounded-[10px] border border-border-soft shadow-soft">
+      <div className="flex items-center justify-between border-b border-border-subtle bg-bg-raised px-3.5 py-2">
+        <span className="font-mono text-[11px] tracking-[.08em] text-text-3 uppercase">
           {lang || "code"}
         </span>
         <button
           onClick={copy}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-text-3 transition-colors hover:text-text-1"
+          className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-text-3 transition-colors hover:bg-secondary hover:text-text-1"
         >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
           {copied ? "已复制" : "复制"}
         </button>
       </div>
-      <pre {...props} className="overflow-x-auto bg-[#171a1b] p-3.5 text-[12.5px] leading-relaxed text-[#e6e7e8]">
+      <pre {...props} className="overflow-x-auto bg-[#181715] p-4 text-[12.5px] leading-relaxed text-[#eae5dc]">
         {children}
       </pre>
     </div>
@@ -127,33 +127,38 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
 
   if (isUser) {
     return (
-      <div {...anchorProps} className={cn("ns-chat-message", highlightClass)}>
-        <div className="ns-chat-message-label"><span>你的消息</span></div>
-        <div className="ns-message-body whitespace-pre-wrap text-text-1">
-          {message.content}
+      <div {...anchorProps} className={cn("ns-chat-message ns-chat-message-user", highlightClass)}>
+        <div className="ns-user-card">
+          <div className="ns-chat-message-label"><span>你的消息</span></div>
+          <div className="ns-message-body whitespace-pre-wrap text-text-1">
+            {message.content}
+          </div>
+          {!!message.attachments?.length && <ul aria-label="消息附件" className="mt-2.5 flex flex-wrap gap-2 text-xs text-text-2">
+            {message.attachments.map(file => <li key={file.id} title={file.name} className="ns-msg-attachment-pill">
+              <Paperclip aria-hidden="true" className="size-3.5 shrink-0 text-brand" /><span className="truncate">{file.name}</span>
+            </li>)}
+          </ul>}
         </div>
-        {!!message.attachments?.length && <ul aria-label="消息附件" className="mt-2 flex flex-wrap gap-2 text-xs text-text-2">
-          {message.attachments.map(file => <li key={file.id} title={file.name} className="flex max-w-full items-center gap-1.5 rounded-md bg-secondary px-2 py-1">
-            <Paperclip aria-hidden="true" className="size-3.5 shrink-0" /><span className="truncate">{file.name}</span>
-          </li>)}
-        </ul>}
       </div>
     );
   }
 
   return (
-    <div {...anchorProps} className={cn("group ns-chat-message", highlightClass)}>
+    <div {...anchorProps} className={cn("group ns-chat-message ns-chat-message-assistant", message.streaming && "is-streaming", highlightClass)}>
       <div className="min-w-0">
         <div className="ns-chat-message-label">
-          <span>Noosphere</span>
+          <span className="ns-assistant-signature">
+            <i className="ns-assistant-dot" data-streaming={!!message.streaming} aria-hidden="true" />
+            Noosphere
+          </span>
           {!!message.contextCount && (
-            <Badge variant="info" className="text-xs">
+            <Badge variant="info" className="text-[11px]">
               {message.contextCount} 条参考依据
             </Badge>
           )}
           {message.status === "cancelled" && <Badge variant="secondary">已停止</Badge>}
           {message.error && (
-            <Badge variant="err" className="text-xs">
+            <Badge variant="err" className="text-[11px]">
               {message.error}
             </Badge>
           )}
@@ -169,25 +174,25 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
               {message.content}
             </Markdown>
           ) : (
-            <div className="flex items-center gap-2 py-0.5 text-text-3">
-              {message.streaming && <span className="ns-breathe size-1.5 bg-brand" />}
-              {message.streaming ? (message.agentProgress || (message.agentMode ? '正在准备 Agent 任务…' : '')) || (message.status === "preparing" ? "正在检索上下文…" : "正在等待模型响应…") : message.status === "cancelled" ? "已停止生成" : message.error ? "本次生成未完成，可重新尝试。" : "模型未返回内容。"}
+            <div className="ns-assistant-pending">
+              {message.streaming && <span className="ns-mini-orbit" aria-hidden="true"><i /><b /></span>}
+              <span>{message.streaming ? (message.agentProgress || (message.agentMode ? '正在准备 Agent 任务…' : '')) || (message.status === "preparing" ? "正在检索项目上下文…" : "等待首字输出…") : message.status === "cancelled" ? "已停止生成" : message.error ? "本次生成未完成，可重新尝试。" : "模型未返回内容。"}</span>
             </div>
           )}
           {message.streaming && message.content && (
-            <span className="ml-0.5 inline-block h-[14px] w-[7px] translate-y-[2px] animate-pulse rounded-[1px] bg-brand" />
+            <span className="ns-stream-caret" aria-hidden="true" />
           )}
         </div>
 
         {message.agentRunId && workspaceId && <AgentTaskRecord runId={message.agentRunId} workspaceId={workspaceId} showAnswer={!message.content} />}
         <MessageEvidence message={message} workspaceId={workspaceId} sessionId={sessionId} />
         {!message.streaming && onRegenerate && (
-          <div className="mt-3 flex gap-1">
+          <div className="ns-message-actions mt-3 flex gap-1">
             <button
               onClick={onRegenerate}
-              className="flex items-center gap-1 rounded-md py-1 pr-2 text-xs text-text-3 hover:text-text-1"
+              className="ns-message-action-btn"
             >
-              <RefreshCw size={11} />
+              <RefreshCw size={12} aria-hidden="true" />
               重新生成
             </button>
           </div>

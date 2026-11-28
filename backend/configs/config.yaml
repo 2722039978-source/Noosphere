@@ -1,7 +1,7 @@
 config_version: 1
 app:
   name: Noosphere
-  version: 1.0.1  # runtime version is set by the backend build
+  version: 1.0.2  # runtime version is set by the backend build
   data_dir: ./data
 
 server:

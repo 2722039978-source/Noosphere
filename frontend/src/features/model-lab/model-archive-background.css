@@ -99,15 +99,30 @@ html:not(.dark) .ns-reference-shell[data-model-archive-active="true"] > .ns-side
 
 .ns-reference-shell .ns-model-lab.ns-model-archive-page {
   position: relative;
-  max-width: none;
+  max-width: 1280px;
   min-height: 100%;
-  padding: 8px 28px 30px 26px;
+  padding: 28px 34px 44px;
   gap: 0;
 }
 
 .ns-model-archive-page .ns-model-archive-heading {
   position: relative;
-  padding: 0 18px;
+  padding: 0 0 18px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.ns-model-archive-page .ns-model-archive-heading::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 64px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--module-accent, var(--brand));
+  transform-origin: left;
+  animation: ns-rule-enter 440ms 40ms var(--ns-ease-settle) both;
 }
 
 .ns-model-archive-page .ns-model-archive-breadcrumb {
@@ -116,7 +131,7 @@ html:not(.dark) .ns-reference-shell[data-model-archive-active="true"] > .ns-side
   align-items: center;
   gap: 11px;
   color: var(--text-3);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 20px;
 }
 
@@ -127,21 +142,22 @@ html:not(.dark) .ns-reference-shell[data-model-archive-active="true"] > .ns-side
   opacity: .7;
 }
 
-.ns-model-archive-page .ns-model-archive-breadcrumb > span { color: #99948d; }
+.ns-model-archive-page .ns-model-archive-breadcrumb > span { color: var(--text-3); }
 
 .ns-model-archive-page .ns-model-archive-heading h1 {
-  margin: 14px 0 7px;
-  font-size: 50px;
-  font-weight: 600;
-  line-height: 1.18;
-  letter-spacing: -.045em;
+  margin: 0;
+  font-size: clamp(26px, 2.6vw, 34px);
+  font-weight: 620;
+  line-height: 1.24;
+  letter-spacing: -.035em;
 }
 
 .ns-model-archive-page .ns-model-archive-heading > p:last-child {
-  max-width: 780px;
+  max-width: 760px;
+  margin-top: 6px;
   color: var(--text-2);
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 13.5px;
+  line-height: 1.65;
 }
 
 /* Direct Lab/Reports/Release entry does not depend on the Hub's lazy stylesheet. */
@@ -190,14 +206,26 @@ html:not(.dark) .ns-reference-shell[data-model-archive-active="true"] > .ns-side
 
 .ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-surface {
   position: relative;
-  border: 1px solid light-dark(#8c81752e, var(--border-soft));
-  border-radius: 10px;
-  background: light-dark(#fcfbf8e3, var(--bg-elevated));
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: light-dark(rgba(255, 253, 249, .92), rgba(33, 32, 29, .92));
+  backdrop-filter: blur(8px);
   box-shadow: var(--ns-shadow-soft);
-  animation: none;
+  animation: ns-panel-enter 260ms var(--ns-ease-out) both;
 }
 
-.ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-surface::before { display: none; }
+.ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-surface::before {
+  display: block;
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 16px;
+  width: 28px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--module-accent, var(--brand));
+  opacity: .8;
+}
 .ns-reference-shell .ns-model-lab.ns-model-archive-page .ns-lab-panel { margin-bottom: 18px; }
 .ns-model-archive-page .ns-lab-panel > :last-child { margin-bottom: 0; }
 .ns-model-archive-page .ns-lab-notice { background: light-dark(#f0e7d9d9, color-mix(in srgb, var(--warn) 12%, var(--bg-raised))); }

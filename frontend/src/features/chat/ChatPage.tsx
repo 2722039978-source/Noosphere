@@ -60,6 +60,8 @@ function ChatConversation({ taskDraft }: { taskDraft: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
   const [showLatest, setShowLatest] = useState(false);
+  const [justSettled, setJustSettled] = useState(false);
+  const wasStreamingRef = useRef(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const intentEntry = `${location.key}:${location.search}`;
   // Capture the originating workspace once; a late metadata response cannot cross a workspace switch.
@@ -108,6 +110,21 @@ function ChatConversation({ taskDraft }: { taskDraft: boolean }) {
   const localStarting = localOperation?.key === identity && localOperation.busy || engine?.state === 'starting';
   const localChoice = effectiveModel && modelChoices.find(choice => choice.key === modelConnectionKey(effectiveModel));
   const localOffline = !!engine && !modelIsOnline(localChoice);
+  useEffect(() => {
+    if (streaming) {
+      wasStreamingRef.current = true;
+      setJustSettled(false);
+      return;
+    }
+    if (!wasStreamingRef.current) return;
+    wasStreamingRef.current = false;
+    const latestMessage = session?.messages[session.messages.length - 1];
+    if (latestMessage?.role === 'assistant' && (!latestMessage.status || latestMessage.status === 'completed') && latestMessage.content) {
+      setJustSettled(true);
+      const timer = setTimeout(() => setJustSettled(false), 1400);
+      return () => clearTimeout(timer);
+    }
+  }, [streaming, session?.id, session?.messages]);
   useEffect(() => {
     if (!identity) { localAttempt.current = ''; return; }
     if (!ready || !workspaceReady || !session || restoredSession !== session.id || effectiveModel?.enabled === false || !engine || !(engine.can_start ?? engine.installed) || !permission || setup || generation || competingEngine || localAttempt.current === identity) return;
@@ -278,31 +295,72 @@ function ChatConversation({ taskDraft }: { taskDraft: boolean }) {
   const title = taskDraft && !session?.messages.length ? '新建任务' : session?.messages.length ? session.title : '新对话';
   const lastUser = session?.messages.slice().reverse().find(message => message.role === 'user');
   const freshChat = !taskDraft && !session?.messages.length;
+  const lifecycleState: 'starting' | 'offline' | 'preparing' | 'waiting' | 'streaming' | 'settled' | 'idle' =
+    localStarting ? 'starting'
+      : streaming && generation ? generation.phase
+      : localOffline ? 'offline'
+      : justSettled ? 'settled'
+      : 'idle';
+  const lifecycleLabel =
+    streaming && generation ? generationLabel(generatingMessage, generation.phase)
+      : localStarting ? '正在启动本地模型…'
+      : justSettled ? '回复已完成'
+      : '';
+  const scrollToLatest = () => {
+    setSearchTarget(null);
+    nearBottom.current = true;
+    setShowLatest(false);
+    if (scrollRef.current) {
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
+    }
+  };
   return (
-    <div ref={pageRef} className="ns-chat flex h-full min-h-0">
+    <div ref={pageRef} className="ns-chat flex h-full min-h-0" data-chat-state={lifecycleState}>
       <div className="ns-chat-column flex min-w-0 flex-1 flex-col">
-        {freshChat ? <h1 className="sr-only">新对话</h1> : <header className="ns-chat-session-header shrink-0 border-b border-border-soft">
-          <div className="ns-chat-rail">
-            <p className="truncate text-xs leading-5 text-text-3">{workspaceName}</p>
-            <h1 className="mt-1 truncate text-text-1" title={title}>{title}</h1>
+        {freshChat ? <h1 className="sr-only">新对话</h1> : <header className="ns-chat-session-header shrink-0 border-b border-border-subtle">
+          <div className="ns-chat-rail ns-chat-header-inner">
+            <div className="min-w-0 flex-1">
+              <div className="ns-chat-header-kicker">
+                <span className="truncate">{workspaceName}</span>
+                {effectiveModel && <>
+                  <i aria-hidden="true" />
+                  <span className="truncate">{effectiveModel.name || effectiveModel.model_name}</span>
+                </>}
+              </div>
+              <h1 className="mt-0.5 truncate text-text-1" title={title}>{title}</h1>
+            </div>
+            {lifecycleState !== 'idle' && lifecycleState !== 'offline' && (
+              <div className="ns-chat-header-state" data-state={lifecycleState}>
+                {lifecycleState === 'settled'
+                  ? <CircleCheck size={13} aria-hidden="true" />
+                  : <span className="ns-mini-orbit" data-mode={lifecycleState === 'streaming' ? 'streaming' : 'active'} aria-hidden="true"><i /><b /></span>}
+                <span>{lifecycleState === 'settled' ? '已完成' : lifecycleState === 'streaming' ? '流式输出' : lifecycleState === 'starting' ? '启动模型' : lifecycleState === 'preparing' ? '检索上下文' : '等待首字'}</span>
+              </div>
+            )}
           </div>
         </header>}
         {modelSelectionError && <div role="alert" className="ns-chat-rail ns-form-error my-2"><span>{modelSelectionError}</span><Button variant="ghost" size="sm" onClick={()=>{if(intentPending&&intentResolution.status==='ready')void acceptModelIntent(intentResolution.model.id);else setRestoreAttempt(value=>value+1);}}>重试读取或切换</Button></div>}
-        {modelSelection && <p role="status" className="ns-chat-rail py-2 text-xs text-text-3">正在验证模型连接…</p>}
-        {(localOffline || localStarting) && <div className="ns-chat-rail flex flex-wrap items-center justify-between gap-2 border-b border-border-soft py-2 text-xs">
-          <span role="status">{localStarting ? '正在启动模型…' : localOperation?.key === identity && localOperation.error || ((engine ? localEngineName(engine) : '模型') + (engine?.state === 'stopped' ? ' 未启动' : ' 暂不可用'))}</span>
+        {modelSelection && <p role="status" className="ns-chat-rail ns-chat-status-strip"><span className="ns-mini-orbit" aria-hidden="true"><i /><b /></span>正在验证模型连接…</p>}
+        {(localOffline || localStarting) && <div className="ns-chat-rail ns-chat-engine-banner" data-starting={localStarting}>
+          <span role="status" className="flex min-w-0 items-center gap-2.5">
+            {localStarting ? <span className="ns-mini-orbit" aria-hidden="true"><i /><b /></span> : <i className="ns-engine-dot" aria-hidden="true" />}
+            <span className="truncate">{localStarting ? '正在启动模型…' : localOperation?.key === identity && localOperation.error || ((engine ? localEngineName(engine) : '模型') + (engine?.state === 'stopped' ? ' 未启动' : ' 暂不可用'))}</span>
+          </span>
           {!localStarting && <Button size="sm" variant="outline" disabled={!!generation || !!modelSelection} onClick={() => openSetup(effectiveModel)}>启动模型</Button>}
         </div>}
         {capabilityError && <p role="alert" className="ns-chat-rail ns-form-error my-2">{capabilityError}</p>}
         {intentPending && intentResolution.message && (
-          <div role={intentResolution.status === 'loading' ? 'status' : 'alert'} className="ns-chat-rail flex shrink-0 flex-wrap items-center gap-3 border-b border-border-soft py-3 text-xs">
+          <div role={intentResolution.status === 'loading' ? 'status' : 'alert'} className="ns-chat-rail ns-chat-status-strip">
+            {intentResolution.status === 'loading' && <span className="ns-mini-orbit" aria-hidden="true"><i /><b /></span>}
             <span className="min-w-0 flex-1">{intentResolution.message}</span>
             {intentResolution.status === 'unavailable' && <Button variant="outline" size="sm" onClick={() => { void loadModels(); }}>重试读取模型</Button>}
           </div>
         )}
         {otherGeneration && generation && (
-          <div role="status" className="ns-chat-rail flex flex-wrap items-center justify-between gap-2 border-b border-border-soft py-2 text-xs">
-            <span>「{sessions.find((item) => item.id === generation.sessionId)?.title ?? "其他会话"}」正在生成</span>
+          <div role="status" className="ns-chat-rail ns-chat-status-strip">
+            <span className="ns-mini-orbit" data-mode="streaming" aria-hidden="true"><i /><b /></span>
+            <span className="min-w-0 flex-1 truncate">「{sessions.find((item) => item.id === generation.sessionId)?.title ?? "其他会话"}」正在生成</span>
             <Button variant="ghost" size="sm" onClick={() => {
               useWorkspaceStore.getState().select(generation.workspaceId ?? 'local');
               selectHistory(generation.sessionId);
@@ -310,49 +368,80 @@ function ChatConversation({ taskDraft }: { taskDraft: boolean }) {
           </div>
         )}
         {hasSearchTarget && (
-          <div className="ns-chat-rail flex shrink-0 items-center justify-between gap-2 border-b border-border-soft py-2"><span role="status" className="text-xs text-text-3">已定位到匹配消息</span><Button variant="ghost" size="sm" onClick={latest}>返回最新消息</Button></div>
+          <div className="ns-chat-rail ns-chat-status-strip"><span role="status" className="min-w-0 flex-1 text-text-2">已定位到匹配消息</span><Button variant="ghost" size="sm" onClick={latest}>返回最新消息</Button></div>
         )}
-        <div key={`messages:${chatKey}`} ref={scrollRef} className="ns-project-chat-transition relative min-h-0 flex-1 overflow-y-auto" aria-label="对话消息" onScroll={() => {
-          const element = scrollRef.current;
-          if (!element) return;
-          const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
-          nearBottom.current = atBottom;
-          setShowLatest(!atBottom && !hasSearchTarget);
-        }}>
-          {!session?.messages.length && !memoryRevision ? (
-            <div className="ns-chat-rail ns-chat-empty flex min-h-full flex-col justify-center">
-              <BrandMark className="ns-welcome-mark" size="lg" />
-              <h2 className="text-text-1">{taskDraft ? '今天要完成什么？' : '开始对话'}</h2>
-              {taskDraft && <p className="mt-2 text-sm text-text-2">写下任务目标，可随时从侧栏查看进度。</p>}
-              {!taskDraft && <>
-                <p className="ns-welcome-description">与 AI 协作，完成代码、任务与项目工作。</p>
-                <div className="ns-welcome-actions" aria-label="对话快捷操作">
-                  <Link to="/codelens"><CodeXml aria-hidden="true" />分析代码</Link>
-                  <button type="button" disabled={!ready || !workspaceReady} onClick={() => {
-                    if (useChatStore.getState().newSession()) navigate('/chat?task=new');
-                  }}><CircleCheck aria-hidden="true" />执行任务</button>
-                  <button type="button" disabled={!workspaceReady} onClick={() => useUiStore.getState().setProjectPickerOpen(true)}><FolderOpen aria-hidden="true" />整理项目</button>
-                  <Link to="/nebula"><Bookmark aria-hidden="true" />管理记忆</Link>
+        <div className="ns-chat-stage relative flex min-h-0 flex-1 flex-col">
+          <div key={`messages:${chatKey}`} ref={scrollRef} className="ns-project-chat-transition relative min-h-0 flex-1 overflow-y-auto" aria-label="对话消息" onScroll={() => {
+            const element = scrollRef.current;
+            if (!element) return;
+            const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+            nearBottom.current = atBottom;
+            setShowLatest(!atBottom && !hasSearchTarget);
+          }}>
+            {!session?.messages.length && !memoryRevision ? (
+              <div className="ns-chat-rail ns-chat-empty flex min-h-full flex-col justify-center">
+                <div className="ns-welcome-emblem" aria-hidden="true">
+                  <i className="ns-welcome-ring ns-welcome-ring-a" />
+                  <i className="ns-welcome-ring ns-welcome-ring-b" />
+                  <BrandMark className="ns-welcome-mark" size="lg" />
                 </div>
-              </>}
-            </div>
-          ) : (
-            <Suspense fallback={<LoadingState label="正在打开对话…" />}>
-              <div className="ns-chat-rail ns-chat-messages" ref={onMessagesMount}>
-                {session?.messages.map((message) => (
-                  <MessageBubble key={message.id} message={message} workspaceId={session.workspaceId ?? 'local'} sessionId={session.id} highlightRequest={hasSearchTarget && searchTarget?.messageId === message.id ? searchTarget.request : undefined} scrollContainer={scrollRef}
-                    onRegenerate={message.id === lastAsstId && !generation && models.length ? () => send("", { regenerateFrom: message.id, agentMode: message.agentMode, reviewedActions: message.reviewedActions }) : undefined} />
-                ))}
-                <ConversationMemory key={chatKey} workspaceId={workspaceId} projectPath={projectPath} sessionId={session?.id} modelId={effectiveModel?.id} userMessage={lastUser} revisionRequest={memoryRevision} onCloseRevision={() => setMemoryRevision(undefined)} />
+                <p className="ns-welcome-kicker">
+                  <span>{workspaceName}</span>
+                  {effectiveModel && <>
+                    <i aria-hidden="true" />
+                    <span>{effectiveModel.name || effectiveModel.model_name}</span>
+                  </>}
+                </p>
+                <h2 className="text-text-1">{taskDraft ? '今天要完成什么？' : '开始对话'}</h2>
+                {taskDraft && <p className="ns-welcome-description">写下任务目标，可随时从侧栏查看执行进度与操作审批。</p>}
+                {!taskDraft && <>
+                  <p className="ns-welcome-description">与 AI 协作，完成代码分析、任务执行与项目长期记忆。</p>
+                  <div className="ns-welcome-actions" aria-label="对话快捷操作">
+                    <Link to="/codelens" className="ns-welcome-card">
+                      <span className="ns-welcome-card-icon"><CodeXml aria-hidden="true" /></span>
+                      <span className="ns-welcome-card-body"><strong>分析代码</strong><small>索引与定位源码符号</small></span>
+                    </Link>
+                    <button type="button" className="ns-welcome-card" disabled={!ready || !workspaceReady} onClick={() => {
+                      if (useChatStore.getState().newSession()) navigate('/chat?task=new');
+                    }}>
+                      <span className="ns-welcome-card-icon"><CircleCheck aria-hidden="true" /></span>
+                      <span className="ns-welcome-card-body"><strong>执行任务</strong><small>后台追踪与操作审批</small></span>
+                    </button>
+                    <button type="button" className="ns-welcome-card" disabled={!workspaceReady} onClick={() => useUiStore.getState().setProjectPickerOpen(true)}>
+                      <span className="ns-welcome-card-icon"><FolderOpen aria-hidden="true" /></span>
+                      <span className="ns-welcome-card-body"><strong>整理项目</strong><small>切换目录与默认模型</small></span>
+                    </button>
+                    <Link to="/nebula" className="ns-welcome-card">
+                      <span className="ns-welcome-card-icon"><Bookmark aria-hidden="true" /></span>
+                      <span className="ns-welcome-card-body"><strong>管理记忆</strong><small>维护项目约定与决策</small></span>
+                    </Link>
+                  </div>
+                </>}
               </div>
-            </Suspense>
+            ) : (
+              <Suspense fallback={<LoadingState label="正在打开对话…" />}>
+                <div className="ns-chat-rail ns-chat-messages" ref={onMessagesMount}>
+                  {session?.messages.map((message) => (
+                    <MessageBubble key={message.id} message={message} workspaceId={session.workspaceId ?? 'local'} sessionId={session.id} highlightRequest={hasSearchTarget && searchTarget?.messageId === message.id ? searchTarget.request : undefined} scrollContainer={scrollRef}
+                      onRegenerate={message.id === lastAsstId && !generation && models.length ? () => send("", { regenerateFrom: message.id, agentMode: message.agentMode, reviewedActions: message.reviewedActions }) : undefined} />
+                  ))}
+                  <ConversationMemory key={chatKey} workspaceId={workspaceId} projectPath={projectPath} sessionId={session?.id} modelId={effectiveModel?.id} userMessage={lastUser} revisionRequest={memoryRevision} onCloseRevision={() => setMemoryRevision(undefined)} />
+                </div>
+              </Suspense>
+            )}
+          </div>
+          {showLatest && (
+            <div className="ns-scroll-latest-wrap">
+              <Button size="sm" variant="outline" className="ns-scroll-latest" onClick={scrollToLatest}>
+                <ArrowDown data-icon="inline-start" aria-hidden="true" />返回最新消息
+              </Button>
+            </div>
           )}
         </div>
-        {showLatest && <div className="flex justify-center"><Button size="sm" variant="outline" onClick={latest}><ArrowDown data-icon="inline-start" />返回最新消息</Button></div>}
-        {streaming && generation && <div role="status" className="ns-chat-rail pt-2 text-xs text-text-3"><span className="mr-2 inline-block size-1.5 bg-brand" />{generationLabel(generatingMessage, generation.phase)}</div>}
         <ChatInput key={`composer:${chatKey}`} attachmentSessionId={composerSessionId} modelChoices={modelChoices} selectedModel={effectiveModel}
           onConfigureModel={() => openSetup(effectiveModel && isLocalModel(effectiveModel) ? effectiveModel : undefined)} initialAgentMode={taskDraft}
           initialText={taskDraft && location.state?.taskSessionId === session?.id && typeof location.state?.taskGoal === 'string' ? location.state.taskGoal : ''}
+          lifecycleState={lifecycleState} lifecycleLabel={lifecycleLabel}
           onModelChange={chooseModel} streaming={streaming} modelBusy={otherGeneration || !ready || !workspaceReady || !modelsReady || !!modelSelection || localStarting}
           busy={otherGeneration || !ready || !workspaceReady || intentPending || !!modelSelection || localStarting || (!!session && restoredSession !== session.id)} blocked={localOffline} onSend={send} onStop={() => { void cancelGeneration(); }} />
         <Dialog open={!!setup} onOpenChange={open => { if (!open) dismissSetup(); }}>

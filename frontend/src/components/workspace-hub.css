@@ -1,8 +1,8 @@
 .ns-workspace-trigger { flex-shrink: 0; max-width: 220px; font-size: 12px; }
 .ns-workspace-dialog { width: min(465px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
-.ns-workspace-select { width: 100%; min-width: 0; min-height: 36px; border: 1px solid var(--border-soft); border-radius: 6px; padding: 6px 8px; color: var(--text-1); background: var(--bg-elevated); font-size: 12px; }
-.ns-project-candidate { display: flex; width: 100%; align-items: center; gap: 10px; border: 1px solid var(--border-soft); border-radius: 7px; padding: 10px 12px; text-align: left; color: var(--text-2); }
-.ns-project-candidate:hover { background: var(--bg-elevated); }
+.ns-workspace-select { width: 100%; min-width: 0; min-height: 36px; border: 1px solid var(--border-soft); border-radius: 8px; padding: 6px 10px; color: var(--text-1); background: var(--bg-elevated); font-size: 12.5px; }
+.ns-project-candidate { display: flex; width: 100%; align-items: center; gap: 10px; border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 12px; text-align: left; color: var(--text-2); transition: background-color 150ms, border-color 150ms; }
+.ns-project-candidate:hover { background: var(--bg-elevated); border-color: var(--brand); }
 .ns-project-candidate > span { min-width: 0; display: grid; gap: 3px; }
 .ns-project-candidate strong { font-size: 13px; color: var(--text-1); }
 .ns-project-candidate small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
