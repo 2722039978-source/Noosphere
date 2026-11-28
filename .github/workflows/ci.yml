@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
-  DELIVERY_PLATFORMS: ${{ inputs.platforms || 'all' }}
+  DELIVERY_PLATFORMS: ${{ inputs.platforms || (startsWith(github.ref, 'refs/tags/v') && 'windows-linux' || 'all') }}
 
 jobs:
   plan:
@@ -143,11 +143,11 @@ jobs:
           $Version = (Get-Content -LiteralPath 'scripts/build-config/VERSION' -Raw).Trim()
           $PowerShell = (Get-Process -Id $PID).Path
           $PreviousArgs = @()
-          if ($Version -eq '1.0.2') {
-            $Prior = Join-Path $env:RUNNER_TEMP 'Noosphere-1.0.1-windows-x64-setup.exe'
-            curl.exe --fail --location --retry 3 --silent --show-error --connect-timeout 30 --output $Prior 'https://github.com/2722039978-source/Noosphere/releases/download/v1.0.1/Noosphere-1.0.1-windows-x64-setup.exe'
+          if ($Version -eq '1.1.0') {
+            $Prior = Join-Path $env:RUNNER_TEMP 'Noosphere-1.0.2-windows-x64-setup.exe'
+            curl.exe --fail --location --retry 3 --silent --show-error --connect-timeout 30 --output $Prior 'https://github.com/2722039978-source/Noosphere/releases/download/v1.0.2/Noosphere-1.0.2-windows-x64-setup.exe'
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            $PreviousArgs = @('-PreviousInstaller', $Prior, '-PreviousVersion', '1.0.1', '-PreviousSHA256', '827ae4ccd307bf75762b17b4c5afa7fe7ea8e4868db4663dd33b6a8ee9caeebe')
+            $PreviousArgs = @('-PreviousInstaller', $Prior, '-PreviousVersion', '1.0.2', '-PreviousSHA256', '8dbffcd6b4cb904f4921cb33b1b42b6f5fb43c23cb06863ccf75e0c66d395a4a')
           }
           & $env:NOOSPHERE_CI_GSUDO --direct --integrity Medium $PowerShell -NoProfile -File ./scripts/verify-installer.ps1 -Installer "artifacts/$Version/Noosphere-$Version-windows-x64-setup.exe" @PreviousArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -267,7 +267,7 @@ jobs:
           xvfb-run -a dbus-run-session -- sudo --preserve-env=DISPLAY,XAUTHORITY,DBUS_SESSION_BUS_ADDRESS \
             unshare --net -- "$node_path" scripts/verify-native-unix.mjs "artifacts/$version/$NOOSPHERE_BUILD_TARGET" \
             --linux-netns "$(id -u)" "$(id -g)"
-      - name: Install Debian packages and verify v1.0.1 upgrade under X11
+      - name: Install Debian packages and verify v1.0.2 upgrade under X11
         if: runner.os == 'Linux'
         run: bash scripts/verify-debian-upgrade.sh "artifacts/$(cat scripts/build-config/VERSION)/$NOOSPHERE_BUILD_TARGET"
       - name: Save and reload a synthetic model credential using Linux Secret Service
@@ -324,6 +324,62 @@ jobs:
           fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ inputs.platforms == 'windows-linux' && 'noosphere-windows-linux-preview' || 'noosphere-four-target-candidate' }}
+          name: ${{ env.DELIVERY_PLATFORMS == 'windows-linux' && 'noosphere-windows-linux-preview' || 'noosphere-four-target-candidate' }}
           path: candidate/*
           if-no-files-found: error
+
+  publish_release:
+    needs: [aggregate]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: noosphere-windows-linux-preview
+          path: release-assets
+      - name: Verify aggregated release checksums and prepare release notes
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          (cd release-assets && sha256sum --strict --check SHA256SUMS.txt)
+          python3 - <<'PY'
+          import os, pathlib, re
+          tag = os.environ["TAG_NAME"]
+          run_url = os.environ["RUN_URL"]
+          repo_url = os.environ["REPO_URL"]
+          changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(rf"^## {re.escape(tag)}[^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
+          m = pattern.search(changelog)
+          body = m.group(1).strip() if m else f"Noosphere {tag} 正式发布。"
+          footer = (
+              "\n\nWindows x64 可选安装器或完整便携 ZIP，Linux x64 可选 deb 或 AppImage。"
+              "Windows 安装器和 Linux deb 均验证了从上一稳定版原位升级。下载后可用 `SHA256SUMS.txt` 校验文件。"
+              f" [更新记录]({repo_url}/blob/{tag}/CHANGELOG.md) · [Windows 和 Linux 交付验收]({run_url})\n"
+          )
+          pathlib.Path("release-notes.md").write_text(body + footer, encoding="utf-8")
+          PY
+      - name: Publish GitHub Release with Windows and Linux assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          shopt -s nullglob
+          ASSETS=(release-assets/*)
+          test "${#ASSETS[@]}" -gt 0
+          EXTRA_ARGS=()
+          if [[ "$TAG_NAME" == *-rc.* ]]; then
+            EXTRA_ARGS+=(--prerelease)
+          fi
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "${ASSETS[@]}" --clobber
+            gh release edit "$TAG_NAME" --title "Noosphere $TAG_NAME" --notes-file release-notes.md
+          else
+            gh release create "$TAG_NAME" "${ASSETS[@]}" --title "Noosphere $TAG_NAME" --notes-file release-notes.md "${EXTRA_ARGS[@]}"
+          fi
