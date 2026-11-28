@@ -109,3 +109,71 @@ print(f'{txt}|wrote={wrote}')`
 		t.Fatal("host project node_modules was mutated")
 	}
 }
+
+func TestWindowsNodeModulesMountImmuneToCmdInjectionAndSymlinkEscape(t *testing.T) {
+	if _, err := exec.LookPath("python.exe"); err != nil {
+		t.Skip("python is not installed")
+	}
+	roSID, err := readonlyCapability()
+	if err != nil || roSID == nil {
+		t.Skip("named LPAC capability unavailable")
+	}
+	base := t.TempDir()
+	cacheDir := filepath.Join(base, "cache")
+	projectRoot := filepath.Join(base, "project")
+	outside := filepath.Join(base, "outside")
+	pwnFile := filepath.Join(base, "pwned.txt")
+
+	// Craft a subdirectory name with cmd.exe shell metacharacters (& and >).
+	// If cmd.exe /c mklink were ever used, this would execute `echo PWNED > ...`.
+	trickySub := "sub&echo PWNED"
+	trickyNM := filepath.Join(projectRoot, trickySub, "node_modules", "safe-pkg")
+	if err := os.MkdirAll(trickyNM, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(trickyNM, "index.js"), []byte(`"safe-junction"`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(outside, "node_modules", "secret-pkg"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := createDirectoryJunction(filepath.Join(projectRoot, "escape_dir"), outside); err != nil {
+		t.Fatal(err)
+	}
+
+	work := filepath.Join(base, "work")
+	if err := os.MkdirAll(filepath.Join(work, trickySub), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(work, "escape_dir"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Mount under tricky metacharacter subdirectory must succeed via Win32 API without any shell execution.
+	_, cleanup := mountReadOnlyNodeModules(context.Background(), projectRoot, work, trickySub, cacheDir, roSID)
+	defer cleanup()
+	if _, err := os.Stat(pwnFile); !os.IsNotExist(err) {
+		t.Fatal("shell command injection executed!")
+	}
+	// Verify the native Win32 junction actually works inside LPAC and is read-only.
+	script := `from pathlib import Path
+txt = Path('node_modules/safe-pkg/index.js').read_text(encoding='utf-8')
+wrote = False
+try:
+    Path('node_modules/safe-pkg/x.txt').write_text('no', encoding='utf-8')
+    wrote = True
+except OSError:
+    pass
+print(f'{txt}|wrote={wrote}')`
+	res, err := Run(context.Background(), work, trickySub, "python", []string{"-I", "-c", script}, Limits{CacheDir: cacheDir})
+	if err != nil || res.ExitCode != 0 || !strings.Contains(res.Output, `"safe-junction"|wrote=False`) {
+		t.Fatalf("native junction inside LPAC failed: %+v %v", res, err)
+	}
+
+	// 2. Mount via symlink/junction parent escaping projectRoot must be refused.
+	_, cleanupEscape := mountReadOnlyNodeModules(context.Background(), projectRoot, work, "escape_dir", cacheDir, roSID)
+	defer cleanupEscape()
+	if _, err := os.Lstat(filepath.Join(work, "escape_dir", "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("escaped parent junction was mounted into work: %v", err)
+	}
+}

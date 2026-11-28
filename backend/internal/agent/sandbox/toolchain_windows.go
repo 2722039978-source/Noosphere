@@ -458,13 +458,15 @@ func nodeModulesFingerprint(projectDir, nmDir string) string {
 
 // Mirror a project's node_modules into a read-only cache and expose it via a
 // temporary NTFS directory junction inside work for the duration of one command.
+// Every path component in both projectRoot and work is checked for symlink escapes,
+// and junctions are created via Win32 FSCTL_SET_REPARSE_POINT (no shell / cmd.exe).
 func mountReadOnlyNodeModules(ctx context.Context, projectRoot, work, cwd, cacheDir string, roSID *windows.SID) ([]string, func()) {
 	if projectRoot == "" || roSID == nil {
 		return nil, func() {}
 	}
 	candidates := []string{"."}
 	if cwd != "" && cwd != "." {
-		candidates = append([]string{filepath.FromSlash(cwd)}, candidates...)
+		candidates = append([]string{filepath.ToSlash(cwd)}, candidates...)
 	}
 	var junctions []string
 	var binPaths []string
@@ -473,32 +475,25 @@ func mountReadOnlyNodeModules(ctx context.Context, projectRoot, work, cwd, cache
 			_ = os.Remove(j)
 		}
 	}
-	systemDir, err := windows.GetSystemDirectory()
-	if err != nil {
-		return nil, cleanup
-	}
-	cmdExe := filepath.Join(systemDir, "cmd.exe")
 	for _, relDir := range candidates {
-		srcProjectDir := filepath.Join(projectRoot, relDir)
-		srcNM := filepath.Join(srcProjectDir, "node_modules")
-		st, err := os.Lstat(srcNM)
-		if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+		relNM := "node_modules"
+		if relDir != "." {
+			relNM = relDir + "/node_modules"
+		}
+		srcNM, ok := safeContainedRealDir(projectRoot, relNM)
+		if !ok {
 			continue
 		}
-		dstWorkDir := filepath.Join(work, relDir)
-		if dstSt, err := os.Stat(dstWorkDir); err != nil || !dstSt.IsDir() {
-			continue
-		}
-		dstNM := filepath.Join(dstWorkDir, "node_modules")
-		if _, err := os.Lstat(dstNM); err == nil {
+		srcProjectDir := filepath.Dir(srcNM)
+		dstNM, ok := safeContainedChildPath(work, relDir, "node_modules")
+		if !ok {
 			continue
 		}
 		cached, err := ensureCachedNodeModules(ctx, srcProjectDir, srcNM, cacheDir, roSID)
 		if err != nil || cached == "" {
 			continue
 		}
-		mk := exec.CommandContext(ctx, cmdExe, "/d", "/c", "mklink", "/J", dstNM, cached)
-		if outErr := mk.Run(); outErr != nil {
+		if err := createDirectoryJunction(dstNM, cached); err != nil {
 			continue
 		}
 		junctions = append(junctions, dstNM)

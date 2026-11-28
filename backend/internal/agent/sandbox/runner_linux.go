@@ -42,11 +42,6 @@ func resolveProgram(program, _ string) (string, error) {
 	return "", fmt.Errorf("程序未登记或未安装：%s", program)
 }
 
-func isRealDir(dir string) bool {
-	info, err := os.Lstat(dir)
-	return err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0
-}
-
 func launch(ctx context.Context, work, cwd, program string, args []string, out io.Writer, limits Limits) (int, error) {
 	exe, err := resolveProgram(program, limits.ProjectRoot)
 	if err != nil {
@@ -69,28 +64,32 @@ func launch(ctx context.Context, work, cwd, program string, args []string, out i
 	pathEnv := "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 	opts = append(opts, "--proc", "/proc", "--dev", "/dev", "--size", strconv.FormatInt(limits.DiskBytes, 10), "--tmpfs", "/tmp", "--dir", "/tmp/home", "--dir", "/tmp/cache", "--bind", work, "/work")
 	if limits.ProjectRoot != "" && (program == "node" || program == "npm" || program == "npx" || program == "pnpm" || program == "yarn") {
-		candidates := []string{"node_modules"}
+		candidates := []string{"."}
 		if cwd != "" && cwd != "." {
-			candidates = append([]string{filepath.Join(filepath.FromSlash(cwd), "node_modules")}, candidates...)
+			candidates = append([]string{filepath.ToSlash(cwd)}, candidates...)
 		}
-		for _, rel := range candidates {
-			src := filepath.Join(limits.ProjectRoot, rel)
-			dstWork := filepath.Join(work, rel)
-			if isRealDir(src) {
-				if _, err := os.Lstat(dstWork); os.IsNotExist(err) {
-					guestPath := filepath.ToSlash(filepath.Join("/work", rel))
-					opts = append(opts, "--ro-bind", src, guestPath)
-					pathEnv = guestPath + "/.bin:" + pathEnv
-				}
+		for _, relDir := range candidates {
+			relNM := "node_modules"
+			if relDir != "." {
+				relNM = relDir + "/node_modules"
 			}
+			src, ok := safeContainedRealDir(limits.ProjectRoot, relNM)
+			if !ok {
+				continue
+			}
+			if _, ok := safeContainedChildPath(work, relDir, "node_modules"); !ok {
+				continue
+			}
+			guestPath := "/work/" + relNM
+			opts = append(opts, "--ro-bind", src, guestPath)
+			pathEnv = guestPath + "/.bin:" + pathEnv
 		}
 	}
 	if program == "go" {
 		if modCache, err := exec.CommandContext(ctx, exe, "env", "GOMODCACHE").Output(); err == nil {
-			mc := filepath.Clean(string(modCache))
-			mc = filepath.Clean(strings.TrimSpace(mc))
-			if mc != "" && mc != "." && isRealDir(mc) {
-				opts = append(opts, "--ro-bind", mc, "/tmp/gomodcache", "--setenv", "GOMODCACHE", "/tmp/gomodcache", "--setenv", "GOCACHE", "/tmp/cache/go-build")
+			mc := strings.TrimSpace(string(modCache))
+			if resolved, ok := canonicalRealDir(mc); ok {
+				opts = append(opts, "--ro-bind", resolved, "/tmp/gomodcache", "--setenv", "GOMODCACHE", "/tmp/gomodcache", "--setenv", "GOCACHE", "/tmp/cache/go-build")
 			}
 		}
 	}

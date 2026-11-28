@@ -32,12 +32,12 @@ Noosphere 是本地 AI 项目工作台。打开一个目录，就能在同一工
 
 ## 开始使用
 
-1. 打开 [GitHub Releases](https://github.com/2722039978-source/Noosphere/releases/latest)，下载适用的软件包。Windows 可运行安装器，或完整解压 ZIP 后启动 `Noosphere.exe`，便携版使用系统 WebView2 Runtime。Linux 可用 `sudo apt install ./Noosphere-1.0.2-linux-x64.deb` 安装 deb，或给 AppImage 添加执行权限后启动。
+1. 打开 [GitHub Releases](https://github.com/2722039978-source/Noosphere/releases/latest)，下载适用的软件包。Windows 可运行安装器，或完整解压 ZIP 后启动 `Noosphere.exe`，便携版使用系统 WebView2 Runtime。Linux 可用 `sudo apt install ./Noosphere-1.1.0-linux-x64.deb` 安装 deb，或给 AppImage 添加执行权限后启动。
 2. 点击左侧文件夹图标打开项目。可以直接选择检测到的启动目录，也可以浏览到另一个本地目录。
 3. 从对话右下角选择模型。选中还没启动的本地模型时，可在弹窗中启动并验证。接入云端服务时，在「模型 → 高级管理 → 手动配置」填写连接信息，配置完成后从同一个模型菜单选择带「API」标识的模型。
 4. 直接提问，或点击回形针添加附件。先从「这个项目的入口在哪里」或「总结这份文档的要求」开始。
 
-1.0 正式发行面向 Windows x64 和 Linux x64。Linux 包在 Ubuntu 22.04 桌面环境验收。AppImage 普通启动需要 FUSE 和系统图形运行库，缺少 FUSE 时可用 `./Noosphere-1.0.2-linux-x64.AppImage --appimage-extract-and-run`。 [发行与验收状态](CROSS_PLATFORM_ACCEPTANCE.md)
+正式发行面向 Windows x64 和 Linux x64。Linux 包在 Ubuntu 22.04 桌面环境验收。AppImage 普通启动需要 FUSE 和系统图形运行库，缺少 FUSE 时可用 `./Noosphere-1.1.0-linux-x64.AppImage --appimage-extract-and-run`。 [发行与验收状态](CROSS_PLATFORM_ACCEPTANCE.md)
 
 ### 开放式本地模型库
 
