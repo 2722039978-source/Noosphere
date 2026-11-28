@@ -2,12 +2,13 @@ package host
 
 import (
 	"context"
-	"github.com/noosphere/backend/internal/ownedprocess"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/noosphere/backend/internal/ownedprocess"
 )
 
 func TestMain(m *testing.M) { ownedprocess.RunSupervisor(); os.Exit(m.Run()) }
@@ -15,7 +16,10 @@ func TestGitUsesPrivateBaseline(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("Git not installed")
 	}
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	data := t.TempDir()
 	name := "说明.md"
 	if e := os.WriteFile(filepath.Join(root, name), []byte("unsaved in Git\n"), 0600); e != nil {

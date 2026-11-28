@@ -98,6 +98,9 @@ func newFixture(t *testing.T) *liveFixture {
 					json.NewEncoder(w).Encode(map[string]string{"error": "synthetic provider failure"})
 					return
 				}
+				// Provide a measurable latency even on Windows runners with a
+				// coarser monotonic clock. The gate still uses real elapsed time.
+				time.Sleep(5 * time.Millisecond)
 				json.NewEncoder(w).Encode(map[string]any{"model": name, "message": map[string]string{"role": "assistant", "content": "fixture answer from " + name}, "done": true, "done_reason": "stop", "eval_count": 4, "eval_duration": 1000, "total_duration": 2000})
 			default:
 				w.WriteHeader(404)

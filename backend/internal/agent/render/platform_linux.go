@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/noosphere/backend/internal/agent/sandbox"
 	"github.com/noosphere/backend/internal/ownedprocess"
 )
 
@@ -61,7 +62,15 @@ func hostPreview(ctx context.Context, source io.Reader, ext, _ string) (Preview,
 	if closeErr != nil {
 		return Preview{}, closeErr
 	}
-	opts := []string{"--unshare-all", "--die-with-parent", "--new-session", "--clearenv", "--cap-drop", "ALL", "--ro-bind", "/usr", "/usr", "--tmpfs", "/usr/local"}
+	scratch := filepath.Join(dir, "scratch")
+	tmpDir, outDir := filepath.Join(scratch, "tmp"), filepath.Join(scratch, "out")
+	localMask := filepath.Join(dir, "local")
+	for _, path := range []string{tmpDir, outDir, localMask} {
+		if e := os.MkdirAll(path, 0700); e != nil {
+			return Preview{}, e
+		}
+	}
+	opts := []string{"--unshare-all", "--die-with-parent", "--new-session", "--clearenv", "--cap-drop", "ALL", "--ro-bind", "/usr", "/usr", "--ro-bind", localMask, "/usr/local"}
 	for _, p := range []string{"/bin", "/lib", "/lib64", "/etc/fonts"} {
 		if _, err := os.Stat(p); err == nil {
 			opts = append(opts, "--ro-bind", p, p)
@@ -70,12 +79,18 @@ func hostPreview(ctx context.Context, source io.Reader, ext, _ string) (Preview,
 	if program == "/opt/google/chrome/chrome" {
 		opts = append(opts, "--dir", "/opt", "--dir", "/opt/google", "--ro-bind", "/opt/google/chrome", "/opt/google/chrome")
 	}
-	opts = append(opts, "--proc", "/proc", "--dev", "/dev", "--size", "134217728", "--tmpfs", "/tmp", "--dir", "/tmp/home", "--dir", "/in", "--ro-bind", input, "/in/input"+ext, "--size", "33554432", "--tmpfs", "/out", "--chdir", "/in", "--setenv", "HOME", "/tmp/home", "--setenv", "LANG", "C.UTF-8", "--setenv", "PATH", "/usr/bin:/bin", "--", "/usr/bin/prlimit", "--cpu=25", "--fsize=33554432", "--nofile=256", "--", "/bin/sh", "-c", `set -e; out="$1"; shift; "$@" >/dev/null; test -f "$out"; test ! -L "$out"; exec /bin/cat "$out"`, "render", "/out/"+output, program)
+	opts = append(opts, "--proc", "/proc", "--dev", "/dev")
+	opts = append(opts, sandbox.BubblewrapScratch(tmpDir, "/tmp", 128<<20)...)
+	opts = append(opts, sandbox.BubblewrapScratch(outDir, "/out", maxDocument)...)
+	opts = append(opts, "--dir", "/tmp/home", "--dir", "/in", "--ro-bind", input, "/in/input"+ext, "--chdir", "/in", "--setenv", "HOME", "/tmp/home", "--setenv", "LANG", "C.UTF-8", "--setenv", "PATH", "/usr/bin:/bin", "--", "/usr/bin/prlimit", "--cpu=25", "--fsize=33554432", "--nofile=256", "--", "/bin/sh", "-c", `set -e; out="$1"; shift; "$@" >/dev/null; test -f "$out"; test ! -L "$out"; exec /bin/cat "$out"`, "render", "/out/"+output, program)
 	cmd := exec.Command("/usr/bin/bwrap", append(opts, args...)...)
 	cmd.Env = []string{"LANG=C.UTF-8"}
 	var stdout renderOutput
 	cmd.Stdout = &stdout
-	if e = ownedprocess.Run(ctx, cmd, nil); e != nil {
+	e = sandbox.WithDirectoryBudget(ctx, scratch, 160<<20, func(ctx context.Context) error {
+		return ownedprocess.Run(ctx, cmd, nil)
+	})
+	if e != nil {
 		return Preview{}, fmt.Errorf("隔离排版失败：%w", e)
 	}
 	generated := bytes.NewReader(stdout.data.Bytes())

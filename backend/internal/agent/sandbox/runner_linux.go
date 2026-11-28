@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/noosphere/backend/internal/ownedprocess"
@@ -51,18 +50,38 @@ func launch(ctx context.Context, work, cwd, program string, args []string, out i
 	if _, err := os.Stat(wrapper); err != nil {
 		return -1, errors.New("缺少 bubblewrap 工作区隔离器")
 	}
+	// Bind private writable scratch instead of requiring bubblewrap's newer --size
+	// option. Ubuntu 22.04 ships a version without that option.
+	runtimeDir, err := os.MkdirTemp(filepath.Dir(work), ".command-")
+	if err != nil {
+		return -1, err
+	}
+	defer os.RemoveAll(runtimeDir)
+	scratch := filepath.Join(runtimeDir, "tmp")
+	localMask := filepath.Join(runtimeDir, "local")
+	for _, dir := range []string{scratch, localMask} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			return -1, err
+		}
+	}
+
 	opts := []string{"--die-with-parent", "--new-session", "--unshare-all", "--cap-drop", "ALL", "--clearenv", "--ro-bind", "/usr", "/usr"}
 	for _, p := range []string{"/bin", "/lib", "/lib64", "/sbin"} {
 		if _, err := os.Stat(p); err == nil {
 			opts = append(opts, "--ro-bind", p, p)
 		}
 	}
-	opts = append(opts, "--size", "1048576", "--tmpfs", "/usr/local")
+	opts = append(opts, "--ro-bind", localMask, "/usr/local")
 	if _, e := os.Stat("/usr/local/go"); e == nil {
+		if err := os.Mkdir(filepath.Join(localMask, "go"), 0700); err != nil {
+			return -1, err
+		}
 		opts = append(opts, "--ro-bind", "/usr/local/go", "/usr/local/go")
 	}
 	pathEnv := "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
-	opts = append(opts, "--proc", "/proc", "--dev", "/dev", "--size", strconv.FormatInt(limits.DiskBytes, 10), "--tmpfs", "/tmp", "--dir", "/tmp/home", "--dir", "/tmp/cache", "--bind", work, "/work")
+	opts = append(opts, "--proc", "/proc", "--dev", "/dev")
+	opts = append(opts, BubblewrapScratch(scratch, "/tmp", limits.DiskBytes)...)
+	opts = append(opts, "--dir", "/tmp/home", "--dir", "/tmp/cache", "--bind", work, "/work")
 	if limits.ProjectRoot != "" && (program == "node" || program == "npm" || program == "npx" || program == "pnpm" || program == "yarn") {
 		candidates := []string{"."}
 		if cwd != "" && cwd != "." {
@@ -98,7 +117,9 @@ func launch(ctx context.Context, work, cwd, program string, args []string, out i
 	cmd.Env = []string{"LANG=C.UTF-8"}
 	cmd.Stdout = out
 	cmd.Stderr = out
-	err = ownedprocess.Run(ctx, cmd, nil)
+	err = WithDirectoryBudget(ctx, scratch, limits.DiskBytes, func(ctx context.Context) error {
+		return ownedprocess.Run(ctx, cmd, nil)
+	})
 	if err != nil {
 		var status interface{ ExitCode() int }
 		if errors.As(err, &status) {

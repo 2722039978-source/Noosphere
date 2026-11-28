@@ -72,3 +72,19 @@ func monitorDisk(ctx context.Context, cancel context.CancelCauseFunc, work strin
 	}()
 	return done
 }
+
+// WithDirectoryBudget applies the same limit used for draft files to a private
+// writable directory. It checks disk use after the process tree exits as well.
+func WithDirectoryBudget(ctx context.Context, dir string, limit int64, run func(context.Context) error) error {
+	scope, cancel := context.WithCancelCause(ctx)
+	stopped := monitorDisk(scope, cancel, dir, limit)
+	defer func() { cancel(nil); <-stopped }()
+	runErr := run(scope)
+	if cause := context.Cause(scope); cause != nil {
+		return cause
+	}
+	if err := scopedDiskUsage(scope, dir, limit); err != nil {
+		return err
+	}
+	return runErr
+}

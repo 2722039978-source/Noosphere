@@ -63,7 +63,11 @@ func windowsTool(name, system string) (string, error) {
 		for _, cand := range lookup {
 			p, e := exec.LookPath(cand + ".exe")
 			if e == nil && filepath.IsAbs(p) {
-				return filepath.EvalSymlinks(p)
+				resolved, err := filepath.EvalSymlinks(p)
+				if err != nil {
+					return "", fmt.Errorf("解析 %s 工具链位置: %w", name, err)
+				}
+				return resolved, nil
 			}
 		}
 	}
@@ -128,13 +132,13 @@ func launchResolved(ctx context.Context, work, cwd, program, exe, system string,
 	ctx, cancelScratch := context.WithCancelCause(ctx)
 	scratchDone := monitorDisk(ctx, cancelScratch, privateHome, scratchBytes)
 	defer func() { cancelScratch(nil); <-scratchDone }()
+	if e = privateACL(runtimeDir, sid, 0x1200a9); e != nil {
+		return -1, fmt.Errorf("命令运行目录 ACL: %w", e)
+	}
 	roSID, _ := readonlyCapability()
 	exe, toolEnv, _, e := privateToolchain(ctx, program, exe, runtimeDir, limits.CacheDir, roSID)
 	if e != nil {
-		return -1, e
-	}
-	if e = privateACL(runtimeDir, sid, 0x1200a9); e != nil {
-		return -1, e
+		return -1, fmt.Errorf("准备 %s 工具链: %w", program, e)
 	}
 	switch program {
 	case "npm":

@@ -104,13 +104,15 @@ func toolchainRootAndRel(ctx context.Context, group, exe string) (string, string
 	relative := filepath.Base(exe)
 	switch group {
 	case "git":
-		root = filepath.Dir(root)
-		candidate := filepath.Join(root, "mingw64", "bin", "git.exe")
-		if _, e := os.Stat(candidate); e == nil {
+		// Git for Windows can put either its launcher or its actual
+		// mingw64/bin executable on PATH.
+		if !strings.EqualFold(filepath.Base(root), "bin") || !strings.EqualFold(filepath.Base(filepath.Dir(root)), "mingw64") {
+			candidate := filepath.Join(filepath.Dir(root), "mingw64", "bin", "git.exe")
+			if info, err := os.Stat(candidate); err != nil || !info.Mode().IsRegular() {
+				return "", "", fmt.Errorf("需要 Git for Windows 的 mingw64 运行时")
+			}
 			root = filepath.Dir(candidate)
 			relative = "git.exe"
-		} else {
-			return "", "", fmt.Errorf("需要 Git for Windows 的 mingw64 运行时")
 		}
 	case "go":
 		root = filepath.Dir(root)
@@ -282,13 +284,15 @@ func privateToolchain(ctx context.Context, name, exe, dir, cacheDir string, roSI
 			if e := os.Mkdir(building, 0700); e != nil {
 				return "", nil, false, e
 			}
-			if e := copyToolchainTree(ctx, group, root, relative, building); e != nil {
-				_ = os.RemoveAll(building)
-				return "", nil, false, e
-			}
+			// Let the read-only ACE inherit as files are created. Applying it
+			// afterwards requires Windows to revisit the entire distribution.
 			if e := privateACL(building, roSID, 0x1200a9); e != nil {
 				_ = os.RemoveAll(building)
-				return "", nil, false, e
+				return "", nil, false, fmt.Errorf("工具链缓存 ACL: %w", e)
+			}
+			if e := copyToolchainTree(ctx, group, root, relative, building); e != nil {
+				_ = os.RemoveAll(building)
+				return "", nil, false, fmt.Errorf("复制 %s 工具链: %w", group, e)
 			}
 			if e := os.WriteFile(filepath.Join(building, ".ready"), []byte(keyInput), 0600); e != nil {
 				_ = os.RemoveAll(building)

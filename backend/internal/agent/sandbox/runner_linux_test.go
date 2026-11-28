@@ -56,3 +56,20 @@ func TestLinuxIsolatedCommand(t *testing.T) {
 		t.Fatal("child outlived cancellation")
 	}
 }
+
+func TestLinuxPrivateScratchBudget(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/bwrap"); err != nil {
+		t.Skip("bubblewrap is not installed")
+	}
+	result, err := Run(t.Context(), t.TempDir(), ".", "python", []string{"-c",
+		"from pathlib import Path; Path('/tmp/scratch.bin').write_bytes(bytes(2 * 1024 * 1024))",
+	}, Limits{DiskBytes: 1 << 20})
+	switch {
+	case err != nil && strings.Contains(err.Error(), "磁盘预算"):
+		return
+	case result.ExitCode != 0 && strings.Contains(result.Output, "No space left on device"):
+		return
+	default:
+		t.Fatalf("scratch escaped budget: %+v, %v", result, err)
+	}
+}
