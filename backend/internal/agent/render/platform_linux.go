@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/noosphere/backend/internal/agent/sandbox"
@@ -76,6 +77,15 @@ func hostPreview(ctx context.Context, source io.Reader, ext, _ string) (Preview,
 			opts = append(opts, "--ro-bind", p, p)
 		}
 	}
+	if output == "input.pdf" {
+		// Debian's LibreOffice distribution links its application registry
+		// and print defaults out of /usr into these system paths.
+		for _, config := range []string{"/etc/libreoffice/registry", "/etc/libreoffice/psprint.conf"} {
+			if resolved, err := filepath.EvalSymlinks(config); err == nil && resolved == config {
+				opts = append(opts, "--ro-bind", config, config)
+			}
+		}
+	}
 	if program == "/opt/google/chrome/chrome" {
 		opts = append(opts, "--dir", "/opt", "--dir", "/opt/google", "--ro-bind", "/opt/google/chrome", "/opt/google/chrome")
 	}
@@ -86,11 +96,16 @@ func hostPreview(ctx context.Context, source io.Reader, ext, _ string) (Preview,
 	cmd := exec.Command("/usr/bin/bwrap", append(opts, args...)...)
 	cmd.Env = []string{"LANG=C.UTF-8"}
 	var stdout renderOutput
+	var diagnostic renderDiagnostic
 	cmd.Stdout = &stdout
+	cmd.Stderr = &diagnostic
 	e = sandbox.WithDirectoryBudget(ctx, scratch, 160<<20, func(ctx context.Context) error {
 		return ownedprocess.Run(ctx, cmd, nil)
 	})
 	if e != nil {
+		if detail := strings.TrimSpace(diagnostic.data.String()); detail != "" {
+			return Preview{}, fmt.Errorf("隔离排版失败：%w：%s", e, detail)
+		}
 		return Preview{}, fmt.Errorf("隔离排版失败：%w", e)
 	}
 	generated := bytes.NewReader(stdout.data.Bytes())
@@ -116,4 +131,11 @@ func (w *renderOutput) Write(p []byte) (int, error) {
 		return 0, fmt.Errorf("渲染器输出过大")
 	}
 	return w.data.Write(p)
+}
+
+type renderDiagnostic struct{ data bytes.Buffer }
+
+func (w *renderDiagnostic) Write(p []byte) (int, error) {
+	_, _ = w.data.Write(p[:min(len(p), 1024-w.data.Len())])
+	return len(p), nil
 }
