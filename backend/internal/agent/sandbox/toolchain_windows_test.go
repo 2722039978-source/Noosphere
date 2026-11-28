@@ -16,7 +16,8 @@ func TestWindowsToolchains(t *testing.T) {
 		marker  string
 	}{{"node", []string{"-e", "console.log('native-node')"}, "native-node"}, {"git", []string{"--version"}, "git version"}, {"python", []string{"-I", "-c", "print('native-python')"}, "native-python"}, {"go", []string{"version"}, "go version"}} {
 		t.Run(c.program, func(t *testing.T) {
-			if _, e := exec.LookPath(c.program + ".exe"); e != nil {
+			path, e := exec.LookPath(c.program + ".exe")
+			if e != nil {
 				t.Skip("tool is not installed")
 			}
 			work := filepath.Join(t.TempDir(), "work")
@@ -28,7 +29,8 @@ func TestWindowsToolchains(t *testing.T) {
 			}
 			res, e := Run(context.Background(), work, ".", c.program, c.args)
 			if e != nil || res.ExitCode != 0 || !strings.Contains(res.Output, c.marker) {
-				t.Fatalf("%+v %v", res, e)
+				resolved, lookupErr := filepath.EvalSymlinks(path)
+				t.Fatalf("tool %q (resolved %q, error %v): %+v %v", path, resolved, lookupErr, res, e)
 			}
 		})
 	}

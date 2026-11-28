@@ -105,6 +105,10 @@ jobs:
           node --test scripts/desktop-release-manifest.test.mjs scripts/agent-observer-regression.mjs
       - name: Initialize and verify the developer environment
         run: ./scripts/setup.ps1 -InstallBrowser
+      - name: Verify Windows sandbox toolchains before packaging
+        run: |
+          . ./scripts/common.ps1
+          Invoke-NoosphereCommand (Resolve-NoosphereCommand go) @('test', '-count=1', '-v', './internal/agent/sandbox', '-run', '^TestWindowsToolchains$') (Join-Path $PWD 'backend')
       - name: Verify isolated Windows HTML and PDF rendering
         run: |
           . ./scripts/common.ps1
