@@ -15,8 +15,14 @@ import (
 
 	"github.com/noosphere/backend/internal/agent/artifact"
 	"github.com/noosphere/backend/internal/agent/host"
+	"github.com/noosphere/backend/internal/ownedprocess"
 	"golang.org/x/image/font/gofont/goregular"
 )
+
+func TestMain(m *testing.M) {
+	ownedprocess.RunSupervisor()
+	os.Exit(m.Run())
+}
 
 func TestParseFontFileSupportsSingleTTF(t *testing.T) {
 	f, err := parseFontFile(goregular.TTF)

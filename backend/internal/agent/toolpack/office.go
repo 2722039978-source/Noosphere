@@ -260,7 +260,7 @@ func textShapeAligned(id int, x, y, w, h int, size int, color, font string, bold
 		weight = ` b="1"`
 	}
 	for _, line := range lines {
-		fmt.Fprintf(&b, `<a:p><a:pPr algn="%s" spcAft="6000"/><a:r><a:rPr lang="zh-CN" sz="%d"%s><a:solidFill><a:srgbClr val="%s"/></a:solidFill><a:latin typeface="Arial"/><a:ea typeface="%s"/></a:rPr><a:t>%s</a:t></a:r><a:endParaRPr lang="zh-CN" sz="%d"/></a:p>`, algn, size, weight, color, escape(font), escape(line), size)
+		fmt.Fprintf(&b, `<a:p><a:pPr algn="%s"><a:spcAft><a:spcPts val="600"/></a:spcAft></a:pPr><a:r><a:rPr lang="zh-CN" sz="%d"%s><a:solidFill><a:srgbClr val="%s"/></a:solidFill><a:latin typeface="Arial"/><a:ea typeface="%s"/></a:rPr><a:t>%s</a:t></a:r><a:endParaRPr lang="zh-CN" sz="%d"/></a:p>`, algn, size, weight, color, escape(font), escape(line), size)
 	}
 	b.WriteString("</p:txBody></p:sp>")
 	return b.String()
