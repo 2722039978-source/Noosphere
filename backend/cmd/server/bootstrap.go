@@ -100,6 +100,7 @@ func bootstrapWithParent(cfg *config.AppConfig, parent context.Context) *App {
 		app.Workspaces = manager
 		gw.SetWorkspaceManager(manager)
 		manager.RegisterRoutes(mux)
+		registerDeliveryRoutes(mux, manager, cfg.Modules.DevOps.Enabled)
 		knowledgeService := knowledge.New(manager, eng)
 		knowledgeService.SetChatRewriter(knowledgeRewriter(manager, gw))
 		if cfg.Modules.CodeLens.Enabled {

@@ -64,6 +64,7 @@ export function validateChatSnapshot(value: unknown): ChatSnapshot {
       messages.add(message.id);
       if (message.agentRunId !== undefined && (typeof message.agentRunId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(message.agentRunId))) throw new Error('Agent 任务标识无效。');
       if (message.reviewedActions !== undefined && typeof message.reviewedActions !== 'boolean') throw new Error('操作模式格式无效。');
+      if (message.agentEngine !== undefined && message.agentEngine !== 2) throw new Error('Agent 版本无效。');
       if (message.agentMode !== undefined && typeof message.agentMode !== 'boolean') throw new Error('Agent 模式格式无效。');
       if (message.agentProgress !== undefined && (typeof message.agentProgress !== 'string' || message.agentProgress.length > 8192)) throw new Error('Agent 进度格式无效。');
     }

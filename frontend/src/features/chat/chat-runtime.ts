@@ -17,8 +17,8 @@ interface GenerationState {
 export const useGenerationStore = create<GenerationState>(() => ({ active: null, cancelError: null }));
 
 const agentTransport = createAgentTransport({
-  submit: (workspaceId, goal, modelId, sessionId, reviewedActions, displayGoal, attachmentTurn) => api.submitWorkspaceRun(workspaceId, 'agent', (displayGoal || goal).slice(0, 60).trim(), {
-    goal, display_goal: displayGoal, model_id: modelId, session_id: sessionId, reviewed_actions: reviewedActions ?? false, attachment_turn: attachmentTurn,
+  submit: (workspaceId, goal, modelId, sessionId, reviewedActions, displayGoal, attachmentTurn, authorization, requestId) => api.submitWorkspaceRun(workspaceId, 'agent', (displayGoal || goal).slice(0, 60).trim(), {
+    goal, display_goal: displayGoal, model_id: modelId, session_id: sessionId, ...(authorization ? { ...authorization, request_id: requestId } : { reviewed_actions: reviewedActions ?? false }), attachment_turn: attachmentTurn,
   }),
   get: api.getWorkspaceRun, events: api.getRunEvents, cancel: api.cancelWorkspaceRun,
 }, {
@@ -41,7 +41,7 @@ export const chatRunner = createStreamRunner({
           store.updateMessage(input.sessionId, input.messageId, patch);
           flushChatPersistence();
         }
-      }, input.reviewedActions, input.goalText, input.attachmentTurn);
+      }, input.reviewedActions, input.goalText, input.attachmentTurn, input.authorization);
     }
     const channel = new Channel<StreamChunk>();
     channel.onmessage = receive;
@@ -113,6 +113,7 @@ export function sendChat(sessionId: string, text: string, options?: Partial<Chat
   const workspace = workspaceState.workspaces.find(item => item.id === workspaceId);
   const projectId = workspace?.project_id ?? '';
   const projectPath = workspace?.project_path ?? '';
+  if (options?.authorization && workspace?.project_binding_id !== options.authorization.authorized_binding_id) return false;
   const cut = options?.regenerateFrom ? session.messages.findIndex((message) => message.id === options.regenerateFrom) : -1;
   if (options?.regenerateFrom && cut < 0) return false;
   const artifact = cut >= 0 ? session.messages[cut]?.citations?.find(citation => citation.kind === 'artifact' && citation.workspace_id === workspaceId) : options?.artifact;
@@ -128,7 +129,7 @@ export function sendChat(sessionId: string, text: string, options?: Partial<Chat
   } : undefined;
   const messageId = newMsgId();
   return chatRunner.start({
-    requestId: crypto.randomUUID(), sessionId, messageId, workspaceId, projectId, modelId: session.modelId, agentMode: options?.agentMode, reviewedActions: options?.reviewedActions, goalText: user.content, attachmentTurn,
+    requestId: crypto.randomUUID(), sessionId, messageId, workspaceId, projectId, modelId: session.modelId, agentMode: options?.agentMode, reviewedActions: options?.reviewedActions, authorization: options?.authorization, goalText: user.content, attachmentTurn,
     begin: () => {
       const store = useChatStore.getState();
       if (options?.regenerateFrom) store.removeMessageFrom(sessionId, options.regenerateFrom);
@@ -171,7 +172,8 @@ export async function retryCancellation() {
 }
 export async function prepareChatShutdown() {
   chatRunner.flush();
-  await cancelGeneration();
+  if (chatRunner.active?.authorization) await chatRunner.waitForRegistration();
+  else await cancelGeneration();
   await chatRunner.settleCancellations();
   const cancelled = await retryCancellation();
   return (await flushChatPersistence()) && cancelled;

@@ -46,6 +46,8 @@ type Workspace struct {
 	UpdatedAt        string `json:"updated_at"`
 }
 type Run struct {
+	EngineVersion       int             `json:"engine_version,omitempty"`
+	Generation          int64           `json:"generation,omitempty"`
 	ID                  string          `json:"id"`
 	WorkspaceID         string          `json:"workspace_id"`
 	SessionID           string          `json:"session_id"`
@@ -104,6 +106,9 @@ type job struct {
 	withModel func(context.Context) context.Context
 }
 type Manager struct {
+	dataDir           string
+	grantIdentity     func(string) (string, error)
+	publications      map[string]string // workspace -> run holding the binding across a real filesystem commit
 	modelResolver     func(workspaceID, sessionID, modelID string) (string, func(context.Context) context.Context, error)
 	mu                sync.Mutex
 	db                *sql.DB
@@ -172,6 +177,8 @@ func Open(path string) (*Manager, error) {
 		`CREATE INDEX IF NOT EXISTS workspace_runs ON runs(workspace_id,created_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), phase TEXT NOT NULL, message TEXT NOT NULL, data BLOB NOT NULL, created_at TEXT NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS run_events ON events(run_id,seq)`,
+		agentGrantSchema, agentSessionSchema, agentControlSchema, agentArtifactSchema, agentTranscriptSchema, serviceEffectsSchema,
+		`UPDATE agent_service_effects SET status='unknown' WHERE status IN ('applying','restoring')`,
 		chatAttachmentSchema,
 		`CREATE INDEX IF NOT EXISTS chat_attachments_session ON chat_attachments(workspace_id, session_id)`,
 	} {
@@ -180,7 +187,7 @@ func Open(path string) (*Manager, error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m := &Manager{db: db, ctx: ctx, cancel: cancel, registrations: map[string]registration{}, executions: map[string]*Execution{}, queues: map[string]chan job{}, slots: map[string]chan struct{}{}, pending: map[string]*cancellationOperation{}, closeDone: make(chan struct{})}
+	m := &Manager{dataDir: filepath.Dir(path), db: db, ctx: ctx, cancel: cancel, registrations: map[string]registration{}, executions: map[string]*Execution{}, queues: map[string]chan job{}, slots: map[string]chan struct{}{}, pending: map[string]*cancellationOperation{}, closeDone: make(chan struct{})}
 	m.attachmentDir = filepath.Join(filepath.Dir(path), attachmentfile.StorageDirectory)
 	m.attachmentUploads = make(map[uploadKey]pendingAttachment)
 	if err := m.expireAttachmentDrafts(); err != nil {
@@ -188,6 +195,10 @@ func Open(path string) (*Manager, error) {
 		return fail(err)
 	}
 	if err := m.recoverAttachmentStorage(); err != nil {
+		cancel()
+		return fail(err)
+	}
+	if err := m.clearRestoredGrants(); err != nil {
 		cancel()
 		return fail(err)
 	}
@@ -248,7 +259,10 @@ func (m *Manager) recover() error {
 	defer tx.Rollback()
 	for _, r := range runs {
 		r.Status = "interrupted"
-		r.Phase = "interrupted"
+		if r.EngineVersion == 2 {
+			r.Status = "paused"
+		}
+		r.Phase = r.Status
 		r.Error = "Process stopped before task completion"
 		r.UpdatedAt = now()
 		if e = writeRun(tx, r); e != nil {
@@ -431,6 +445,9 @@ func (m *Manager) saveWorkspace(w Workspace, key string) (Workspace, error) {
 		if old.ProjectPath == w.ProjectPath {
 			w.ProjectID = old.ProjectID
 		} else {
+			if m.publications[w.ID] != "" {
+				return Workspace{}, fmt.Errorf("%w: 项目正在提交工作区改动", ErrBusy)
+			}
 			w.ProjectBindingID = newID()
 		}
 	}
@@ -626,7 +643,7 @@ func validateRun(r Run) error {
 	}
 	return nil
 }
-func (m *Manager) createRun(r Run, status string) (Run, error) {
+func (m *Manager) createRun(r Run, status string, admission ...*agentAdmission) (Run, error) {
 	if r.ID == "" {
 		r.ID = newID()
 	}
@@ -668,6 +685,12 @@ func (m *Manager) createRun(r Run, status string) (Run, error) {
 	defer tx.Rollback()
 	if e = writeRun(tx, r); e != nil {
 		return Run{}, e
+	}
+	if len(admission) > 0 && admission[0] != nil {
+		a := admission[0]
+		if _, e = tx.Exec("INSERT INTO agent_sessions(run_id,input,binding,model_hash) VALUES(?,?,?,?)", r.ID, []byte(a.input), a.binding, a.modelHash); e != nil {
+			return Run{}, e
+		}
 	}
 	if e = writeEvent(tx, r.ID, status, "", json.RawMessage("null")); e != nil {
 		return Run{}, e
@@ -769,9 +792,6 @@ func (m *Manager) submit(workspaceID, kind, title string, reference TaskReferenc
 		return Run{}, ErrCancellationUnavailable
 	}
 	q := m.queues[reg.lane]
-	if len(q) == cap(q) {
-		return Run{}, ErrBusy
-	}
 	if workspaceID == "" {
 		workspaceID = "local"
 	}
@@ -811,7 +831,61 @@ func (m *Manager) submit(workspaceID, kind, title string, reference TaskReferenc
 			}
 		}
 	}
-	r, e := m.createRun(spec, "queued")
+	var admission *agentAdmission
+	if kind == "agent" {
+		var v struct {
+			Version   int    `json:"engine_version"`
+			RequestID string `json:"request_id"`
+			Binding   string `json:"authorized_binding_id"`
+			Mode      string `json:"mode"`
+		}
+		if err := json.Unmarshal(input, &v); err != nil {
+			return Run{}, ErrInvalid
+		}
+		if v.Version != 0 && v.Version != 1 && v.Version != 2 {
+			return Run{}, ErrInvalid
+		}
+		if v.Version == 2 {
+			if err := validateAgentBudget(input); err != nil {
+				return Run{}, err
+			}
+			if (v.Mode != "auto" && v.Mode != "review") || v.Binding == "" || ws.ProjectBindingID != v.Binding {
+				return Run{}, ErrInvalid
+			}
+			if err := m.checkGrantLocked(ws); err != nil {
+				return Run{}, err
+			}
+			if v.RequestID != "" {
+				if !safeID.MatchString(v.RequestID) {
+					return Run{}, ErrInvalid
+				}
+				spec.ID = agentSubmissionID(workspaceID, v.RequestID)
+				if old, err := m.run(spec.ID); err == nil {
+					var prior []byte
+					if e = m.db.QueryRow("SELECT input FROM agent_sessions WHERE run_id=?", spec.ID).Scan(&prior); e != nil {
+						return Run{}, e
+					}
+					if !sameSubmission(prior, input) {
+						return Run{}, fmt.Errorf("%w: 提交标识已绑定到不同任务", ErrConflict)
+					}
+					return old, nil
+				} else if !errors.Is(err, ErrNotFound) {
+					return Run{}, err
+				}
+			}
+			spec.EngineVersion = 2
+			spec.Generation = 1
+			fingerprint := ""
+			if withModel != nil {
+				fingerprint = AgentModelFingerprint(withModel(context.Background()))
+			}
+			admission = &agentAdmission{input: input, binding: v.Binding, modelHash: fingerprint}
+		}
+	}
+	if len(q) == cap(q) {
+		return Run{}, ErrBusy
+	}
+	r, e := m.createRun(spec, "queued", admission)
 	if e != nil {
 		return Run{}, e
 	}
@@ -830,11 +904,14 @@ func Reference(ctx context.Context) TaskReference {
 func (m *Manager) execution(ctx context.Context, r Run, release func()) *Execution {
 	id := r.ID
 	ctx = context.WithValue(ctx, runIDKey{}, id)
+	ctx = context.WithValue(ctx, agentGenerationKey{}, r.Generation)
 	ctx = context.WithValue(ctx, referenceKey{}, TaskReference{ID: r.ReferenceID, Generation: r.ReferenceGeneration})
 	ctx, cancel := context.WithCancel(ctx)
 	ex := &Execution{ID: id, manager: m, ctx: ctx, cancel: cancel, release: release}
 	m.executions[id] = ex
-	ex.stopWatch = context.AfterFunc(ctx, func() { m.stop(id, ctx.Err()) })
+	if r.EngineVersion != 2 {
+		ex.stopWatch = context.AfterFunc(ctx, func() { m.stop(id, ctx.Err()) })
+	}
 	return ex
 }
 func (m *Manager) Start(ctx context.Context, spec Run) (context.Context, *Execution, error) {
@@ -896,7 +973,7 @@ func (m *Manager) worker(lane string) {
 			return
 		}
 		r, e := m.waitRunLocked(m.ctx, j.run.ID)
-		if e != nil || terminal(r.Status) {
+		if e != nil || r.Status != "queued" || j.run.Generation != r.Generation {
 			m.mu.Unlock()
 			<-slots
 			continue
@@ -957,7 +1034,7 @@ func (ex *Execution) Finish(result any, taskErr error) error {
 	m := ex.manager
 	// A referenced task may not bypass durable cancellation through a handler's
 	// context.Canceled return or its execution watcher.
-	if errors.Is(ex.ctx.Err(), context.Canceled) || errors.Is(taskErr, context.Canceled) {
+	if generation, _ := ex.ctx.Value(agentGenerationKey{}).(int64); generation == 0 && (errors.Is(ex.ctx.Err(), context.Canceled) || errors.Is(taskErr, context.Canceled)) {
 		if _, e := m.stop(ex.ID, context.Canceled); e != nil {
 			return e
 		}
@@ -970,6 +1047,12 @@ func (ex *Execution) Finish(result any, taskErr error) error {
 	r, e := m.waitRunLocked(m.ctx, ex.ID)
 	if e != nil {
 		return e
+	}
+	if r.EngineVersion == 2 && (r.Status != "running" || m.executions[ex.ID] != ex) {
+		if m.executions[ex.ID] == ex {
+			delete(m.executions, ex.ID)
+		}
+		return nil
 	}
 	if terminal(r.Status) {
 		delete(m.executions, ex.ID)
@@ -988,6 +1071,9 @@ func (ex *Execution) Finish(result any, taskErr error) error {
 	if errors.Is(ex.ctx.Err(), context.Canceled) || errors.Is(taskErr, context.Canceled) {
 		r.Status = "cancelled"
 		r.Result = json.RawMessage("null")
+	} else if wait := agentWaitState(taskErr); r.EngineVersion == 2 && wait != "" {
+		r.Status = wait
+		r.Error = bounded(taskErr.Error(), 4096)
 	} else if taskErr != nil || ex.ctx.Err() != nil {
 		r.Status = "failed"
 		if taskErr == nil {
@@ -1054,6 +1140,9 @@ func (m *Manager) stopContext(ctx context.Context, id string, reason error) (Run
 	}
 	if terminal(r.Status) {
 		return r, nil
+	}
+	if r.EngineVersion == 2 && (m.publications[r.WorkspaceID] == id || r.Phase == "publishing" || r.Phase == "agent_delivered") {
+		return r, fmt.Errorf("%w: 正在写回，结束后可撤销本轮", ErrConflict)
 	}
 	if referencedKind(r.Kind) && !errors.Is(reason, context.DeadlineExceeded) {
 		hook := m.registrations[r.Kind].cancel

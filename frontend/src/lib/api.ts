@@ -256,6 +256,7 @@ export interface Workspace {
   id: string;
   name: string;
   project_path: string;
+  project_binding_id?: string;
   project_id: string;
   default_model_id: string;
   created_at: string;
@@ -339,7 +340,16 @@ export interface PreparedContext {
   workspace_id: string; project_id: string; context: string;
   citations: ContextCitation[]; warnings: string[]; mode: 'lexical' | 'semantic';
 }
+export type AgentMode = 'auto' | 'review';
+export interface AgentAuthorization { engine_version: 2; mode: AgentMode; authorized_binding_id: string; budget?: { model_calls: number; tool_calls: number; active_seconds: number } }
+export interface AgentArtifact { id: string; name: string; path: string; mime: string; size: number; sha256: string; checks?: string[]; preview?: boolean }
+export interface AgentChange { path: string; kind: string; before_hash?: string; after_hash?: string; diff?: string }
+export interface AgentServiceEffect { id: string; name: string; before: string; after: string; status: string; digest: string }
+export interface AgentFileConflict { path: string; before_hash?: string; proposal_hash?: string; current_hash?: string; diff?: string }
+export interface AgentDelivery { conflicts?: AgentFileConflict[]; effects?: AgentServiceEffect[]; can_restore_services?: boolean; changes: AgentChange[]; change_offset?: number; change_total?: number; next_change_offset?: number | null; digest: string; artifacts: AgentArtifact[]; published: boolean; undone: boolean; undo_receipt_pending?: boolean; history?: boolean; publication_state?: 'draft' | 'publishing' | 'published' | 'undoing' | 'undoing_partial' | 'undone'; can_undo?: boolean; approval?: string }
+export interface AgentControl { action: 'steer' | 'pause' | 'resume' | 'approve' | 'reject' | 'mode' | 'extend' | 'undo' | 'restore_service'; value?: string; request_id: string; expected?: string }
 export interface WorkspaceRun {
+  engine_version?: number;
   id: string;
   workspace_id: string;
   session_id: string;
@@ -349,7 +359,7 @@ export interface WorkspaceRun {
   title: string;
   goal?: string;
   project?: { path: string; id: string };
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+  status: 'queued' | 'running' | 'paused' | 'waiting_approval' | 'budget_exhausted' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   phase: string;
   error: string;
   model_id: string;
@@ -376,6 +386,13 @@ export interface RunEvent {
 // ============ IPC 封装 (零 JSON.parse) ============
 
 export const api = {
+  agentRenderPacks: (kind?: 'html' | 'office') => invoke<{ packs: { kind: 'html' | 'office'; name: string; description: string; installed: boolean; available: boolean; size_bytes: number; version: string }[] }>('agent_render_packs', { kind }),
+  agentToolpack: (install = false) => invoke<{ installed: boolean; available: boolean; version: string; size_bytes: number; description: string; formats?: string[]; renderer?: string }>('agent_toolpack', { install }),
+  agentGrant: (workspaceId: string, bindingId?: string) => invoke<{ binding_id: string }>('agent_grant', { workspaceId, bindingId }),
+  agentDelivery: (workspaceId: string, runId: string, changeOffset = 0) => invoke<AgentDelivery>('agent_delivery', { workspaceId, runId, changeOffset }),
+  agentControl: (workspaceId: string, runId: string, control: AgentControl) => invoke('agent_control', { workspaceId, runId, control }),
+  agentPreview: (workspaceId: string, runId: string, artifactId: string) => invoke<ArrayBuffer>('agent_preview', { workspaceId, runId, artifactId }),
+  exportAgentArtifact: (workspaceId: string, runId: string, artifact: AgentArtifact) => invoke<boolean>('export_agent_artifact', { workspaceId, runId, artifactId: artifact.id, name: artifact.name, size: artifact.size, sha256: artifact.sha256 }),
   listAgentActions: (workspaceId:string,runId:string) => invoke<{actions:AgentAction[]}>('list_agent_actions',{workspaceId,runId}),
   decideAgentAction: (workspaceId:string,id:string,decision:string) => invoke<AgentAction>('decide_agent_action',{workspaceId,id,decision}),
   listKnowledge: (workspaceId: string) => invoke<{ memories: KnowledgeMemory[] }>('list_knowledge', { workspaceId }),

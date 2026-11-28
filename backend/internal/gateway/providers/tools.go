@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// Final wire guard after model-aware history compaction and thumbnail scaling.
+const maxToolRequestBytes = 16 << 20
+
 type FunctionDefinition struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
@@ -33,6 +36,7 @@ type ToolCall struct {
 	ExtraContent map[string]json.RawMessage `json:"extra_content,omitempty"`
 }
 type ToolMessage struct {
+	ImageURL   string     `json:"-"` // resolved for this request only; never stored in conversation checkpoints
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
@@ -70,7 +74,7 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 	}
 	build := func(o ChatOptions) map[string]interface{} {
 		body := map[string]interface{}{
-			"model": model, "messages": messages, "tools": tools,
+			"model": model, "messages": toolCompletionMessages(messages), "tools": tools,
 			"tool_choice": "auto", "stream": false,
 		}
 		p.applyChatOptions(body, model, temperature, maxTokens, o)
@@ -79,7 +83,7 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 		}
 		return body
 	}
-	resp, err := p.postChat(ctx, "/chat/completions", build, opts, 256*1024, false)
+	resp, err := p.postChat(ctx, "/chat/completions", build, opts, maxToolRequestBytes, toolMessagesHaveImages(messages))
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -125,6 +129,22 @@ func (p *OpenAIProvider) ChatTools(ctx context.Context, model string, messages [
 		return nil, err
 	}
 	return &ToolResponse{Message: message, TokensIn: result.Usage.PromptTokens, TokensOut: result.Usage.CompletionTokens}, nil
+}
+
+func toolMessagesHaveImages(messages []ToolMessage) bool {
+	return slices.ContainsFunc(messages, func(m ToolMessage) bool { return m.Role == "user" && m.ImageURL != "" })
+}
+
+func toolCompletionMessages(messages []ToolMessage) []any {
+	out := make([]any, 0, len(messages))
+	for _, m := range messages {
+		if m.Role == "user" && m.ImageURL != "" {
+			out = append(out, completionMessages([]Message{{Role: m.Role, Content: m.Content, ImageURLs: []string{m.ImageURL}}}, "")[0])
+		} else {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // validateToolMessage applies the same limits to both tool transports so a

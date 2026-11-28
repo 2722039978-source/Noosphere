@@ -5,7 +5,8 @@ import type { ModelConfig } from "@/hooks/useBackend";
 import { agentCapability, chatCapabilityBlocker, imageInputBlocker } from "@/lib/model-capabilities";
 import { LocalModelPicker } from '@/features/gateway/LocalModelPicker';
 import { isLocalModel, type LocalModelChoice } from '@/features/gateway/local-model-match';
-import type { ChatAttachment, ContextCitation } from '@/lib/api';
+import { AgentGrantPrompt, useAgentWorkspaceGrant } from './agent-workspace-grant';
+import type { AgentAuthorization, ChatAttachment, ContextCitation } from '@/lib/api';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useUiStore } from '@/stores/ui-store';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -35,6 +36,7 @@ interface Props {
 export interface ChatSubmitOptions {
   agentMode: boolean;
   reviewedActions?: boolean;
+  authorization?: AgentAuthorization;
   attachments: ChatAttachment[];
   artifact?: ContextCitation;
 }
@@ -46,6 +48,8 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
   const [reviewedActions, setReviewedActions] = useState(false);
   const [dragging, setDragging] = useState(false);
   const workspaceId = useWorkspaceStore(state => state.activeId);
+  const grant = useAgentWorkspaceGrant(workspaceId, agentMode, reviewedActions);
+  const needsGrant = agentMode && !!grant.binding && !grant.authorization;
   const workspaceName = useWorkspaceStore(state => state.workspaces.find(workspace => workspace.id === state.activeId)?.name ?? '项目');
   const workspaceReady = useWorkspaceStore(state => state.hydrated);
   const projectPath = useWorkspaceStore(state => state.workspaces.find(workspace => workspace.id === state.activeId)?.project_path);
@@ -95,14 +99,14 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
 
   const submit = () => {
     const t = text.trim();
-    if (!t || streaming || busy || blocked || capabilityBlocked || attachmentDraft.blocked) return;
+    if (!t || needsGrant || streaming || busy || blocked || capabilityBlocked || attachmentDraft.blocked) return;
     const workspace = useWorkspaceStore.getState();
     if (workspace.activeId !== workspaceId || workspace.workspaces.find(item => item.id === workspaceId)?.project_path !== projectPath ||
         (artifact && useEvidenceDraft.getState().artifact !== artifact)) {
       attachmentDraft.show('项目或附件已变化，请确认后重新发送。');
       return;
     }
-    if (onSend(t, { agentMode, reviewedActions: agentMode && reviewedActions, attachments: reuse ? previousFiles.attachments ?? [] : attachmentDraft.attachments, artifact: artifact?.citation })) {
+    if (onSend(t, { agentMode, authorization: agentMode ? grant.authorization : undefined, reviewedActions: agentMode && reviewedActions, attachments: reuse ? previousFiles.attachments ?? [] : attachmentDraft.attachments, artifact: artifact?.citation })) {
       if (artifact) useEvidenceDraft.getState().remove(artifact);
       setText('');
       setReuseMessageId(undefined);
@@ -111,7 +115,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
     }
   };
 
-  const canSend = !!text.trim() && !capabilityBlocked && !streaming && !busy && !blocked && !attachmentDraft.blocked;
+  const canSend = !needsGrant && !!text.trim() && !capabilityBlocked && !streaming && !busy && !blocked && !attachmentDraft.blocked;
   const canAttach = !!attachmentSessionId && !streaming && !busy;
   const remoteModel = selectedModel && !isLocalModel(selectedModel);
 
@@ -183,6 +187,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
               {attachmentDraft.attachments.length > 0 && !remoteModel && <p className="w-full px-0.5 text-[11.5px] text-text-3">{hasImages ? '图像会随消息发送给所选模型。' : '相关文字节选会随消息发送给所选模型。'}</p>}
             </div>
           ) : null}
+          {agentMode && <AgentGrantPrompt grant={grant} />}
           <textarea
             aria-label="输入问题"
             ref={ref}
@@ -225,7 +230,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
                 <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" className="ns-composer-icon" aria-label="对话功能" title="对话功能"><Plus aria-hidden="true" /></Button></DropdownMenuTrigger>
                 <DropdownMenuContent align="start" side="top">
                   <DropdownMenuItem disabled={streaming || !agentMode && (agentSupport.blocked || !selectedModel || selectedModel.enabled === false)} onSelect={() => setAgentMode(value => !value)}>{agentMode ? '切回普通对话' : '转为任务'}</DropdownMenuItem>
-                  {agentMode && <DropdownMenuCheckboxItem checked={reviewedActions} disabled={streaming} onCheckedChange={setReviewedActions}>操作提案</DropdownMenuCheckboxItem>}
+                  {agentMode && <DropdownMenuCheckboxItem checked={reviewedActions} disabled={streaming} onCheckedChange={setReviewedActions}>{grant.binding ? '审阅模式' : '操作提案'}</DropdownMenuCheckboxItem>}
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button
@@ -241,7 +246,7 @@ export function ChatInput({ modelChoices, selectedModel, attachmentSessionId = '
                 <Paperclip data-icon="inline-start" aria-hidden="true" />
               </Button>
               <Button type="button" variant="ghost" size="sm" aria-label="对话项目" title={workspaceName} className="ns-composer-project" disabled={!workspaceReady || streaming} onClick={() => useUiStore.getState().setProjectPickerOpen(true)}><AtSign aria-hidden="true" /><span className="truncate">{projectPath ? workspaceName : '项目'}</span></Button>
-              {agentMode && <span className="ns-composer-mode" role="status">{reviewedActions ? '任务 · 操作待审批' : '任务 · 只读'}</span>}
+              {agentMode && <span className="ns-composer-mode" role="status">{grant.binding ? (reviewedActions ? '任务 · 审阅' : '任务 · 自主执行') : (reviewedActions ? '任务 · 操作待审批' : '任务 · 只读')}</span>}
             </div>
             <div className="ns-composer-model flex min-w-0 items-center justify-end gap-2">
               <LocalModelPicker choices={modelChoices} current={selectedModel} disabled={streaming || modelBusy} label="选择对话模型"

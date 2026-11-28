@@ -34,10 +34,14 @@ pub async fn open_project_workspace(path: String) -> Result<Value, ApiError> {
 
 #[tauri::command]
 pub async fn pick_project_folder(window: tauri::WebviewWindow) -> Result<Option<String>, ApiError> {
+    select_folder(window, "选择项目文件夹").await
+}
+
+pub(crate) async fn select_folder(window: tauri::WebviewWindow, title: &'static str) -> Result<Option<String>, ApiError> {
     #[cfg(windows)]
     {
         let parent = window.hwnd().map_err(|error| ApiError::new(error.to_string()))?.0 as usize;
-        tauri::async_runtime::spawn_blocking(move || pick_folder(parent)).await
+        tauri::async_runtime::spawn_blocking(move || pick_folder(parent, title)).await
             .map_err(|error| ApiError::new(error.to_string()))?
             .map_err(|error| ApiError::new(format!("无法打开文件夹选择器：{error}")))
     }
@@ -45,7 +49,7 @@ pub async fn pick_project_folder(window: tauri::WebviewWindow) -> Result<Option<
     {
         use tauri_plugin_dialog::DialogExt;
         let (send, receive) = tokio::sync::oneshot::channel();
-        window.dialog().file().set_parent(&window).set_title("选择项目文件夹")
+        window.dialog().file().set_parent(&window).set_title(title)
             .pick_folder(move |folder| { let _ = send.send(folder); });
         match receive.await.map_err(|_| ApiError::new("文件夹选择器未返回结果"))? {
             Some(folder) => folder.into_path()
@@ -63,8 +67,8 @@ pub fn reveal_project_folder(path: String) -> Result<(), ApiError> {
 }
 
 #[cfg(windows)]
-fn pick_folder(parent: usize) -> windows::core::Result<Option<String>> {
-    use windows::core::{w, HRESULT};
+fn pick_folder(parent: usize, title: &str) -> windows::core::Result<Option<String>> {
+    use windows::core::{HSTRING, HRESULT};
     use windows::Win32::Foundation::HWND;
     use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
     use windows::Win32::UI::Shell::{FileOpenDialog, IFileOpenDialog, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, SIGDN_FILESYSPATH};
@@ -80,7 +84,7 @@ fn pick_folder(parent: usize) -> windows::core::Result<Option<String>> {
         let _apartment = ComApartment;
         let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER)?;
         dialog.SetOptions(dialog.GetOptions()? | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST)?;
-        dialog.SetTitle(w!("选择项目文件夹"))?;
+        dialog.SetTitle(&HSTRING::from(title))?;
         if let Err(error) = dialog.Show(Some(HWND(parent as _))) {
             // HRESULT_FROM_WIN32(ERROR_CANCELLED)
             return if error.code() == HRESULT(0x800704C7u32 as i32) { Ok(None) } else { Err(error) };

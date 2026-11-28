@@ -2,6 +2,8 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 
 	"github.com/noosphere/backend/internal/workspaces"
@@ -19,7 +21,7 @@ func (g *Gateway) SetWorkspaceManager(manager *workspaces.Manager) {
 				return "", nil, err
 			}
 			return model.ID, func(ctx context.Context) context.Context {
-				return context.WithValue(ctx, admittedModelKey{}, model)
+				return context.WithValue(workspaces.WithAgentModelFingerprint(ctx, AgentFingerprint(model)), admittedModelKey{}, model)
 			}, nil
 		})
 	}
@@ -57,4 +59,13 @@ func (g *Gateway) WorkspaceModel(workspaceID, modelID string) (*ModelConfig, err
 		return nil, fmt.Errorf("model not found or disabled")
 	}
 	return model, nil
+}
+
+// AgentFingerprint pins the effective protocol and model without serializing credentials.
+func AgentFingerprint(model *ModelConfig) string {
+	copy := *model
+	copy.Credential = nil
+	copy.IsDefault = false
+	raw, _ := json.Marshal(copy)
+	return fmt.Sprintf("%x", sha256.Sum256(raw))
 }

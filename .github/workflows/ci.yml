@@ -102,9 +102,18 @@ jobs:
         run: |
           node scripts/desktop.mjs check-release-ref
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test scripts/desktop-release-manifest.test.mjs
+          node --test scripts/desktop-release-manifest.test.mjs scripts/agent-observer-regression.mjs
       - name: Initialize and verify the developer environment
         run: ./scripts/setup.ps1 -InstallBrowser
+      - name: Verify isolated Windows HTML and PDF rendering
+        run: |
+          . ./scripts/common.ps1
+          $Fixture = Join-Path $env:RUNNER_TEMP 'gowkhtmltoimage.exe'
+          curl.exe --fail --location --retry 3 --silent --show-error --output $Fixture 'https://github.com/chinmay-sawant/gowkhtmltopdf/releases/download/v0.2.6/gowkhtmltoimage_0.2.6_windows_amd64.exe'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:NOOSPHERE_TEST_HTML_TOOL = $Fixture
+          Invoke-NoosphereCommand (Resolve-NoosphereCommand go) @('test', '-count=1', './internal/agent/sandbox', '-run', '^TestLPACStaticCSSPreview$') (Join-Path $PWD 'backend')
+          Invoke-NoosphereCommand (Resolve-NoosphereCommand go) @('test', '-count=1', './internal/agent/render', '-run', '^TestPDFiumRendersPageContent$') (Join-Path $PWD 'backend')
       - name: Prepare a standard-integrity Windows test launcher
         run: |
           # WebView2 150+ drops environment overrides from elevated hosts. Test with the
@@ -150,6 +159,11 @@ jobs:
           $Executable = @(Get-ChildItem -LiteralPath $Root -Recurse -Filter 'Noosphere.exe' -File)
           if ($Executable.Count -ne 1) { throw 'Expected exactly one portable desktop executable.' }
           ./scripts/test.ps1 -Rust -Browser -LiveRuntimeInstall
+          $Backend = Join-Path $Executable[0].Directory.FullName 'bin/noosphere-backend.exe'
+          python scripts/test-agent-release.py --backend $Backend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/test-agent-delivery.py --backend $Backend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $Node = (Get-Command node.exe).Source
           & $env:NOOSPHERE_CI_GSUDO --direct --integrity Medium $Node scripts/verify-desktop.cjs $Executable[0].Directory.FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -215,7 +229,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libxdo-dev libfuse2 patchelf xz-utils xvfb xauth dbus-x11 gnome-keyring weston
+          sudo apt-get install -y bubblewrap libreoffice-writer libreoffice-impress libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libxdo-dev libfuse2 patchelf xz-utils xvfb xauth dbus-x11 gnome-keyring weston
       - name: Verify real GGUF smoke fixture
         run: python3 scripts/prepare-model-smoke.py
       - name: Run locked native toolchain and application tests
@@ -225,6 +239,13 @@ jobs:
           node scripts/desktop.mjs setup "$NOOSPHERE_BUILD_TARGET"
           node scripts/desktop.mjs test "$NOOSPHERE_BUILD_TARGET"
           python3 scripts/test-agent-release.py --backend desktop/src-tauri/bin/noosphere-backend
+          python3 scripts/test-agent-delivery.py --backend desktop/src-tauri/bin/noosphere-backend
+      - name: Verify isolated Linux Word and PowerPoint rendering
+        if: runner.os == 'Linux'
+        working-directory: backend
+        env:
+          NOOSPHERE_TEST_OFFICE_RENDER: '1'
+        run: go test -count=1 -v ./internal/agent/render -run '^TestInstalledOfficeRendersDocumentAndSlide$'
       - name: Package and validate a preview
         if: ${{ !inputs.formal || runner.os != 'macOS' }}
         run: node scripts/desktop.mjs package "$NOOSPHERE_BUILD_TARGET"

@@ -1,4 +1,4 @@
-import type { ChatAttachmentTurn } from '@/lib/api';
+import type { AgentAuthorization, ChatAttachmentTurn } from '@/lib/api';
 
 export type RunPhase = "preparing" | "waiting" | "streaming";
 export type RunStatus = "completed" | "cancelled" | "failed";
@@ -13,6 +13,7 @@ export interface RunEvent {
 }
 export interface RunInput extends RunIdentity {
   agentMode?: boolean;
+  authorization?: AgentAuthorization;
   goalText?: string;
   attachmentTurn?: ChatAttachmentTurn;
   reviewedActions?: boolean;
@@ -95,6 +96,7 @@ export function createStreamRunner(options: RunnerOptions) {
   return {
     get active() { return current && !current.starting ? current.input : null; },
     flush,
+    async waitForRegistration() { await current?.acknowledged; },
     start(input: RunInput): boolean {
       if (current) return false;
       const run: Running = { input, starting: true, controller: new AbortController(), phase: "preparing", ended: false, buffer: "" };

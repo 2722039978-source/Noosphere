@@ -49,6 +49,7 @@ export async function collectLicenses(target, output, reaRuntime, env, go = 'go'
   const base = [
     'frontend/public/assets/RhineLabUI-LICENSE.txt',
     'frontend/public/assets/Attachment-Dependencies-LICENSE.txt',
+    'LICENSES/PDFium-THIRD-PARTY-NOTICES.txt',
   ];
   await copyLegalText(join(root, 'LICENSES/MIT.txt'), join(output, 'LICENSE'));
   for (const file of base) await copyLegalText(join(root, file), join(output, basename(file)));

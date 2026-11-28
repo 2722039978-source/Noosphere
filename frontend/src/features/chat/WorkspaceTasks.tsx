@@ -29,7 +29,7 @@ export function WorkspaceTasks({ workspaceId, onNavigate }: { workspaceId: strin
   const active = runs.filter(isRunActive).length;
   return <section className="ns-sidebar-tasks" aria-label="任务">
     <div className="ns-sidebar-task-heading">
-      <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}><ChevronRight size={14} aria-hidden="true" />任务{active > 0 && <span className="ns-project-run-label">{active} 运行中</span>}</button>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}><ChevronRight size={14} aria-hidden="true" />任务{active > 0 && <span className="ns-project-run-label">{active} 项进行中</span>}</button>
       {ready && <Link to="/chat?task=new" aria-label="新建任务" title="新建任务" onClick={() => { useChatStore.getState().newSession(); onNavigate?.(); }}><Plus size={17} aria-hidden="true" /></Link>}
     </div>
     {open && <div className="ns-sidebar-task-list">

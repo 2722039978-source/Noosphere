@@ -28,6 +28,7 @@ export interface ChatMessage {
   agentMode?: boolean;
   reviewedActions?: boolean;
   agentRunId?: string;
+  agentEngine?: 2;
   agentProgress?: string;
   createdAt: number;
 }
@@ -97,6 +98,7 @@ export async function importChatBackup(raw: string) {
       ...message,
       sourceProjectPath: undefined,
       agentRunId: undefined,
+      agentEngine: undefined,
       evidenceSnapshotOnly: true,
       ...(message.streaming ? { streaming: false, status: 'interrupted' as const, error: '导入的未完成回复已中断' } : {}),
     })),
@@ -294,6 +296,7 @@ export const useChatStore = create<ChatState>()(
           sessions: st.sessions.map((s) => ({
             ...s,
             messages: s.messages.map((m) =>
+              m.streaming && m.agentEngine === 2 && m.agentRunId ? { ...m, streaming: false, status: "completed", error: undefined } :
               m.streaming ? { ...m, streaming: false, status: "interrupted", error: "上次生成已中断" } : m
             ),
           })),

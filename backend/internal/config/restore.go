@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -52,7 +53,8 @@ func RestoreData(snapshot, destination string) error {
 		if err != nil {
 			return fmt.Errorf("restore file %s: %w", name, err)
 		}
-		if digest != manifest.SHA256[name] {
+		expected := agentContentDigest(name)
+		if digest != manifest.SHA256[name] || (expected != "" && expected != digest) {
 			return fmt.Errorf("backup SHA-256 mismatch: %s", name)
 		}
 		if strings.HasPrefix(name, "data/agent-actions/") && strings.HasSuffix(name, ".json") {
@@ -69,7 +71,54 @@ func RestoreData(snapshot, destination string) error {
 			return err
 		}
 	}
+	if _, err := os.Stat(filepath.Join(stage, "data", "workspace.sqlite")); err == nil {
+		if err = os.WriteFile(filepath.Join(stage, "data", ".restored-agent-history"), []byte("1"), 0600); err != nil {
+			return err
+		}
+	}
 	return os.Rename(stage, destination)
+}
+
+// Only immutable content and its publication journal travel with restored history.
+func agentHistoryPath(relative string, directory bool) bool {
+	if relative == "." {
+		return directory
+	}
+	parts := strings.Split(relative, "/")
+	digest := func(value string, bytes int) bool {
+		if len(value) != 2*bytes || strings.ToLower(value) != value {
+			return false
+		}
+		_, err := hex.DecodeString(value)
+		return err == nil
+	}
+	if !digest(parts[0], 16) {
+		return false
+	}
+	switch len(parts) {
+	case 1:
+		return directory
+	case 2:
+		if directory {
+			return parts[1] == "blobs" || parts[1] == "command-logs"
+		}
+		return parts[1] == "journal.json"
+	case 3:
+		return !directory && (parts[1] == "blobs" || parts[1] == "command-logs") && digest(parts[2], 32)
+	}
+	return false
+}
+
+func agentContentDigest(name string) string {
+	suffix, ok := strings.CutPrefix(name, "data/agent-v2/")
+	if !ok || !agentHistoryPath(suffix, false) {
+		return ""
+	}
+	parts := strings.Split(suffix, "/")
+	if len(parts) == 3 {
+		return parts[2]
+	}
+	return ""
 }
 
 func isBackupPath(name string) bool {
@@ -77,6 +126,9 @@ func isBackupPath(name string) bool {
 	case "config.yaml", "models.yaml", "model-library.v1.json", "data/workspace.sqlite", "data/workspace.sqlite-wal", "data/workspace.sqlite-journal",
 		"data/model-engineering.sqlite", "data/model-engineering.sqlite-wal", "data/model-engineering.sqlite-journal":
 		return true
+	}
+	if suffix, ok := strings.CutPrefix(name, "data/agent-v2/"); ok {
+		return agentHistoryPath(suffix, false)
 	}
 	for _, prefix := range []string{"data/nebula/", "data/agent-actions/", "data/model-engineering/artifacts/", "data/codelens-artifacts/", "data/chat-attachment-files/"} {
 		if strings.HasPrefix(name, prefix) {

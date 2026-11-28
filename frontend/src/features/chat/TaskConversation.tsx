@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ArrowLeft, ArrowUpRight, RotateCcw } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useRunRecord } from '@/hooks/useRunRecord';
+import { AgentDeliveryPanel } from '@/components/AgentDeliveryPanel';
 import { AgentActions } from '@/components/AgentActions';
 import { AgentResultView } from '@/components/AgentTaskRecord';
+import { AgentRunTimeline } from '@/components/AgentRunTimeline';
 import { Button } from '@/components/ui/button';
 import { useBackend } from '@/hooks/useBackend';
-import { api, errMessage, type RunEvent, type WorkspaceRun } from '@/lib/api';
+import { api, errMessage, type WorkspaceRun } from '@/lib/api';
 import { chatCapabilityBlocker, selectedChatModel } from '@/lib/model-capabilities';
 import { isRunActive, RUN_STATUS_LABEL, TASK_KIND_LABEL, workspaceRunDestination } from '@/lib/task-client';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -21,16 +23,16 @@ function taskResult(run: WorkspaceRun) {
 
 export function TaskConversation({ runId }: { runId: string }) {
   const navigate = useNavigate();
-  const tasks = useQueryClient();
   const { models, modelsReady } = useBackend();
   const workspace = useWorkspaceStore(state => state.workspaces.find(item => item.id === state.activeId));
   const workspaceReady = useWorkspaceStore(state => state.hydrated);
   const workspaceId = workspace?.id ?? '';
   const ready = useChatPersistence(state => state.ready);
   const generation = useGenerationStore(state => state.active);
-  const [record, setRecord] = useState<{ run: WorkspaceRun; events: RunEvent[] } | null>(null);
+  const query = useRunRecord(workspaceId, runId, workspaceReady);
+  const record = query.data;
   const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
+  const refresh = () => { setError(''); void query.refetch(); };
   const [stopping, setStopping] = useState(false);
   const [switching, setSwitching] = useState(false);
   const run = record?.run;
@@ -40,33 +42,6 @@ export function TaskConversation({ runId }: { runId: string }) {
   const liveConversation = active && generation?.sessionId === session?.id && generation?.workspaceId === workspaceId;
   const originAssistant = session?.messages.findIndex(message => message.agentRunId === runId) ?? -1;
   const question = originAssistant > 0 ? session?.messages[originAssistant - 1] : undefined;
-
-  useEffect(() => {
-    if (!workspaceReady || !workspaceId) return;
-    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(runId)) { setError('任务标识无效。'); return; }
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let cursor = 0;
-    const poll = async () => {
-      try {
-        const next = await api.getWorkspaceRun(runId);
-        if (disposed) return;
-        if (next.workspace_id !== workspaceId) throw new Error('这条任务属于另一个工作区。请从对应项目的侧栏打开。');
-        const batch = await api.getRunEvents(runId, cursor);
-        if (disposed) return;
-        const added = batch.events.filter(event => event.run_id === runId && event.seq > cursor);
-        cursor = Math.max(cursor, ...added.map(event => event.seq));
-        setRecord(previous => ({ run: next, events: cursor === 0 || previous?.run.id !== runId ? added : [...previous.events, ...added] }));
-        setError('');
-        if (isRunActive(next) || batch.events.length === 200) timer = setTimeout(() => void poll(), 1200);
-        if (!isRunActive(next)) void tasks.invalidateQueries({ queryKey: ['workspace-tasks', workspaceId] });
-      } catch (problem) { if (!disposed) setError(errMessage(problem)); }
-    };
-    setRecord(null);
-    setError('');
-    void poll();
-    return () => { disposed = true; clearTimeout(timer); };
-  }, [runId, workspaceId, workspaceReady, revision, tasks]);
 
   const showRun = run?.workspace_id === workspaceId ? run : undefined;
   const goal = showRun?.goal || (question?.role === 'user' ? question.content : '') || showRun?.title || '';
@@ -120,8 +95,8 @@ export function TaskConversation({ runId }: { runId: string }) {
       </div></header>
       <div className="min-h-0 flex-1 overflow-y-auto" aria-label="任务对话">
         <div className="ns-chat-rail ns-chat-messages">
-          {error && <div role="alert" className="ns-form-error mb-3">{error} <Button size="sm" variant="ghost" onClick={() => setRevision(value => value + 1)}>重试读取</Button></div>}
-          {!showRun && !error && <p role="status" className="text-sm text-text-2">正在读取任务…</p>}
+          {(error || query.error) && <div role="alert" className="ns-form-error mb-3">{error || errMessage(query.error)} <Button size="sm" variant="ghost" onClick={refresh}>重试读取</Button></div>}
+          {!showRun && !error && !query.error && <p role="status" className="text-sm text-text-2">正在读取任务…</p>}
           {showRun && <>
             <article className="ns-chat-message"><h2 className="ns-chat-message-label">任务目标</h2><p className="ns-message-body whitespace-pre-wrap">{goal}</p></article>
             <article className="ns-chat-message"><h2 className="ns-chat-message-label">{active ? '执行进度' : showRun.kind === 'agent' && answer ? '模型结论' : '任务状态'}</h2>
@@ -131,13 +106,14 @@ export function TaskConversation({ runId }: { runId: string }) {
               {destination && <Link to={destination} className="mt-3 inline-flex items-center gap-1 text-sm text-brand">打开产物 <ArrowUpRight size={14} /></Link>}
               {active && <Button variant="outline" size="sm" className="mt-3" disabled={stopping} onClick={() => {
                 setStopping(true);
-                void api.cancelWorkspaceRun(showRun.id).then(() => setRevision(value => value + 1), problem => setError(errMessage(problem))).finally(() => setStopping(false));
+                void api.cancelWorkspaceRun(showRun.id).then(refresh, problem => setError(errMessage(problem))).finally(() => setStopping(false));
               }}>取消任务</Button>}
             </article>
-            {showRun.kind === 'agent' && <div className="pb-3"><AgentActions key={runId} workspaceId={workspaceId} runId={runId} taskActive={active} /></div>}
+            {showRun.engine_version === 2 && <AgentDeliveryPanel run={showRun} events={events} controls />}
+            {showRun.kind === 'agent' && showRun.engine_version !== 2 && <div className="pb-3"><AgentActions key={runId} workspaceId={workspaceId} runId={runId} taskActive={active} /></div>}
             {(events.length > 0 || showRun.result != null) && <details className="ns-record-detail"><summary>过程与产物</summary><div className="ns-detail-body">
-              {showRun.kind === 'agent' && <AgentResultView result={showRun.result} events={events} showAnswer={false} workspaceId={workspaceId} />}
-              <ol className="grid gap-1 py-2 text-xs text-text-2">{events.filter(event => event.message).map(event => <li key={event.seq}><time className="mr-2 text-text-3">{new Date(event.created_at).toLocaleTimeString()}</time>{event.message}</li>)}</ol>
+              {showRun.kind === 'agent' && showRun.engine_version !== 2 && <AgentResultView result={showRun.result} events={events} showAnswer={false} workspaceId={workspaceId} />}
+              <AgentRunTimeline events={events} />
               {showRun.result != null && showRun.kind !== 'agent' && <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(showRun.result, null, 2)}</pre>}
             </div></details>}
             <details className="ns-record-detail mt-2"><summary>项目与模型</summary><dl className="ns-detail-body space-y-2 break-all text-xs text-text-2">

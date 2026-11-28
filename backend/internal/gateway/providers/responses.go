@@ -47,7 +47,7 @@ func (p *OpenAIProvider) chatToolsResponses(ctx context.Context, model string, m
 		}
 		return body
 	}
-	resp, err := p.postChat(ctx, "/responses", build, opts, 256*1024, false)
+	resp, err := p.postChat(ctx, "/responses", build, opts, maxToolRequestBytes, toolMessagesHaveImages(messages))
 	if err != nil {
 		var upstream *UpstreamHTTPError
 		if errors.As(err, &upstream) {
@@ -121,6 +121,10 @@ func responsesInput(messages []ToolMessage) []any {
 			for _, item := range message.responsesOutput {
 				items = append(items, item)
 			}
+		case message.Role == "user" && message.ImageURL != "":
+			items = append(items, map[string]any{"role": "user", "content": []map[string]string{
+				{"type": "input_text", "text": message.Content}, {"type": "input_image", "image_url": message.ImageURL},
+			}})
 		case message.Role == "tool":
 			items = append(items, map[string]interface{}{
 				"type": "function_call_output", "call_id": message.ToolCallID, "output": message.Content,

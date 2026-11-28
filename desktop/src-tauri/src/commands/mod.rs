@@ -2,6 +2,7 @@ pub mod services;
 pub mod types;
 pub mod gateway;
 pub mod attachments;
+pub mod agent_delivery;
 pub(crate) mod stream;
 pub mod nebula;
 pub mod devops;

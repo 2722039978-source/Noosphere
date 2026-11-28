@@ -1,13 +1,13 @@
-import type { ChatAttachmentTurn, WorkspaceRun, RunEvent as TaskEvent } from '@/lib/api';
+import type { AgentAuthorization, ChatAttachmentTurn, WorkspaceRun, RunEvent as TaskEvent } from '@/lib/api';
 import type { RunEvent } from './stream-runner';
 
 interface Client {
-  submit(workspaceId: string, goal: string, modelId: string, sessionId: string, reviewedActions?: boolean, displayGoal?: string, attachmentTurn?: ChatAttachmentTurn): Promise<WorkspaceRun>;
+  submit(workspaceId: string, goal: string, modelId: string, sessionId: string, reviewedActions?: boolean, displayGoal?: string, attachmentTurn?: ChatAttachmentTurn, authorization?: AgentAuthorization, requestId?: string): Promise<WorkspaceRun>;
   get(id: string): Promise<WorkspaceRun>;
   events(id: string, after: number): Promise<{ events: TaskEvent[] }>;
   cancel(id: string): Promise<unknown>;
 }
-interface Patch { agentRunId?: string; agentProgress?: string }
+interface Patch { agentEngine?: 2; agentRunId?: string; agentProgress?: string }
 interface Entry { runId: string; stopped: boolean; timer?: ReturnType<typeof setTimeout> }
 
 /** Acknowledges after durable registration; observation never delays cancellation. */
@@ -20,9 +20,20 @@ export function createAgentTransport(client: Client, callbacks: { update?(id: st
   }
   return {
     has: (id: string) => entries.has(id), cancel,
-    async start(id: string, workspaceId: string, sessionId: string, modelId: string, goal: string, receive: (event: RunEvent) => void, onUpdate: (patch: Patch) => void = patch => callbacks.update?.(id, patch), reviewedActions = false, displayGoal?: string, attachmentTurn?: ChatAttachmentTurn) {
-      const run = await client.submit(workspaceId, goal, modelId, sessionId, reviewedActions, displayGoal, attachmentTurn);
+    async start(id: string, workspaceId: string, sessionId: string, modelId: string, goal: string, receive: (event: RunEvent) => void, onUpdate: (patch: Patch) => void = patch => callbacks.update?.(id, patch), reviewedActions = false, displayGoal?: string, attachmentTurn?: ChatAttachmentTurn, authorization?: AgentAuthorization) {
+      const run = await client.submit(workspaceId, goal, modelId, sessionId, reviewedActions, displayGoal, attachmentTurn, authorization, id);
+      if (run.workspace_id !== workspaceId) throw new Error('提交的任务属于另一个工作区');
       const entry: Entry = { runId: run.id, stopped: false }; entries.set(id, entry);
+      if (run.engine_version === 2) {
+        onUpdate({ agentRunId: run.id, agentEngine: 2, agentProgress: '任务已登记' });
+        // The task record owns observation from here. A stop during registration still wins.
+        entry.timer = setTimeout(() => {
+          if (entry.stopped) return;
+          entries.delete(id);
+          receive({ request_id: id, done: true, status: 'completed' });
+        }, 0);
+        return;
+      }
       onUpdate({ agentRunId: run.id, agentProgress: 'Agent 已提交，正在等待执行。' });
       let after = 0;
       const observe = async () => {

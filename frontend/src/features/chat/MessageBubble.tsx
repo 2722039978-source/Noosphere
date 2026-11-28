@@ -6,7 +6,7 @@ import "highlight.js/styles/github-dark.css";
 import { Check, Copy, Paperclip, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import type { ChatMessage } from "./chat-store";
+import { useChatStore, type ChatMessage } from "./chat-store";
 import { AgentTaskRecord } from '@/components/AgentTaskRecord';
 import { MessageEvidence } from './MessageEvidence';
 
@@ -173,7 +173,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
             >
               {message.content}
             </Markdown>
-          ) : (
+          ) : message.agentEngine === 2 && message.agentRunId ? null : (
             <div className="ns-assistant-pending">
               {message.streaming && <span className="ns-mini-orbit" aria-hidden="true"><i /><b /></span>}
               <span>{message.streaming ? (message.agentProgress || (message.agentMode ? '正在准备 Agent 任务…' : '')) || (message.status === "preparing" ? "正在检索项目上下文…" : "等待首字输出…") : message.status === "cancelled" ? "已停止生成" : message.error ? "本次生成未完成，可重新尝试。" : "模型未返回内容。"}</span>
@@ -184,9 +184,12 @@ export const MessageBubble = memo(function MessageBubble({ message, onRegenerate
           )}
         </div>
 
-        {message.agentRunId && workspaceId && <AgentTaskRecord runId={message.agentRunId} workspaceId={workspaceId} showAnswer={!message.content} />}
+        {message.agentRunId && workspaceId && <AgentTaskRecord runId={message.agentRunId} workspaceId={workspaceId} expanded={message.agentEngine === 2} showAnswer={!message.content}
+          onAnswer={message.agentEngine === 2 && !message.content && sessionId ? answer => {
+            useChatStore.getState().updateMessage(sessionId, message.id, { content: answer, streaming: false, status: 'completed', error: undefined });
+          } : undefined} />}
         <MessageEvidence message={message} workspaceId={workspaceId} sessionId={sessionId} />
-        {!message.streaming && onRegenerate && (
+        {!message.streaming && message.agentEngine !== 2 && onRegenerate && (
           <div className="ns-message-actions mt-3 flex gap-1">
             <button
               onClick={onRegenerate}

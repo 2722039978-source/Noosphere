@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
-import { api, errMessage, type RunEvent, type WorkspaceRun } from '@/lib/api';
+import { api, errMessage, type RunEvent } from '@/lib/api';
 import { isRunActive, RUN_STATUS_LABEL } from '@/lib/task-client';
+import { Link } from 'react-router-dom';
+import { taskRecordPath } from '@/lib/task-client';
+import { useRunRecord } from '@/hooks/useRunRecord';
+import { AgentDeliveryPanel } from './AgentDeliveryPanel';
+import { AgentRunTimeline } from './AgentRunTimeline';
 import { AgentActions } from './AgentActions';
 import { Button } from './ui/button';
 import { SourceEvidenceButton } from './CodeLensEvidence';
@@ -27,40 +32,29 @@ export function AgentResultView({ result, events = [], showAnswer = true, worksp
   </div>;
 }
 
-export function AgentTaskRecord({ runId, workspaceId, expanded = false, showAnswer = false }: { runId: string; workspaceId: string; expanded?: boolean; showAnswer?: boolean }) {
+export function AgentTaskRecord({ runId, workspaceId, expanded = false, showAnswer = false, onAnswer }: { runId: string; workspaceId: string; expanded?: boolean; showAnswer?: boolean; onAnswer?: (answer: string) => void }) {
   const [open, setOpen] = useState(expanded);
-  const [run, setRun] = useState<WorkspaceRun | null>(null);
-  const [events, setEvents] = useState<RunEvent[]>([]);
-  const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    if (!open) return;
-    let disposed = false, after = 0;
-    let timer: ReturnType<typeof setTimeout>;
-    setRun(null); setEvents([]); setError('');
-    const poll = async () => {
-      try {
-        const [next, response] = await Promise.all([api.getWorkspaceRun(runId), api.getRunEvents(runId, after)]);
-        if (disposed) return;
-        if (next.workspace_id !== workspaceId || next.kind !== 'agent' || !Array.isArray(response.events)) throw new Error('Agent 任务归属不匹配');
-        setRun(next); setEvents(old => [...old, ...response.events]);
-        after = Math.max(after, ...response.events.map(e => e.seq));
-        if (isRunActive(next)) timer = setTimeout(() => void poll(), 1400);
-      } catch (e) { if (!disposed) setError(errMessage(e)); }
-    };
-    void poll();
-    return () => { disposed = true; clearTimeout(timer); };
-  }, [open, runId, workspaceId, revision]);
+  const query = useRunRecord(workspaceId, runId, open);
+  const run = query.data?.run.kind === 'agent' ? query.data.run : undefined;
+  const answer = run?.status === 'completed' && run.engine_version === 2 ? (run.result as { answer?: string } | null)?.answer : undefined;
+  useEffect(() => { if (typeof answer === 'string' && answer) onAnswer?.(answer); }, [answer, onAnswer]);
+  const events = query.data?.events ?? [];
+  const [controlError, setError] = useState('');
+  const error = controlError || (query.error ? errMessage(query.error) : '');
+  const refresh = () => { setError(''); void query.refetch(); };
   return <details open={open} onToggle={e => setOpen(e.currentTarget.open)} className="ns-record-detail mt-3">
     <summary>Agent 执行记录{run ? ` · ${RUN_STATUS_LABEL[run.status]}` : ''}</summary>
     {open && <div className="ns-detail-body">
-      {error && <p role="alert">{error} <Button variant="outline" onClick={() => setRevision(r => r + 1)}>重新读取</Button></p>}
+      {error && <p role="alert">{error} <Button variant="outline" onClick={refresh}>重新读取</Button></p>}
       {!run && !error && <p role="status">正在读取已保存的任务…</p>}
       {run && <><p role="status">{events[events.length - 1]?.message || RUN_STATUS_LABEL[run.status]}</p>
-        {isRunActive(run) && <Button variant="outline" className="mt-2" onClick={() => { void api.cancelWorkspaceRun(run.id).then(() => setRevision(r => r + 1), e => setError(errMessage(e))); }}>取消 Agent 任务</Button>}
+        {run.engine_version !== 2 && isRunActive(run) && <Button variant="outline" className="mt-2" onClick={() => { void api.cancelWorkspaceRun(run.id).then(refresh, e => setError(errMessage(e))); }}>取消 Agent 任务</Button>}
         {run.error && <p role="alert" className="mt-2 text-err">{run.error}</p>}
-        <AgentResultView result={run.result} events={events} showAnswer={showAnswer} workspaceId={workspaceId} />
-        <AgentActions key={runId} workspaceId={workspaceId} runId={runId} taskActive={isRunActive(run)} />
+        {run.engine_version === 2 ? <><Link to={taskRecordPath(runId)} className="text-sm text-brand underline">打开任务并调整执行</Link>
+          <AgentDeliveryPanel run={run} events={events} showAnswer={showAnswer} />
+          {events.length > 0 && <AgentRunTimeline events={events} />}
+        </> : <><AgentResultView result={run.result} events={events} showAnswer={showAnswer} workspaceId={workspaceId} />
+        <AgentActions key={runId} workspaceId={workspaceId} runId={runId} taskActive={isRunActive(run)} /></>}
       </>}
     </div>}
   </details>;

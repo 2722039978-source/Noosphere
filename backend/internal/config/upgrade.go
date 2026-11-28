@@ -189,6 +189,9 @@ func backupUpgrade(root, configPath string, cfg *AppConfig, previous, version st
 			return err
 		}
 		key := filepath.ToSlash(relative)
+		if expected := agentContentDigest(key); expected != "" && expected != sum {
+			return fmt.Errorf("Agent history SHA-256 mismatch: %s", key)
+		}
 		manifest.Files[key] = absolute
 		manifest.SHA256[key] = sum
 		return nil
@@ -210,6 +213,7 @@ func backupUpgrade(root, configPath string, cfg *AppConfig, previous, version st
 	}
 	for _, path := range []struct{ source, relative string }{
 		{cfg.Modules.Nebula.DataDir, "data/nebula"},
+		{filepath.Join(dataDir, "agent-v2"), "data/agent-v2"},
 		{filepath.Join(dataDir, "agent-actions"), "data/agent-actions"},
 		{filepath.Join(dataDir, "model-engineering", "artifacts"), "data/model-engineering/artifacts"},
 		{filepath.Join(dataDir, "codelens-artifacts"), "data/codelens-artifacts"},
@@ -228,6 +232,12 @@ func backupUpgrade(root, configPath string, cfg *AppConfig, previous, version st
 			relative, err := filepath.Rel(path.source, file)
 			if err != nil {
 				return err
+			}
+			if path.relative == "data/agent-v2" && !agentHistoryPath(filepath.ToSlash(relative), item.IsDir()) {
+				if item.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
 			}
 			if item.IsDir() {
 				if (path.relative == "data/codelens-artifacts" && relative == "work") ||

@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useThemeStore } from "@/stores/theme-store";
 import { ChatBackupPanel } from './ChatBackupPanel';
 import { ExperienceSettings } from './ExperienceSettings';
+import { AgentToolpackPanel } from './AgentToolpackPanel';
 import { UpdatePanel } from './UpdatePanel';
 import { version } from '../../../package.json';
 
@@ -44,6 +45,7 @@ export function SettingsPage() {
           <Button asChild size="sm" variant="outline"><Link to="/model-hub">本地模型</Link></Button>
           <Button asChild size="sm" variant="outline"><Link to="/model-hub/config">管理连接</Link></Button>
         </Surface>
+        <AgentToolpackPanel online={backend.health === 'online'} />
         <ExperienceSettings />
         <ChatBackupPanel />
         <UpdatePanel />

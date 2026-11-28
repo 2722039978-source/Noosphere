@@ -10,6 +10,11 @@ import (
 	"github.com/noosphere/backend/internal/workspaces"
 )
 
+// SupportsImageInput reports the negotiated ability to attach pixels to a user message.
+func (model *ModelConfig) SupportsImageInput() bool {
+	return model != nil && model.visionEnabled() && (model.Provider == "openai_compatible" || model.Provider == "openai" || model.Provider == "ollama")
+}
+
 func (g *Gateway) resolveChatAttachments(ctx context.Context, model *ModelConfig, workspaceID, sessionID string, turn workspaces.AttachmentTurn, messages []map[string]string) ([]map[string]string, workspaces.AttachmentContext, error) {
 	var sources workspaces.AttachmentContext
 	if len(turn.IDs) == 0 {
@@ -23,8 +28,7 @@ func (g *Gateway) resolveChatAttachments(ctx context.Context, model *ModelConfig
 		return nil, sources, fmt.Errorf("仅能将附件加入当前用户消息")
 	}
 	var err error
-	vision := model.visionEnabled() &&
-		(model.Provider == "openai_compatible" || model.Provider == "openai" || model.Provider == "ollama")
+	vision := model.SupportsImageInput()
 	sources, err = g.workspaceManager.PrepareModelAttachments(ctx, workspaceID, sessionID, turn, vision)
 	if err != nil {
 		return nil, sources, err

@@ -2,11 +2,11 @@ import type { WorkspaceRun } from './api';
 
 export const RUN_STATUS_LABEL: Record<string, string> = {
   queued: '等待执行', running: '运行中', completed: '已完成', failed: '失败',
-  cancelled: '已取消', interrupted: '已中断',
+  paused: '已暂停', waiting_approval: '等待确认', budget_exhausted: '预算已用完', cancelled: '已取消', interrupted: '已中断',
 };
 
 export function isRunActive(run: Pick<WorkspaceRun, 'status'>) {
-  return run.status === 'queued' || run.status === 'running';
+  return ['queued', 'running', 'waiting_approval', 'paused', 'budget_exhausted'].includes(run.status);
 }
 
 export const TASK_KIND_LABEL: Record<string, string> = {

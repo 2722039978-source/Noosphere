@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/noosphere/backend/internal/agent"
+	"github.com/noosphere/backend/internal/agent/host"
 	"github.com/noosphere/backend/internal/devops/tools"
 	"github.com/noosphere/backend/internal/gateway"
 	"github.com/noosphere/backend/internal/gateway/providers"
@@ -15,14 +16,20 @@ import (
 )
 
 func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowledgeService *knowledge.Service, systemEnabled bool, actionStores ...*agent.Actions) {
+	manager.SetGrantIdentity(host.RootIdentity)
 	manager.Register("agent", "interactive", func(ctx context.Context, ws workspaces.Workspace, input json.RawMessage, emit func(string, string, any)) (any, error) {
 		var args struct {
-			Goal            string                    `json:"goal"`
-			DisplayGoal     string                    `json:"display_goal"`
-			ModelID         string                    `json:"model_id"`
-			SessionID       string                    `json:"session_id"`
-			ReviewedActions bool                      `json:"reviewed_actions"`
-			AttachmentTurn  workspaces.AttachmentTurn `json:"attachment_turn"`
+			RequestID           string                    `json:"request_id"`
+			EngineVersion       int                       `json:"engine_version"`
+			AuthorizedBindingID string                    `json:"authorized_binding_id"`
+			Mode                string                    `json:"mode"`
+			Budget              agentBudget               `json:"budget"`
+			Goal                string                    `json:"goal"`
+			DisplayGoal         string                    `json:"display_goal"`
+			ModelID             string                    `json:"model_id"`
+			SessionID           string                    `json:"session_id"`
+			ReviewedActions     bool                      `json:"reviewed_actions"`
+			AttachmentTurn      workspaces.AttachmentTurn `json:"attachment_turn"`
 		}
 		decoder := json.NewDecoder(bytes.NewReader(input))
 		decoder.DisallowUnknownFields()
@@ -100,6 +107,9 @@ func registerAgentWorker(manager *workspaces.Manager, gw *gateway.Gateway, knowl
 			return nil, err
 		}
 		goal := args.Goal + attachments.Prompt()
+		if args.EngineVersion == 2 {
+			return runDeliveryAgent(ctx, manager, ws, goal, model, gw, registry, args.Mode, args.Budget, systemEnabled)
+		}
 		if len(goal) > 32_000 {
 			return nil, fmt.Errorf("任务目标与附件节选过长，请缩短目标后重试")
 		}
