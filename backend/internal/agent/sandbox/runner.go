@@ -88,6 +88,7 @@ func Run(ctx context.Context, work, cwd, program string, args []string, limits .
 	l := Limits{Timeout: 2 * time.Minute, DiskBytes: 2 << 30}
 	if len(limits) > 0 {
 		l.ProjectRoot = limits[0].ProjectRoot
+		l.CacheDir = limits[0].CacheDir
 		if limits[0].Timeout > 0 {
 			l.Timeout = limits[0].Timeout
 		}

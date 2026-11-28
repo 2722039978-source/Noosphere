@@ -38,7 +38,11 @@ func (e *engine) toolPolicy(call providers.ToolCall) policyResult {
 }
 
 func (e *engine) checkToolArguments(call providers.ToolCall) error {
-	if len(call.Function.Arguments) > 32000 {
+	limit := 32000
+	if call.Function.Name == "generate_artifact" {
+		limit = 128000
+	}
+	if len(call.Function.Arguments) > limit {
 		return nil // The dispatcher's parameter limit reports this as an input error.
 	}
 	var args toolArgs
@@ -53,6 +57,22 @@ func (e *engine) checkToolArguments(call providers.ToolCall) error {
 			}
 			if call.Function.Name == "move_file" {
 				return checker.ValidatePath(args.To)
+			}
+			if call.Function.Name == "generate_artifact" {
+				var doc struct {
+					Sections []struct {
+						ImagePath string `json:"image_path"`
+					} `json:"sections"`
+				}
+				if json.Unmarshal([]byte(call.Function.Arguments), &doc) == nil {
+					for _, s := range doc.Sections {
+						if s.ImagePath != "" {
+							if err := checker.ValidatePath(s.ImagePath); err != nil {
+								return err
+							}
+						}
+					}
+				}
 			}
 		}
 	case "run_command":

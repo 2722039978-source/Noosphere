@@ -101,6 +101,7 @@ func (e *engine) refresh() error {
 	e.RefreshCount++
 	e.ReviewEpoch++
 	e.Refreshing = false
+	e.ObservedHashes = nil
 	e.Answer, e.PublishingDigest, e.ApprovedDigest, e.WaitingDigest = "", "", "", ""
 	e.clearToolApproval()
 	e.Recent = nil

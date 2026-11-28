@@ -67,6 +67,7 @@ type checkpoint struct {
 	Checked                                                 map[string]string
 	Recheck                                                 map[string]string
 	RefreshChecks                                           map[string]string
+	ObservedHashes                                          map[string]string
 	ConflictedPaths                                         []string
 	OriginalGoal                                            string
 	ContextBackoff                                          int

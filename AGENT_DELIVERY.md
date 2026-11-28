@@ -18,10 +18,10 @@
 
 | 模块 | 职责 |
 | --- | --- |
-| `backend/internal/agent/core` 和 `contract` | 执行循环、预算、上下文压缩、重复行动检测、确认与续跑。核心依赖工作副本接口、模型和会话检查点，宿主能力由适配器注入。 |
-| `backend/internal/agent/host` | 基线、私有草稿、内容哈希归档、冲突检测、发布和恢复。复用 `os.Root`、链接检查、文件身份核验与原子写入。私有 Git 基线包含任务启动时的工作树内容。 |
-| `backend/internal/agent/sandbox` | Windows 用 LPAC 和 Job Object，Linux 用 bubblewrap 和 `ownedprocess`。命令接收已登记程序、argv 与相对目录，使用独立临时环境。保留可分页的命令输出，模型先看简短反馈，再按需读取。 |
-| `backend/internal/agent/toolpack`、`artifact` 和 `render` | 工具包输出可编辑 PPTX、DOCX 和 PDF、PNG、HTML。隔离命令也能生成其他二进制文件。发布卡指向内容哈希，展示格式检查和已生成的预览。对于确认支持图像输入的配置，模型下一轮可读取由 `present` 生成的视觉抽样。 |
+| `backend/internal/agent/core` 和 `contract` | 执行循环、预算、上下文压缩、重复行动检测、确认与续跑。核心依赖工作副本接口、模型和会话检查点，宿主能力由适配器注入。支持 `read_file` 行号分页（`start_line`/`end_line`）与 UTF-8 字节偏移柔性对齐、`search_files` 行号定位，以及基于会话已观察版本的短前缀/自动乐观锁哈希校验。 |
+| `backend/internal/agent/host` | 基线、私有草稿、内容哈希归档、冲突检测、发布和恢复。复用 `os.Root`、链接检查、文件身份核验与原子写入。放行常见无害工程配置点文件（如 `.eslintrc*`、`.prettierrc*`、`.node-version` 等）同时严格隔离 `.git`、`.env*` 与凭据。私有 Git 基线包含任务启动时的工作树内容。 |
+| `backend/internal/agent/sandbox` | Windows 用 LPAC 和 Job Object（配版本化只读共享工具链缓存与项目只读依赖挂载，避免重复全量拷贝），Linux 用 bubblewrap（配 `--ro-bind` 只读挂载 `node_modules` / `GOMODCACHE`）和 `ownedprocess`。登记 `python`/`node`/`npm`/`npx`/`pnpm`/`yarn`/`go`/`git`/`cargo`/`rustc`/`pytest` 等开发工具，保留可分页的命令输出。 |
+| `backend/internal/agent/toolpack`、`artifact` 和 `render` | 工具包支持多套主题、多栏卡片、KPI 指标卡、原生可编辑表格、工作区配图嵌入与演讲者备注，生成可编辑 PPTX、DOCX 和 PDF、PNG、HTML，并自动为生成的 PPTX/DOCX 栅格化内嵌高清多页/首页缩略图（Windows/Linux/macOS 通用 `.ttc`/`.ttf` 字体解析）。交付卡直接展示真实预览图与格式检查，并可供视觉模型回看自检。 |
 | `backend/internal/workspaces` 和 `backend/cmd/server` | SQLite 记录事件、用户控制、模型和工具回合、可恢复检查点、授权及交付投影。确认与发布绑定精确版本。恢复备份后，原有任务作为历史记录打开。 |
 | `frontend` 和 `desktop/src-tauri` | 发起任务、一次授权、预算、审阅、过程反馈、预览、下载与撤销。Tauri 经本地认证接口传输产物，并在用户选定的位置保存文件。 |
 

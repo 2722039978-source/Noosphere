@@ -83,7 +83,7 @@ func renderWithProgram(ctx context.Context, work, ext, exe string) error {
 		return err
 	}
 	var out limitedOutput
-	code, err := launchResolved(ctx, work, ".", browserRenderer, exe, system, args, capture(&out))
+	code, err := launchResolved(ctx, work, ".", browserRenderer, exe, system, args, capture(&out), Limits{})
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

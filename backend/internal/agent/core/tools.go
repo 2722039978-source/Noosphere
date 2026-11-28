@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"path"
 	"strings"
 	"unicode/utf8"
@@ -17,17 +19,19 @@ import (
 )
 
 type toolArgs struct {
-	Index   int     `json:"index"`
-	To      string  `json:"to"`
-	LogID   string  `json:"log_id"`
-	Verify  bool    `json:"verify"`
-	Path    string  `json:"path"`
-	Offset  int64   `json:"offset"`
-	Limit   int     `json:"limit"`
-	Query   string  `json:"query"`
-	Content *string `json:"content"`
-	Hash    string  `json:"expected_hash"`
-	Edits   []struct {
+	Index     int     `json:"index"`
+	To        string  `json:"to"`
+	LogID     string  `json:"log_id"`
+	Verify    bool    `json:"verify"`
+	Path      string  `json:"path"`
+	Offset    int64   `json:"offset"`
+	Limit     int     `json:"limit"`
+	StartLine int     `json:"start_line"`
+	EndLine   int     `json:"end_line"`
+	Query     string  `json:"query"`
+	Content   *string `json:"content"`
+	Hash      string  `json:"expected_hash"`
+	Edits     []struct {
 		Old string `json:"old"`
 		New string `json:"new"`
 	} `json:"edits"`
@@ -88,17 +92,18 @@ func definition(name, description, props string, required ...string) providers.T
 const pathField = `"path":{"type":"string"}`
 const hashField = `"expected_hash":{"type":"string"}`
 const rangeFields = `"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1}`
+const lineRangeFields = `"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1}`
 
 func (e *engine) definitions() []providers.ToolDefinition {
 	defs := []providers.ToolDefinition{
 		definition("read_instructions", "Read the complete original goal (index 0) or older steering note by index, in byte ranges.", `"index":{"type":"integer","minimum":0},`+rangeFields, "index"),
 		definition("list_files", "List a page of relative paths in the draft. Offset is a file index.", rangeFields),
-		definition("search_files", "Find literal text in a bounded page of draft files. Use next_offset to continue.", `"query":{"type":"string"},`+rangeFields, "query"),
-		definition("read_file", "Read UTF-8 text by byte range in draft. Binary files return metadata; use next_offset for large files.", pathField+","+rangeFields, "path"),
-		definition("write_file", "Create new UTF-8 text or replace text using the SHA-256 from read_file. Omit expected_hash only for creation.", pathField+","+hashField+`,"content":{"type":"string"}`, "path", "content"),
-		definition("edit_file", "Apply ordered unique exact-text hunks to a draft file, all or none. Use expected_hash from read_file.", pathField+","+hashField+`,"edits":{"type":"array","items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"}},"required":["old","new"],"additionalProperties":false}}`, "path", "expected_hash", "edits"),
-		definition("delete_file", "Remove a draft file at a verified revision. Publishing a deletion requires approval.", pathField+","+hashField, "path", "expected_hash"),
-		definition("move_file", "Move a version-checked draft file to a new relative path. Existing destinations are preserved.", pathField+","+hashField+`,"to":{"type":"string"}`, "path", "to", "expected_hash"),
+		definition("search_files", "Find literal text in a bounded page of draft files with line numbers. Use next_offset to continue.", `"query":{"type":"string"},`+rangeFields, "query"),
+		definition("read_file", "Read UTF-8 text in draft by line range (start_line/end_line, 1-based) or byte range (offset/limit). Records file revision for later edits.", pathField+","+lineRangeFields+","+rangeFields, "path"),
+		definition("write_file", "Create new UTF-8 text or replace an already-read file. expected_hash is optional after read_file in this run (short prefix or full SHA-256 also accepted).", pathField+","+hashField+`,"content":{"type":"string"}`, "path", "content"),
+		definition("edit_file", "Apply ordered unique exact-text hunks to an already-read draft file, all or none. expected_hash is optional after read_file (short prefix or full SHA-256 also accepted).", pathField+","+hashField+`,"edits":{"type":"array","items":{"type":"object","properties":{"old":{"type":"string"},"new":{"type":"string"}},"required":["old","new"],"additionalProperties":false}}`, "path", "edits"),
+		definition("delete_file", "Remove a verified draft file. expected_hash is optional after read_file (short prefix or full SHA-256 also accepted). Publishing a deletion requires approval.", pathField+","+hashField, "path"),
+		definition("move_file", "Move a verified draft file to a new relative path. expected_hash is optional after read_file. Existing destinations are preserved.", pathField+","+hashField+`,"to":{"type":"string"}`, "path", "to"),
 	}
 	if len(e.ConflictedPaths) > 0 {
 		defs = append(defs, definition("list_conflicts", "List paths whose user version overlaps draft edits; includes all three revision hashes.", rangeFields),
@@ -111,7 +116,7 @@ func (e *engine) definitions() []providers.ToolDefinition {
 		defs = append(defs, definition("read_command_log", "Read another page of the run's diagnostic output by log_id and byte offset.", `"log_id":{"type":"string"},`+rangeFields, "log_id"))
 	}
 	if e.o.Generate != nil {
-		defs = append(defs, definition("generate_artifact", "Generate an editable PPTX/DOCX, static HTML, PDF report or PNG from title and sections. Path extension selects the format. After generation use present.", pathField+","+hashField+`,"title":{"type":"string"},"sections":{"type":"array","items":{"type":"object","properties":{"heading":{"type":"string"},"paragraphs":{"type":"array","items":{"type":"string"}}},"required":["heading","paragraphs"],"additionalProperties":false}}`, "path", "title", "sections"))
+		defs = append(defs, definition("generate_artifact", "Generate a rich editable PPTX/DOCX, static HTML, PDF report or PNG. Supports themes, layouts (bullets/two_column/cards/metrics/table/quote), bullet lists, columns, KPI metrics, native tables, embedded workspace images, and speaker notes. Path extension selects format. After generation use present.", pathField+","+hashField+`,"title":{"type":"string"},"subtitle":{"type":"string"},"author":{"type":"string"},"theme":{"type":"string","enum":["noosphere","slate","warm","dark"]},"sections":{"type":"array","items":{"type":"object","properties":{"heading":{"type":"string"},"subtitle":{"type":"string"},"layout":{"type":"string","enum":["","bullets","two_column","cards","metrics","table","quote"]},"paragraphs":{"type":"array","items":{"type":"string"}},"bullets":{"type":"array","items":{"type":"string"}},"columns":{"type":"array","items":{"type":"object","properties":{"heading":{"type":"string"},"paragraphs":{"type":"array","items":{"type":"string"}},"bullets":{"type":"array","items":{"type":"string"}}},"additionalProperties":false}},"metrics":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"value":{"type":"string"},"note":{"type":"string"}},"required":["label","value"],"additionalProperties":false}},"table":{"type":"object","properties":{"headers":{"type":"array","items":{"type":"string"}},"rows":{"type":"array","items":{"type":"array","items":{"type":"string"}}}},"required":["headers","rows"],"additionalProperties":false},"image_path":{"type":"string"},"image_alt":{"type":"string"},"notes":{"type":"string"}},"required":["heading"],"additionalProperties":false}}`, "path", "title", "sections"))
 	}
 	if e.o.Present != nil {
 		defs = append(defs, definition("present", "Validate a finished artifact and prepare its delivery card from this exact file version.", pathField, "path"))
@@ -151,16 +156,34 @@ func (e *engine) dispatch(ctx context.Context, call providers.ToolCall) (any, er
 		return e.conflictTool(ctx, call)
 	}
 	if name == "generate_artifact" {
-		if e.o.Generate == nil || len(raw) > 32000 {
+		if e.o.Generate == nil || len(raw) > 128000 {
 			return nil, errors.New("文档工具包不可用或请求超出限制")
 		}
 		var a toolArgs
 		_ = json.Unmarshal(raw, &a)
+		if a.Path != "" {
+			resolved, err := e.resolveExpectedHash(ctx, a.Path, a.Hash, true)
+			if err != nil {
+				return nil, err
+			}
+			if resolved != a.Hash {
+				var payload map[string]any
+				if json.Unmarshal(raw, &payload) == nil && payload != nil {
+					payload["expected_hash"] = resolved
+					if patched, err := json.Marshal(payload); err == nil {
+						raw = patched
+					}
+				}
+			}
+		}
 		_, before, _ := e.d.Stat(ctx, a.Path)
 		out, err := e.o.Generate(ctx, raw)
 		if err == nil {
 			_, after, statErr := e.d.Stat(ctx, a.Path)
 			e.mutatedFile = statErr != nil || before != after
+			if statErr == nil && after != "" {
+				e.observeHash(a.Path, after)
+			}
 		}
 		return out, err
 	}
@@ -209,40 +232,57 @@ func (e *engine) dispatch(ctx context.Context, call providers.ToolCall) (any, er
 		if a.Content == nil || strings.ContainsRune(*a.Content, 0) || !utf8.ValidString(*a.Content) {
 			return nil, errors.New("请输入 UTF-8 文本；二进制请由工作区运行器生成")
 		}
-		if err := e.d.Replace(ctx, a.Path, a.Hash, []byte(*a.Content)); err != nil {
+		expected, err := e.resolveExpectedHash(ctx, a.Path, a.Hash, true)
+		if err != nil {
 			return nil, err
 		}
-		if a.Hash != fmt.Sprintf("%x", sha256.Sum256([]byte(*a.Content))) {
+		if err := e.d.Replace(ctx, a.Path, expected, []byte(*a.Content)); err != nil {
+			return nil, err
+		}
+		newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(*a.Content)))
+		e.observeHash(a.Path, newHash)
+		if expected != newHash {
 			e.Recent = nil
 			e.mutatedFile = true
 		}
-		return map[string]any{"ok": true, "path": a.Path}, nil
+		return map[string]any{"ok": true, "path": a.Path, "sha256": newHash, "short_hash": shortHash(newHash)}, nil
 	case "edit_file":
 		return e.edit(ctx, a)
 	case "delete_file":
+		expected, err := e.resolveExpectedHash(ctx, a.Path, a.Hash, false)
+		if err != nil {
+			return nil, err
+		}
 		_, hash, err := e.d.Stat(ctx, a.Path)
 		if err != nil {
 			return nil, err
 		}
-		if a.Hash == "" || hash != a.Hash {
+		if expected == "" || hash != expected {
 			return nil, errors.New("草稿文件版本已变化，请重新读取")
 		}
 		if err = e.d.Delete(ctx, a.Path); err != nil {
 			return nil, err
 		}
+		e.forgetHash(a.Path)
 		e.Recent = nil
 		e.mutatedFile = true
 		return map[string]any{"ok": true, "path": a.Path}, nil
 	case "move_file":
-		if a.Hash == "" {
-			return nil, errors.New("移动需要提供源文件 SHA-256")
-		}
-		if err := e.d.Move(ctx, a.Path, a.To, a.Hash); err != nil {
+		expected, err := e.resolveExpectedHash(ctx, a.Path, a.Hash, false)
+		if err != nil {
 			return nil, err
 		}
+		if expected == "" {
+			return nil, errors.New("移动前请先读取源文件或提供 expected_hash")
+		}
+		if err := e.d.Move(ctx, a.Path, a.To, expected); err != nil {
+			return nil, err
+		}
+		e.forgetHash(a.Path)
+		e.observeHash(a.To, expected)
 		e.Recent = nil
 		e.mutatedFile = true
-		return map[string]any{"ok": true, "from": a.Path, "to": a.To}, nil
+		return map[string]any{"ok": true, "from": a.Path, "to": a.To, "sha256": expected, "short_hash": shortHash(expected)}, nil
 	case "read_command_log":
 		if e.o.ReadLog == nil {
 			break
@@ -327,7 +367,7 @@ func (e *engine) inventory(ctx context.Context, name string, a toolArgs) (any, e
 	if name == "list_files" {
 		return map[string]any{"paths": files[start:end], "next_offset": end, "done": end == int64(len(files))}, nil
 	}
-	matches := []map[string]string{}
+	matches := []map[string]any{}
 	for _, path := range files[start:end] {
 		if err = ctx.Err(); err != nil {
 			return nil, err
@@ -339,30 +379,178 @@ func (e *engine) inventory(ctx context.Context, name string, a toolArgs) (any, e
 			continue
 		}
 		if i := bytes.Index(chunk, []byte(a.Query)); i >= 0 {
-			matches = append(matches, map[string]string{"path": path, "excerpt": safeText(string(chunk[i:]), 160)})
+			line := bytes.Count(chunk[:i], []byte{'\n'}) + 1
+			matches = append(matches, map[string]any{"path": path, "line": line, "excerpt": safeText(string(chunk[i:]), 160)})
 		}
 	}
 	return map[string]any{"matches": matches, "next_offset": end, "done": end == int64(len(files)), "bytes_per_file": 32768}, nil
 }
+
+func shortHash(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	return h
+}
+
+func isHexPrefix(s string) bool {
+	if len(s) < 8 || len(s) > 64 {
+		return false
+	}
+	if len(s)%2 == 1 {
+		s += "0"
+	}
+	_, err := hex.DecodeString(s)
+	return err == nil
+}
+
+func (e *engine) observeHash(filePath, hash string) {
+	if filePath == "" || hash == "" {
+		return
+	}
+	if e.ObservedHashes == nil {
+		e.ObservedHashes = map[string]string{}
+	}
+	e.ObservedHashes[filePath] = hash
+}
+
+func (e *engine) forgetHash(filePath string) {
+	if e.ObservedHashes != nil {
+		delete(e.ObservedHashes, filePath)
+	}
+}
+
+func (e *engine) resolveExpectedHash(ctx context.Context, filePath, provided string, allowCreate bool) (string, error) {
+	provided = strings.TrimSpace(provided)
+	if provided != "" {
+		if len(provided) == 64 {
+			return provided, nil
+		}
+		if !isHexPrefix(provided) {
+			return "", errors.New("当前版本与 expected_hash 不符")
+		}
+		_, current, err := e.d.Stat(ctx, filePath)
+		if err != nil {
+			return "", err
+		}
+		if !strings.HasPrefix(strings.ToLower(current), strings.ToLower(provided)) {
+			return "", errors.New("当前版本与 expected_hash 不符，请重新读取文件")
+		}
+		return current, nil
+	}
+	_, current, err := e.d.Stat(ctx, filePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		if allowCreate {
+			return "", nil
+		}
+		return "", err
+	}
+	if err != nil {
+		return "", err
+	}
+	observed := e.ObservedHashes[filePath]
+	if observed == "" {
+		return "", errors.New("修改已有文件前请先调用 read_file 读取，或提供 expected_hash")
+	}
+	if observed != current {
+		return "", errors.New("草稿文件自上次读取后已变化，请先重新调用 read_file")
+	}
+	return current, nil
+}
+
 func (e *engine) read(ctx context.Context, a toolArgs) (any, error) {
-	if a.Offset < 0 || a.Limit < 0 {
+	if a.Offset < 0 || a.Limit < 0 || a.StartLine < 0 || a.EndLine < 0 || (a.EndLine > 0 && a.StartLine > a.EndLine) {
 		return nil, errors.New("读取范围无效")
 	}
 	size, hash, err := e.d.Stat(ctx, a.Path)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{"path": a.Path, "size": size, "sha256": hash}
+	out := map[string]any{"path": a.Path, "size": size, "sha256": hash, "short_hash": shortHash(hash)}
+	if a.StartLine > 0 || a.EndLine > 0 {
+		if size > 8<<20 {
+			return nil, errors.New("大于 8 MiB 的文件请使用 offset/limit 字节分页读取")
+		}
+		data, err := e.d.Read(ctx, a.Path, 0, int(size))
+		if err != nil {
+			return nil, err
+		}
+		if bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
+			out["binary_or_invalid_offset"] = true
+			return out, nil
+		}
+		e.observeHash(a.Path, hash)
+		lines := strings.Split(string(data), "\n")
+		total := len(lines)
+		start := max(1, a.StartLine)
+		out["total_lines"] = total
+		if start > total {
+			out["start_line"] = start
+			out["end_line"] = total
+			out["done"] = true
+			out["text"] = ""
+			return out, nil
+		}
+		requestedEnd := a.EndLine
+		if requestedEnd == 0 {
+			requestedEnd = start + 199
+		}
+		requestedEnd = min(total, min(requestedEnd, start+299))
+		var b strings.Builder
+		actualEnd := start - 1
+		for i := start; i <= requestedEnd; i++ {
+			line := lines[i-1]
+			addLen := len(line)
+			if actualEnd >= start {
+				addLen++
+			}
+			if actualEnd >= start && b.Len()+addLen > 10000 {
+				break
+			}
+			if actualEnd >= start {
+				b.WriteByte('\n')
+			}
+			b.WriteString(line)
+			actualEnd = i
+			if b.Len() >= 10000 {
+				break
+			}
+		}
+		out["start_line"] = start
+		out["end_line"] = actualEnd
+		out["done"] = actualEnd >= total
+		if actualEnd < total {
+			out["next_line"] = actualEnd + 1
+		}
+		out["text"] = safeText(b.String(), 10000)
+		return out, nil
+	}
 	if a.Offset >= size {
+		e.observeHash(a.Path, hash)
 		out["done"] = true
 		return out, nil
 	}
 	limit := min(positive(a.Limit, 4096), 10000)
-	// Read a few extra bytes to avoid splitting a UTF-8 rune between pages.
-	chunk, err := e.d.Read(ctx, a.Path, a.Offset, limit+utf8.UTFMax)
+	// Read up to UTFMax bytes before a non-zero offset so a mid-character offset
+	// aligns gently to the containing UTF-8 rune instead of failing on CJK text.
+	readOffset := a.Offset
+	lead := int64(0)
+	if a.Offset > 0 {
+		lead = min(int64(utf8.UTFMax-1), a.Offset)
+		readOffset = a.Offset - lead
+	}
+	chunk, err := e.d.Read(ctx, a.Path, readOffset, int(lead)+limit+utf8.UTFMax)
 	if err != nil {
 		return nil, err
 	}
+	startIdx := int(lead)
+	if startIdx < len(chunk) && !utf8.RuneStart(chunk[startIdx]) {
+		for startIdx > 0 && !utf8.RuneStart(chunk[startIdx]) {
+			startIdx--
+		}
+	}
+	alignedOffset := readOffset + int64(startIdx)
+	chunk = chunk[startIdx:]
 	end := min(limit, len(chunk))
 	if end < len(chunk) {
 		for end > 0 && !utf8.RuneStart(chunk[end]) {
@@ -377,20 +565,28 @@ func (e *engine) read(ctx context.Context, a toolArgs) (any, error) {
 		out["binary_or_invalid_offset"] = true
 		return out, nil
 	}
+	e.observeHash(a.Path, hash)
+	if alignedOffset != a.Offset {
+		out["aligned_offset"] = alignedOffset
+	}
 	out["text"] = safeText(string(chunk), 10000)
-	out["next_offset"] = a.Offset + int64(end)
-	out["done"] = a.Offset+int64(end) >= size
+	out["next_offset"] = alignedOffset + int64(end)
+	out["done"] = alignedOffset+int64(end) >= size
 	return out, nil
 }
 func (e *engine) edit(ctx context.Context, a toolArgs) (any, error) {
-	if a.Hash == "" || len(a.Edits) == 0 || len(a.Edits) > 100 {
-		return nil, errors.New("请提供文件版本及 1–100 处编辑")
+	if len(a.Edits) == 0 || len(a.Edits) > 100 {
+		return nil, errors.New("请提供 1–100 处编辑")
+	}
+	expected, err := e.resolveExpectedHash(ctx, a.Path, a.Hash, false)
+	if err != nil {
+		return nil, err
 	}
 	size, hash, err := e.d.Stat(ctx, a.Path)
 	if err != nil {
 		return nil, err
 	}
-	if hash != a.Hash {
+	if hash != expected {
 		return nil, errors.New("当前版本与 expected_hash 不符")
 	}
 	if size > 8<<20 {
@@ -418,10 +614,12 @@ func (e *engine) edit(ctx context.Context, a toolArgs) (any, error) {
 	if text == string(data) {
 		return nil, errors.New("编辑没有改变文件内容")
 	}
-	if err = e.d.Replace(ctx, a.Path, a.Hash, []byte(text)); err != nil {
+	if err = e.d.Replace(ctx, a.Path, expected, []byte(text)); err != nil {
 		return nil, err
 	}
+	newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+	e.observeHash(a.Path, newHash)
 	e.Recent = nil
 	e.mutatedFile = true
-	return map[string]any{"ok": true, "path": a.Path, "edits": len(a.Edits)}, nil
+	return map[string]any{"ok": true, "path": a.Path, "edits": len(a.Edits), "sha256": newHash, "short_hash": shortHash(newHash)}, nil
 }

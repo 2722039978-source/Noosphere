@@ -101,7 +101,7 @@ func runDeliveryAgent(ctx context.Context, m *workspaces.Manager, ws workspaces.
 					return agentcore.CommandResult{}, e
 				}
 			}
-			result, e := sandbox.Run(c, d.WorkingDir(), cwd, program, args, sandbox.Limits{ProjectRoot: ws.ProjectPath, Timeout: time.Duration(budget.CommandSeconds) * time.Second, DiskBytes: int64(budget.DiskMiB) << 20})
+			result, e := sandbox.Run(c, d.WorkingDir(), cwd, program, args, sandbox.Limits{ProjectRoot: ws.ProjectPath, CacheDir: m.AgentDataDir() + "/.toolchain-cache", Timeout: time.Duration(budget.CommandSeconds) * time.Second, DiskBytes: int64(budget.DiskMiB) << 20})
 			return agentcore.CommandResult{Output: result.Output, ExitCode: result.ExitCode, LogID: result.LogID, LogBytes: result.LogBytes, LogTruncated: result.LogTruncated}, e
 		}
 	}

@@ -26,6 +26,20 @@ var errSecret = errors.New("file contains credential-like content")
 var secretText = regexp.MustCompile(`(?i)-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----|(?:sk-|gh[pousr]_|github_pat_)[a-zA-Z0-9_-]{14,}|Bearer[ \t]+[a-z0-9._/-]{12,}|["']?(?:api[_-]?key|access[_-]?token|password|client[_-]?secret)["']?[ \t]*[:=][ \t]*["'][a-z0-9+_./=-]{8,}["']`)
 
 // Internal files, host credentials, installed dependencies and build caches are never copied into the runner.
+func allowedDotEntry(p string) bool {
+	switch p {
+	case ".github", ".gitignore", ".gitattributes", ".editorconfig",
+		".prettierrc", ".prettierrc.json", ".prettierrc.js", ".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.yml", ".prettierrc.yaml", ".prettierignore",
+		".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yml", ".eslintrc.yaml", ".eslintignore",
+		".stylelintrc", ".stylelintrc.json", ".stylelintrc.yml", ".stylelintrc.yaml",
+		".nvmrc", ".node-version", ".python-version", ".ruby-version", ".tool-versions",
+		".browserslistrc", ".oxlintrc.json", ".oxlintrc.staged.json",
+		".golangci.yml", ".golangci.yaml", ".flake8", ".clang-format", ".dockerignore", ".jscpd.json":
+		return true
+	}
+	return false
+}
+
 func eligible(name string) bool {
 	if name == "." || !fs.ValidPath(name) || len(name) > 1024 || strings.ContainsAny(name, "\\:\x00") {
 		return false
@@ -35,7 +49,7 @@ func eligible(name string) bool {
 		if !filepath.IsLocal(part) || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") {
 			return false
 		}
-		if strings.HasPrefix(p, ".") && p != ".github" && p != ".gitignore" && p != ".gitattributes" && p != ".editorconfig" {
+		if strings.HasPrefix(p, ".") && !allowedDotEntry(p) {
 			return false
 		}
 		switch p {

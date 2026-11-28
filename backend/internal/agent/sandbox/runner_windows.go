@@ -50,13 +50,21 @@ func windowsTool(name, system string) (string, error) {
 		return filepath.Join(system, "cmd.exe"), nil
 	case "powershell":
 		return filepath.Join(system, "WindowsPowerShell", "v1.0", "powershell.exe"), nil
-	case "python", "node", "go", "git", "npm":
-		if name == "npm" {
-			name = "node"
+	case "pwsh", "python", "python3", "pytest", "node", "go", "git", "npm", "npx", "pnpm", "yarn", "cargo", "rustc":
+		lookup := []string{name}
+		switch name {
+		case "npm", "npx":
+			lookup = []string{"node"}
+		case "pytest":
+			lookup = []string{"python", "python3"}
+		case "python3":
+			lookup = []string{"python3", "python"}
 		}
-		p, e := exec.LookPath(name + ".exe")
-		if e == nil && filepath.IsAbs(p) {
-			return filepath.EvalSymlinks(p)
+		for _, cand := range lookup {
+			p, e := exec.LookPath(cand + ".exe")
+			if e == nil && filepath.IsAbs(p) {
+				return filepath.EvalSymlinks(p)
+			}
 		}
 	}
 	return "", fmt.Errorf("程序未登记或未安装：%s", name)
@@ -89,9 +97,10 @@ func launch(ctx context.Context, work, cwd, program string, args []string, out i
 	if e != nil {
 		return -1, e
 	}
-	return launchResolved(ctx, work, cwd, program, exe, system, args, out, limits.DiskBytes)
+	return launchResolved(ctx, work, cwd, program, exe, system, args, out, limits)
 }
-func launchResolved(ctx context.Context, work, cwd, program, exe, system string, args []string, out io.Writer, diskBudget ...int64) (int, error) {
+func launchResolved(ctx context.Context, work, cwd, program, exe, system string, args []string, out io.Writer, limits Limits) (int, error) {
+	origExe := exe
 	runtimeDir, e := os.MkdirTemp(filepath.Dir(work), ".command-")
 	if e != nil {
 		return -1, e
@@ -113,37 +122,56 @@ func launchResolved(ctx context.Context, work, cwd, program, exe, system string,
 		return -1, e
 	}
 	scratchBytes := int64(2 << 30)
-	if len(diskBudget) > 0 && diskBudget[0] > 0 {
-		scratchBytes = diskBudget[0]
+	if limits.DiskBytes > 0 {
+		scratchBytes = limits.DiskBytes
 	}
 	ctx, cancelScratch := context.WithCancelCause(ctx)
 	scratchDone := monitorDisk(ctx, cancelScratch, privateHome, scratchBytes)
 	defer func() { cancelScratch(nil); <-scratchDone }()
-	exe, toolEnv, e := privateToolchain(ctx, program, exe, runtimeDir)
+	roSID, _ := readonlyCapability()
+	exe, toolEnv, _, e := privateToolchain(ctx, program, exe, runtimeDir, limits.CacheDir, roSID)
 	if e != nil {
 		return -1, e
 	}
 	if e = privateACL(runtimeDir, sid, 0x1200a9); e != nil {
 		return -1, e
 	}
-	if program == "npm" {
+	switch program {
+	case "npm":
 		args = append([]string{filepath.Join(filepath.Dir(exe), "node_modules", "npm", "bin", "npm-cli.js")}, args...)
+	case "npx":
+		args = append([]string{filepath.Join(filepath.Dir(exe), "node_modules", "npm", "bin", "npx-cli.js")}, args...)
+	case "pytest":
+		args = append([]string{"-m", "pytest"}, args...)
+	}
+	if program == "go" && hasGoMod(work, cwd) {
+		if modCache, modErr := cachedGoModCache(ctx, origExe, limits.CacheDir, roSID); modErr == nil && modCache != "" {
+			toolEnv = append(toolEnv, "GOMODCACHE="+modCache, "GOCACHE="+filepath.Join(privateHome, "go-build"))
+		}
 	}
 	for _, dir := range []string{work, privateHome} {
 		if e = privateACL(dir, sid, 0x1301bf); e != nil {
 			return -1, fmt.Errorf("private workspace ACL: %w", e)
 		}
 	}
+	// Mount read-only node_modules junctions strictly AFTER setting writable ACL on work,
+	// so NTFS ACL inheritance never touches the shared read-only cache.
+	var extraPaths []string
+	if program == "node" || program == "npm" || program == "npx" || program == "pnpm" || program == "yarn" {
+		binDirs, cleanupNM := mountReadOnlyNodeModules(ctx, limits.ProjectRoot, work, cwd, limits.CacheDir, roSID)
+		defer cleanupNM()
+		extraPaths = append(extraPaths, binDirs...)
+	}
 	job, e := windows.CreateJobObject(nil, nil)
 	if e != nil {
 		return -1, e
 	}
 	defer windows.CloseHandle(job)
-	limits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-	limits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS | windows.JOB_OBJECT_LIMIT_JOB_MEMORY
-	limits.BasicLimitInformation.ActiveProcessLimit = 64
-	limits.JobMemoryLimit = 2 << 30
-	if _, e = windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); e != nil {
+	jobLimits := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
+	jobLimits.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS | windows.JOB_OBJECT_LIMIT_JOB_MEMORY
+	jobLimits.BasicLimitInformation.ActiveProcessLimit = 64
+	jobLimits.JobMemoryLimit = 2 << 30
+	if _, e = windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&jobLimits)), uint32(unsafe.Sizeof(jobLimits))); e != nil {
 		return -1, e
 	}
 	reader, writer, e := os.Pipe()
@@ -167,8 +195,11 @@ func launchResolved(ctx context.Context, work, cwd, program, exe, system string,
 	if e != nil {
 		return -1, e
 	}
-	capabilities := windows.SIDAndAttributes{Sid: registrySID, Attributes: windows.SE_GROUP_ENABLED}
-	caps := securityCapabilities{SID: sid, Caps: &capabilities, Count: 1}
+	capList := []windows.SIDAndAttributes{{Sid: registrySID, Attributes: windows.SE_GROUP_ENABLED}}
+	if roSID != nil {
+		capList = append(capList, windows.SIDAndAttributes{Sid: roSID, Attributes: windows.SE_GROUP_ENABLED})
+	}
+	caps := securityCapabilities{SID: sid, Caps: &capList[0], Count: uint32(len(capList))}
 	optOutAllAppPackages := uint32(1)
 	attrs, e := windows.NewProcThreadAttributeList(4)
 	if e != nil {
@@ -195,7 +226,8 @@ func launchResolved(ctx context.Context, work, cwd, program, exe, system string,
 	si.StdOutput = handles[1]
 	si.StdErr = handles[1]
 	var pi windows.ProcessInformation
-	env := []string{"APPDATA=" + privateHome, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GOENV=off", "GOPROXY=off", "GOTOOLCHAIN=local", "HOME=" + privateHome, "LOCALAPPDATA=" + privateHome, "PATH=" + filepath.Dir(exe) + ";" + system, "SystemRoot=" + filepath.Dir(system), "TEMP=" + privateHome, "TMP=" + privateHome, "USERPROFILE=" + privateHome, "WINDIR=" + filepath.Dir(system)}
+	pathParts := append(extraPaths, filepath.Dir(exe), system)
+	env := []string{"APPDATA=" + privateHome, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GOENV=off", "GOPROXY=off", "GOTOOLCHAIN=local", "HOME=" + privateHome, "LOCALAPPDATA=" + privateHome, "PATH=" + strings.Join(pathParts, ";"), "SystemRoot=" + filepath.Dir(system), "TEMP=" + privateHome, "TMP=" + privateHome, "USERPROFILE=" + privateHome, "WINDIR=" + filepath.Dir(system)}
 	env = append(env, toolEnv...)
 	sort.Strings(env)
 	block := utf16.Encode([]rune(strings.Join(env, "\x00") + "\x00\x00"))
@@ -210,8 +242,9 @@ func launchResolved(ctx context.Context, work, cwd, program, exe, system string,
 	}
 	e = windows.CreateProcess(app, line, nil, nil, true, windows.EXTENDED_STARTUPINFO_PRESENT|windows.CREATE_UNICODE_ENVIRONMENT|windows.CREATE_NO_WINDOW, &block[0], dir, &si.StartupInfo, &pi)
 	runtime.KeepAlive(caps)
-	runtime.KeepAlive(capabilities)
+	runtime.KeepAlive(capList)
 	runtime.KeepAlive(registrySID)
+	runtime.KeepAlive(roSID)
 	runtime.KeepAlive(handles)
 	runtime.KeepAlive(optOutAllAppPackages)
 	if e != nil {

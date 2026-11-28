@@ -11,6 +11,7 @@ import (
 
 type Limits struct {
 	ProjectRoot string
+	CacheDir    string
 	Timeout     time.Duration
 	DiskBytes   int64
 }
