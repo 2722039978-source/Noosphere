@@ -105,7 +105,13 @@ func launch(ctx context.Context, work, cwd, program string, args []string, out i
 }
 func launchResolved(ctx context.Context, work, cwd, program, exe, system string, args []string, out io.Writer, limits Limits) (int, error) {
 	origExe := exe
-	runtimeDir, e := os.MkdirTemp(filepath.Dir(work), ".command-")
+	// Keep HOME and TEMP shallow even when a project or test harness places
+	// the draft under deeply nested state directories.
+	scratchRoot, e := windows.KnownFolderPath(windows.FOLDERID_LocalAppData, 0)
+	if e != nil {
+		return -1, fmt.Errorf("定位 Windows 私有临时目录: %w", e)
+	}
+	runtimeDir, e := os.MkdirTemp(scratchRoot, ".noosphere-command-")
 	if e != nil {
 		return -1, e
 	}

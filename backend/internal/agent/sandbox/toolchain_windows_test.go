@@ -20,7 +20,10 @@ func TestWindowsToolchains(t *testing.T) {
 				t.Skip("tool is not installed")
 			}
 			work := filepath.Join(t.TempDir(), "work")
-			if e := os.Mkdir(work, 0700); e != nil {
+			if c.program == "go" && len(work) < 179 {
+				work = filepath.Join(work, strings.Repeat("d", 179-len(work)))
+			}
+			if e := os.MkdirAll(work, 0700); e != nil {
 				t.Fatal(e)
 			}
 			res, e := Run(context.Background(), work, ".", c.program, c.args)
